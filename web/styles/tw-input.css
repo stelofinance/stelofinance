@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+  font-family: "Source Code Pro";
+  src: url("/assets/fonts/SourceCodePro-VariableFont_wght.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 200 900;
+  font-stretch: 0% 200%;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Source Code Pro";
+  src: url("/assets/fonts/SourceCodePro-Italic-VariableFont_wght.ttf") format("truetype");
+  font-style: italic;
+  font-weight: 200 900;
+  font-stretch: 0% 200%;
+  font-display: swap;
+}

@@ -1,0 +1,8 @@
+.direnv/
+fly.toml
+
+# Build outputs
+web/static/tw-output.css
+.task/
+bin/
+

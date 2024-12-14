@@ -1,0 +1,6 @@
+.direnv/
+
+# Build outputs
+web/static/tw-output.css
+.task/
+bin/
