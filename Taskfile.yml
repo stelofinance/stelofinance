@@ -5,6 +5,8 @@ interval: 50ms
 env:
   STATIC_DIR: "web/static"
 
+dotenv: [".env"]
+
 tasks:
   live:
     desc: Run live dev environment
@@ -19,30 +21,58 @@ tasks:
   live:go:
     deps: [live:go:run]
     watch: true
-    # Copies build:go so that it gets rerun
+    # Copies build:go:app (& deps) so that it gets rerun
     sources:
       - "**/*.go"
+      - "sqlc.yaml"
+      - "database/queries/**/*.sql"
+      - "database/migrations/**/*.sql"
 
   live:go:run:
-    deps: [build:go]
+    deps: [build:go:app]
     cmds:
       - bin/app
 
   build:
     desc: Build all artifacts
-    deps: [build:go, build:styles]
+    deps: [build:go:app, build:go:migrate, build:styles]
 
-  build:go:
+  build:go:app:
+    deps: [build:go:sqlc]
     env:
       GOARCH: amd64
       GOOS: linux
       CGO_ENABLED: 0
-    cmds: 
+    cmds:
       - go build -o bin/app cmd/app/main.go
     sources:
       - "**/*.go"
     generates:
       - bin/app
+
+  build:go:migrate:
+    env:
+      GOARCH: amd64
+      GOOS: linux
+      CGO_ENABLED: 0
+    cmds:
+      - go build -o bin/migrate cmd/migrate/main.go
+    sources:
+      - "cmd/migrate/**/*.go"
+      - "database/database.go"
+      - "database/migrations/**/*.sql"
+    generates:
+      - bin/migrate
+
+  build:go:sqlc:
+    cmds:
+      - sqlc generate
+    sources:
+      - "sqlc.yaml"
+      - "database/queries/**/*.sql"
+      - "database/migrations/**/*.sql"
+    generates:
+      - "database/gensql/**/*"
 
   build:styles:
     cmds:

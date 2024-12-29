@@ -6,6 +6,10 @@ primary_region = "iad"
 
 [env]
 PORT = "8080"
+ENV = "prod"
+
+[deploy]
+release_command = "/migrate"
 
 [http_service]
 internal_port = 8080

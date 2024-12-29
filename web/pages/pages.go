@@ -7,18 +7,18 @@ import (
 	. "maragu.dev/gomponents/html"
 )
 
-func Homepage() Node {
+func Homepage(isLoggedIn bool) Node {
 	helpers.RenderSVG("icons/LogoColored.html", "h-32 w-32 lg:h-48 lg:w-48 2xl:h-64 2xl:w-64")
 
 	return layouts.Default(
-		homepageHero(),
+		homepageHero(isLoggedIn),
 		homepageInfoCards(),
 		homepageWalkthrough(),
 		homepageContribute(),
 	)
 }
 
-func homepageHero() Node {
+func homepageHero(isLoggedIn bool) Node {
 	return Main(Class("relative flex h-screen-available flex-col items-center justify-center"),
 		Div(Class("mb-40 flex flex-col items-center gap-4 text-white lg:flex-row lg:gap-10 2xl:gap-14"),
 			helpers.RenderSVG("icons/LogoColored.html", "h-32 w-32 lg:h-48 lg:w-48 2xl:h-64 2xl:w-64"),
@@ -37,11 +37,13 @@ func homepageHero() Node {
 					Raw("Player driven."),
 				),
 				Div(Class("mt-3 flex gap-5 lg:mt-5 lg:justify-center 2xl:gap-8"),
-					Button(
+					A(
+						If(isLoggedIn, Href("/app")),
+						If(!isLoggedIn, Href("/login")),
 						Class(`flex items-center gap-2 rounded-full bg-melrose py-1 px-4 text-sm font-medium text-neutral-800
-									transition-colors duration-300 cursor-not-allowed hover:bg-melrose-200 lg:px-6 lg:text-base 2xl:py-2 2xl:px-14 2xl:text-lg`),
-						Disabled(),
-						Text("Coming Soon"),
+									transition-colors duration-300 hover:bg-melrose-200 lg:px-6 lg:text-base 2xl:py-2 2xl:px-14 2xl:text-lg`),
+						If(isLoggedIn, Text("Dashboard")),
+						If(!isLoggedIn, Text("Login")),
 					),
 					A(
 						Href("https://discord.gg/t6gM7v7V7T"),

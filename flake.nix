@@ -18,8 +18,11 @@
           buildInputs = [
             tailwindcss
             go-task
+            sqlc
             go
-          ];
+          ] ++ (if builtins.getEnv "NIX_BUILD_SHELL" != "1" then [
+            goose
+          ] else []);
         };
       }
     );

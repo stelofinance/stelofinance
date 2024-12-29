@@ -4,5 +4,6 @@
 - Manage logistics of assets using a first party warehousing system
 
 ## Development
-1. Install [Go](https://go.dev/), [Taskfile](https://taskfile.dev/), and TailwindCSS CLI. (Or use the direnv w/ Nix Flake)
-2. Run `task live`
+1. Use Nix Flake shell
+2. Log into fly account with `fly auth login`
+3. Run `task live` (note, ensure the postgres cluster is running)

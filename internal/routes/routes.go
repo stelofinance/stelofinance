@@ -1,44 +1,26 @@
 package routes
 
 import (
-	"io"
-	"net/http"
+	"log/slog"
 
-	"github.com/andybalholm/brotli"
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/go-chi/cors"
+	"github.com/nats-io/nats.go/jetstream"
+	"github.com/stelofinance/stelofinance/database"
 	"github.com/stelofinance/stelofinance/internal/assets"
-	"github.com/stelofinance/stelofinance/web/pages"
+	"github.com/stelofinance/stelofinance/internal/handlers"
+	"github.com/stelofinance/stelofinance/internal/middlewares"
 )
 
-func NewRouter() http.Handler {
-	r := chi.NewRouter()
+func AddRoutes(mux *chi.Mux, logger *slog.Logger, db *database.Database, sessionsKV jetstream.KeyValue) {
+	assets.HttpHandler(mux)
 
-	// Global middleware
-	r.Use(middleware.Logger)
-	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"*"},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowCredentials: true,
-		MaxAge:           300,
-	}))
-	r.Use(middleware.Heartbeat("/heartbeat"))
-	// r.Use(middleware.AllowContentType("application/json"))
+	mux.Handle("GET /", middlewares.Auth(logger, sessionsKV, false, handlers.Index()))
+	mux.Handle("GET /login", handlers.Login())
 
-	// Setup compressor middleware, add brotli encoding
-	compressor := middleware.NewCompressor(2)
-	compressor.SetEncoder("br", func(w io.Writer, level int) io.Writer {
-		return brotli.NewWriterV2(w, level)
+	mux.Route("/auth/{provider}", func(mux chi.Router) {
+		mux.Use(middlewares.GothicChiAdapter)
+
+		mux.Handle("GET /", handlers.AuthStart())
+		mux.Handle("GET /callback", handlers.AuthCallback(logger, db, sessionsKV))
 	})
-	r.Use(compressor.Handler)
-
-	assets.HttpHandler(r)
-
-	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		pages.Homepage().Render(w)
-	})
-
-	return r
 }

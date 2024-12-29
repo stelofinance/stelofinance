@@ -7,7 +7,7 @@ module.exports = {
         "spin-slow": "spin 3s linear infinite"
       },
       height: {
-        "screen-available": "calc(100vh - var(--header-offset))",
+        "screen-available": "calc(100dvh - var(--header-offset))",
         header: "var(--header-offset)"
       },
       fontFamily: {
