@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/fxamacker/cbor/v2"
 	"github.com/go-chi/chi/v5"
@@ -33,8 +34,15 @@ func Auth(logger *slog.Logger, sessionsKV jetstream.KeyValue, authRequired bool,
 			return
 		}
 
+		if !strings.HasPrefix(cookie.Value, "stl_") {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		sid := strings.TrimPrefix(cookie.Value, "stl_")
+
 		// Retrieve session data
-		sVal, err := getKeyValueWithPattern(r.Context(), sessionsKV, "users.*.sessions."+cookie.Value)
+		sVal, err := getKeyValueWithPattern(r.Context(), sessionsKV, "users.*.sessions."+sid)
 		if err != nil {
 			if errors.Is(err, ErrKeyNotFound) {
 				w.WriteHeader(http.StatusBadRequest)

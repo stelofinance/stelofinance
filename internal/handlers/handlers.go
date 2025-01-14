@@ -93,10 +93,10 @@ func AuthCallback(logger *slog.Logger, db *database.Database, sessionsKV jetstre
 		}
 
 		// Create session and respond with cookie
-		sid := uniuri.NewLen(24)
+		sid := uniuri.NewLen(28)
 		cookie := http.Cookie{
 			Name:     "sid",
-			Value:    sid,
+			Value:    "stl_" + sid,
 			Path:     "/",
 			MaxAge:   86400 * 30,
 			HttpOnly: true,
