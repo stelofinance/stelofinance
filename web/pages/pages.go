@@ -43,7 +43,7 @@ func homepageHero(isLoggedIn bool) Node {
 						Class(`flex items-center gap-2 rounded-full bg-melrose py-1 px-4 text-sm font-medium text-neutral-800
 									transition-colors duration-300 hover:bg-melrose-200 lg:px-6 lg:text-base 2xl:py-2 2xl:px-14 2xl:text-lg`),
 						If(isLoggedIn, Text("Dashboard")),
-						If(!isLoggedIn, Text("Login")),
+						If(!isLoggedIn, Text("Log In")),
 					),
 					A(
 						Href("https://discord.gg/t6gM7v7V7T"),
