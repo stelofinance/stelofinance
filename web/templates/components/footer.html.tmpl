@@ -1,0 +1,6 @@
+<footer class="flex items-center gap-4 py-4 px-3 text-white lg:gap-10 lg:py-6 lg:px-16 2xl:gap-12">
+  {{template "icons/logo-full" `w-24 h-auto mr-auto lg:w-32 2xl:w-36`}}
+  {{range .Links}}
+  <a class="text-sm lg:text-base 2xl:text-lg" href="{{.Href}}" rel="noopener noreferrer" target="_blank">{{.Text}}</a>
+  {{end}}
+</footer>

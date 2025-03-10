@@ -9,13 +9,14 @@ import (
 	"github.com/stelofinance/stelofinance/internal/assets"
 	"github.com/stelofinance/stelofinance/internal/handlers"
 	"github.com/stelofinance/stelofinance/internal/middlewares"
+	"github.com/stelofinance/stelofinance/web/templates"
 )
 
-func AddRoutes(mux *chi.Mux, logger *slog.Logger, db *database.Database, sessionsKV jetstream.KeyValue) {
+func AddRoutes(mux *chi.Mux, logger *slog.Logger, tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstream.KeyValue) {
 	assets.HttpHandler(mux)
 
-	mux.Handle("GET /", middlewares.Auth(logger, sessionsKV, false, handlers.Index()))
-	mux.Handle("GET /login", handlers.Login())
+	mux.Handle("GET /", middlewares.Auth(logger, sessionsKV, false, handlers.Index(tmpls)))
+	mux.Handle("GET /login", handlers.Login(tmpls))
 
 	mux.Route("/auth/{provider}", func(mux chi.Router) {
 		mux.Use(middlewares.GothicChiAdapter)

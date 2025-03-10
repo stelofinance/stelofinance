@@ -1,0 +1,15 @@
+{{template "layouts/primary" .}}
+
+{{define "page-content"}}
+<main class="flex flex-col h-screen-available items-center justify-center text-white">
+  <h1 class="font-medium text-4xl">Login</h1>
+  <a
+    class="mt-16 mb-40 flex items-center gap-2 rounded-md py-2 px-3 text-white hover:shadow-md lg:text-lg lg:py-3 lg:px-6"
+    style="background-color: #5865F2;"
+    href="/auth/discord"
+  >
+    Continue with Discord
+    {{template "icons/discord"}}
+  </a>
+</main>
+{{end}}

@@ -6,4 +6,5 @@
 ## Development
 1. Use Nix Flake shell
 2. Log into fly account with `fly auth login`
-3. Run `task live` (note, ensure the postgres cluster is running)
+3. Connect to your fly private network via wireguard
+4. Run `task live` (note, ensure the postgres cluster is running)

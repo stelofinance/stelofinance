@@ -24,6 +24,7 @@ tasks:
     # Copies build:go:app (& deps) so that it gets rerun
     sources:
       - "**/*.go"
+      - "**/*.html.tmpl"
       - "sqlc.yaml"
       - "database/queries/**/*.sql"
       - "database/migrations/**/*.sql"
@@ -47,6 +48,7 @@ tasks:
       - go build -o bin/app cmd/app/main.go
     sources:
       - "**/*.go"
+      - "**/*.html.tmpl"
     generates:
       - bin/app
 

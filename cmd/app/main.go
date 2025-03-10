@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/stelofinance/stelofinance/internal/server"
+	"github.com/stelofinance/stelofinance/web"
 )
 
 func main() {
 	ctx := context.Background()
-	if err := server.Run(ctx, os.Getenv, os.Stdout, os.Stderr); err != nil {
+	if err := web.Run(ctx, os.Getenv, os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintf(os.Stderr, "%s\n", err)
 		os.Exit(1)
 	}

@@ -1,7 +1,9 @@
-package server
+package web
 
 import (
 	"context"
+	"embed"
+	_ "embed"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -15,7 +17,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Nintron27/nats-pillow/pillow"
+	"github.com/Nintron27/pillow"
 	"github.com/andybalholm/brotli"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -25,12 +27,16 @@ import (
 	"github.com/markbates/goth"
 	"github.com/markbates/goth/gothic"
 	"github.com/markbates/goth/providers/discord"
+	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go/jetstream"
-	sloghttp "github.com/samber/slog-http"
 	"github.com/stelofinance/stelofinance/database"
 	"github.com/stelofinance/stelofinance/database/gensql"
 	"github.com/stelofinance/stelofinance/internal/routes"
+	"github.com/stelofinance/stelofinance/web/templates"
 )
+
+//go:embed templates/*/*.html.tmpl
+var templatesFS embed.FS
 
 type Config struct {
 	Port         string
@@ -55,6 +61,12 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 	}
 	if cfg.Port == "" {
 		cfg.Port = "8080"
+	}
+
+	// Parse templates
+	tmpls, err := templates.LoadTemplates(templatesFS, "templates/", ".html.tmpl")
+	if err != nil {
+		return err
 	}
 
 	// GOTH stuff
@@ -84,13 +96,21 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 	)
 
 	// Start embedded NATS server
-	nc, ns, err := pillow.Run(
-		pillow.WithJetStream("tmp/js"),
-		pillow.WithInProcessClient(true),
-		pillow.AdapterFlyio(getenv("ENV") == "prod", pillow.FlyioOptions{
-			ClusterName: "stelofinance-fly",
+	ns, err := pillow.Run(
+		pillow.WithNATSServerOptions(&server.Options{
+			JetStream: true,
+			StoreDir:  "tmp/js",
+		}),
+		pillow.WithPlatformAdapter(ctx, getenv("ENV") == "prod", &pillow.FlyioHubAndSpoke{
+			ClusterName:       "stelo_swarm",
+			DisableClustering: true,
 		}),
 	)
+	if err != nil {
+		return err
+	}
+
+	nc, err := ns.NATSClient()
 	if err != nil {
 		return err
 	}
@@ -118,7 +138,7 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 	}
 
 	// Create and run server
-	srv := NewServer(logger, db, sessionsKV)
+	srv := NewServer(logger, tmpls, db, sessionsKV)
 	httpServer := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      srv,
@@ -159,11 +179,12 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 	return nil
 }
 
-func NewServer(logger *slog.Logger, db *database.Database, sessionsKV jetstream.KeyValue) http.Handler {
+func NewServer(logger *slog.Logger, tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstream.KeyValue) http.Handler {
 	mux := chi.NewMux()
 
 	// mux.Use(middleware.Logger)
-	mux.Use(sloghttp.New(logger))
+	// mux.Use(sloghttp.New(logger))
+	mux.Use(middleware.Logger)
 	mux.Use(middleware.Recoverer)
 	mux.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"*"},
@@ -174,7 +195,7 @@ func NewServer(logger *slog.Logger, db *database.Database, sessionsKV jetstream.
 	mux.Use(middleware.Heartbeat("/heartbeat"))
 	mux.Use(Compressor(2))
 
-	routes.AddRoutes(mux, logger, db, sessionsKV)
+	routes.AddRoutes(mux, logger, tmpls, db, sessionsKV)
 
 	return mux
 }
