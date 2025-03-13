@@ -1,6 +1,6 @@
 version: '3'
 
-interval: 50ms
+interval: 100ms
 
 env:
   STATIC_DIR: "web/static"
@@ -8,8 +8,11 @@ env:
 dotenv: [".env"]
 
 tasks:
+  # Currently the live tasks are just melting CPU
+  # Wait till this is pushed:
+  # https://github.com/go-task/task/pull/2048
   live:
-    desc: Run live dev environment
+    desc: Run live dev environment. (Don't use, melts CPU currently)
     cmds:
       - task live:styles &
       - task live:go
@@ -23,11 +26,11 @@ tasks:
     watch: true
     # Copies build:go:app (& deps) so that it gets rerun
     sources:
-      - "**/*.go"
-      - "**/*.html.tmpl"
-      - "sqlc.yaml"
-      - "database/queries/**/*.sql"
-      - "database/migrations/**/*.sql"
+    - "**/*.go"
+    - "**/*.html.tmpl"
+    - "sqlc.yaml"
+    - "database/queries/**/*.sql"
+    - "database/migrations/**/*.sql"
 
   live:go:run:
     deps: [build:go:app]
@@ -81,7 +84,7 @@ tasks:
       - "tailwindcss -i web/styles/tw-input.css -o {{.STATIC_DIR}}/tw-output.css --minify"
     sources:
       - "web/**/*.{html,go}"
-      - tailwind.config.js
+      - web/styles/tw-input.css
     generates:
       - web/static/tw-output.css
 

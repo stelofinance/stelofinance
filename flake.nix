@@ -16,11 +16,12 @@
       {
         devShells.default = mkShell {
           buildInputs = [
-            tailwindcss
+            tailwindcss_4
             go-task
             sqlc
             go
           ] ++ (if builtins.getEnv "NIX_BUILD_SHELL" != "1" then [
+            watchman # tailwind watch uses this
             goose
           ] else []);
         };
