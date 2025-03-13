@@ -24,4 +24,6 @@ func AddRoutes(mux *chi.Mux, logger *slog.Logger, tmpls *templates.Tmpls, db *da
 		mux.Handle("GET /", handlers.AuthStart())
 		mux.Handle("GET /callback", handlers.AuthCallback(logger, db, sessionsKV))
 	})
+
+	mux.Handle("GET /app", middlewares.Auth(logger, sessionsKV, true, handlers.App(tmpls)))
 }

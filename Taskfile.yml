@@ -83,7 +83,7 @@ tasks:
     cmds:
       - "tailwindcss -i web/styles/tw-input.css -o {{.STATIC_DIR}}/tw-output.css --minify"
     sources:
-      - "web/**/*.{html,go}"
+      - "web/**/*.{html.tmpl,go}"
       - web/styles/tw-input.css
     generates:
       - web/static/tw-output.css

@@ -6,6 +6,12 @@ type DataLayoutPrimary struct {
 	PageData   any
 }
 
+type DataLayoutApp struct {
+	Title       string
+	Description string
+	UserId      string
+}
+
 type DataComponentNav struct{}
 
 type DataComponentFooter struct {
