@@ -3,3 +3,9 @@ INSERT INTO "user" (discord_id, discord_username, discord_pfp, created_at) VALUE
 
 -- name: GetUser :one
 SELECT * FROM "user" WHERE discord_id = $1;
+
+-- name: GetUserById :one
+SELECT * FROM "user" WHERE id = $1;
+
+-- name: UpdateUserWalletId :exec
+UPDATE "user" SET wallet_id = $1 WHERE id = sqlc.arg(user_id);

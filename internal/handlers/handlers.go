@@ -158,7 +158,8 @@ func AuthCallback(logger *slog.Logger, db *database.Database, sessionsKV jetstre
 			SameSite: http.SameSiteLaxMode,
 		}
 		sData := sessions.Data{
-			UserId: userId,
+			UserId:    userId,
+			DiscordId: user.UserID,
 		}
 		bytes, err := cbor.Marshal(sData)
 		if err != nil {
@@ -175,5 +176,26 @@ func AuthCallback(logger *slog.Logger, db *database.Database, sessionsKV jetstre
 
 		http.SetCookie(w, &cookie)
 		http.Redirect(w, r, "/", http.StatusFound)
+	}
+}
+
+func App(tmpls *templates.Tmpls) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sData, ok := sessions.GetSession(r.Context())
+		if !ok {
+			sData = nil
+		}
+
+		tmplData := templates.DataLayoutApp{
+			Title:       "Home",
+			Description: "Your homepage to the Stelo Finance platform.",
+			UserId:      sData.DiscordId,
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		err := tmpls.ExecuteTemplate(w, "layouts/app", tmplData)
+		if err != nil {
+			panic(err)
+		}
 	}
 }
