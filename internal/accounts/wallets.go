@@ -14,32 +14,28 @@ type AccountCode int32
 const (
 	// 0-99 System accounts
 
-	// liability account
-	DigitalAssetLiabilityAccountCode AccountCode = 0
+	// Digital Asset Liability account
+	DAL AccountCode = 0
 
 	// 100-199 User accounts
 	// asset (debit accounts)
 
-	GeneralAccountCode  AccountCode = 100
-	PersonalAccountCode AccountCode = 101
+	GeneralAcc  AccountCode = 100
+	PersonalAcc AccountCode = 101
 
 	// 200-299 Warehousing related accounts
 	// liability (credit accounts)
 
-	WarehouseAccountCode AccountCode = 200
+	WarehouseAcc AccountCode = 200
 )
 
 func (a AccountCode) IsCredit() bool {
 	// TODO: Maybe don't use switch statement
 	switch a {
-	case DigitalAssetLiabilityAccountCode:
+	case DAL, WarehouseAcc:
 		return true
-	case GeneralAccountCode:
+	case GeneralAcc, PersonalAcc:
 		return false
-	case PersonalAccountCode:
-		return false
-	case WarehouseAccountCode:
-		return true
 	default:
 		return false
 	}
@@ -63,11 +59,11 @@ type createWalletInput struct {
 
 func createWallet(ctx context.Context, q *gensql.Queries, input createWalletInput) (int64, error) {
 	switch input.code {
-	case DigitalAssetLiabilityAccountCode:
+	case DAL:
 		// Create wallet
 		accGrId, err := q.InsertWallet(ctx, gensql.InsertWalletParams{
 			Address:   input.address,
-			Code:      int32(DigitalAssetLiabilityAccountCode),
+			Code:      int32(DAL),
 			CreatedAt: time.Now(),
 		})
 		if err != nil {
@@ -86,9 +82,9 @@ func createWallet(ctx context.Context, q *gensql.Queries, input createWalletInpu
 			return 0, err
 		}
 		return accGrId, nil
-	case GeneralAccountCode:
+	case GeneralAcc:
 
-	case PersonalAccountCode:
+	case PersonalAcc:
 		// Ensure user doesn't already have personal account
 		user, err := q.GetUserById(ctx, input.userId)
 		if err != nil {
@@ -101,7 +97,7 @@ func createWallet(ctx context.Context, q *gensql.Queries, input createWalletInpu
 		// Create wallet
 		accGrId, err := q.InsertWallet(ctx, gensql.InsertWalletParams{
 			Address:   input.address,
-			Code:      int32(PersonalAccountCode),
+			Code:      int32(PersonalAcc),
 			CreatedAt: time.Now(),
 		})
 		if err != nil {
@@ -130,7 +126,7 @@ func createWallet(ctx context.Context, q *gensql.Queries, input createWalletInpu
 		}
 
 		return accGrId, nil
-	case WarehouseAccountCode:
+	case WarehouseAcc:
 
 	default:
 		return 0, errors.New("account: unknown AccountCode")
@@ -139,7 +135,7 @@ func createWallet(ctx context.Context, q *gensql.Queries, input createWalletInpu
 	return 0, nil
 }
 
-// Easy to read and not mistake letters
+// Easy to read and not mistake letters (20 in total)
 var AddressStdChars = []byte("ABCDEFGHJKMNPRTUVWXY")
 
 type CreatePersonalWalletInput struct {
@@ -158,7 +154,7 @@ func CreatePersonalWallet(ctx context.Context, q *gensql.Queries, input CreatePe
 	accId, err := createWallet(ctx, q, createWalletInput{
 		userId:  input.UserId,
 		address: addr,
-		code:    PersonalAccountCode,
+		code:    PersonalAcc,
 	})
 	if err != nil {
 		return 0, err
@@ -166,7 +162,7 @@ func CreatePersonalWallet(ctx context.Context, q *gensql.Queries, input CreatePe
 	return accId, err
 }
 
-func CreateDigitalAssetLiabilityWallet(ctx context.Context, q *gensql.Queries, adminUserId int64) (int64, error) {
+func CreateDALWallet(ctx context.Context, q *gensql.Queries, adminUserId int64) (int64, error) {
 	// 512 billion possible variants
 	addr := uniuri.NewLenChars(9, AddressStdChars)
 
@@ -177,7 +173,7 @@ func CreateDigitalAssetLiabilityWallet(ctx context.Context, q *gensql.Queries, a
 	accId, err := createWallet(ctx, q, createWalletInput{
 		userId:  adminUserId,
 		address: addr,
-		code:    DigitalAssetLiabilityAccountCode,
+		code:    DAL,
 	})
 	if err != nil {
 		return 0, err

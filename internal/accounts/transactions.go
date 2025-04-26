@@ -9,22 +9,22 @@ import (
 	"github.com/stelofinance/stelofinance/database/gensql"
 )
 
-type TransactionCode int32
+type TxCode int32
 
 const (
 	// Transfers from system accounts to user accounts
-	TransactionCodeSysToUser TransactionCode = 0
+	TxSysUser TxCode = 0
 )
 
-type TransactionInput struct {
+type TxInput struct {
 	DebitWalletId  int64
 	CreditWalletId int64
-	Code           TransactionCode
+	Code           TxCode
 	Memo           *string
-	Assets         []TransactionAssets
+	Assets         []TxAssets
 }
 
-type TransactionAssets struct {
+type TxAssets struct {
 	LedgerId int64
 	Amount   int64
 }
@@ -32,7 +32,7 @@ type TransactionAssets struct {
 var ErrInvalidBalance = errors.New("transaction: invalid balance")
 
 // TODO: Need to implement pending TXs
-func createTransaction(ctx context.Context, q *gensql.Queries, input TransactionInput) (int64, error) {
+func createTransaction(ctx context.Context, q *gensql.Queries, input TxInput) (int64, error) {
 	// Create transaction record
 	txId, err := q.InsertTransaction(ctx, gensql.InsertTransactionParams{
 		DebitWalletID:  input.DebitWalletId,
