@@ -14,3 +14,10 @@ sql:
         overrides:
           - db_type: "timestamptz"
             go_type: "time.Time"
+          - db_type: "geometry"
+            go_type:
+              import: "github.com/cridenour/go-postgis"
+              package: "postgis"
+              pointer: true
+              type: "Point"
+            nullable: true
