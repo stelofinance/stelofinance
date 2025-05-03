@@ -3,10 +3,10 @@ package accounts
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math/big"
 	"time"
 
+	"github.com/cridenour/go-postgis"
 	"github.com/dchest/uniuri"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stelofinance/stelofinance/database/gensql"
@@ -29,7 +29,8 @@ const (
 	// 200-299 Warehousing related accounts
 	// liability (credit accounts)
 
-	WarehouseAcc AccountCode = 200
+	WarehouseAcc       AccountCode = 200 // liability (credit account)
+	WarehouseCollatAcc AccountCode = 201 // asset (debit account)
 )
 
 func (a AccountCode) IsCredit() bool {
@@ -158,12 +159,16 @@ func createWallet(ctx context.Context, q *gensql.Queries, input createWalletInpu
 		}
 
 		// Create wallet
+		point := postgis.Point{
+			X: float64(input.location[0]),
+			Y: float64(input.location[1]),
+		}
+
 		walletId, err := q.InsertWallet(ctx, gensql.InsertWalletParams{
 			Address:   input.address,
 			Code:      int32(WarehouseAcc),
 			CreatedAt: time.Now(),
-
-			Location: fmt.Sprintf("POINT(%d %d)", input.location[0], input.location[1]),
+			Location:  &point,
 			CollateralPercentage: pgtype.Numeric{
 				Int:   big.NewInt(input.collateralPercentage),
 				Exp:   -3,
@@ -173,9 +178,6 @@ func createWallet(ctx context.Context, q *gensql.Queries, input createWalletInpu
 		if err != nil {
 			return 0, err
 		}
-
-		// TODO: Either create collateral accounts here, or remember that a warehouse may
-		// have none to start off with.
 
 		// Create wallet permissions
 		_, err = q.InsertWalletPermission(ctx, gensql.InsertWalletPermissionParams{

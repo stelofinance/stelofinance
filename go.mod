@@ -1,11 +1,14 @@
 module github.com/stelofinance/stelofinance
 
-go 1.23.1
+go 1.24.0
+
+toolchain go1.24.2
 
 require (
 	github.com/Nintron27/pillow v0.8.0
 	github.com/andybalholm/brotli v1.1.1
 	github.com/bmatcuk/doublestar/v4 v4.8.1
+	github.com/cridenour/go-postgis v1.0.1
 	github.com/dchest/uniuri v1.2.0
 	github.com/fxamacker/cbor/v2 v2.7.0
 	github.com/go-chi/chi/v5 v5.2.0
