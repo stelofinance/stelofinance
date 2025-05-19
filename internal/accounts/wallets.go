@@ -29,8 +29,9 @@ const (
 	// 200-299 Warehousing related accounts
 	// liability (credit accounts)
 
-	WarehouseAcc       AccountCode = 200 // liability (credit account)
-	WarehouseCollatAcc AccountCode = 201 // asset (debit account)
+	WarehouseAcc          AccountCode = 200 // liability (credit account)
+	WarehouseCollatAcc    AccountCode = 201 // asset (debit account)
+	WarehouseCollatLkdAcc AccountCode = 202 // asset (debit account)
 )
 
 func (a AccountCode) IsCredit() bool {

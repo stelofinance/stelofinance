@@ -135,11 +135,8 @@ func CreateTransaction(ctx context.Context, q *gensql.Queries, input TxInput) (i
 		return txId, nil
 	}
 
-	// TODO: Idk if it should be done here or somewhere else, but we need
-	// to validate that the warehouse has enough collateral, and lock it
-	// for the TX
-
-	// Validate any warehouse transfers are of the correct ledger codes
+	// Validate any warehouse transfers are of the correct ledger codes,
+	// and lock collateral needed if so.
 	if input.Code == TxWarehouseTransfer {
 		if debitWallet.Code != int32(WarehouseAcc) && creditWallet.Code != int32(WarehouseAcc) {
 			return 0, ErrInvalidWarehouseTransfer
@@ -157,13 +154,44 @@ func CreateTransaction(ctx context.Context, q *gensql.Queries, input TxInput) (i
 		}
 
 		// query the codes
-		rows, err := q.GetLedgerCodes(ctx, ledgerIds)
+		ledgers, err := q.GetLedgers(ctx, ledgerIds)
 		if err != nil {
 			return 0, err
 		}
-		for _, row := range rows {
-			if !LedgerCode(row.Code).isDepositable() {
+		for _, ledger := range ledgers {
+			if !LedgerCode(ledger.Code).isDepositable() {
 				return 0, ErrInvalidWarehouseAsset
+			}
+		}
+
+		// Lock collateral if needed.
+		// Auto unlocking collateral isn't handled (yet?)
+		if creditWallet.Code == int32(WarehouseAcc) {
+			float, err := creditWallet.CollateralPercentage.Float64Value()
+			if err != nil {
+				return 0, err
+			}
+			collatRatio := float.Float64
+			collatNeeded := 0.0
+			for _, ledger := range ledgers {
+				collatNeeded += float64(ledger.Value) * collatRatio
+			}
+
+			if collatNeeded >= 1 {
+				err = CreateTransfer(ctx, q, TransferInput{
+					TxId:           txId,
+					DebitWalletId:  creditWallet.ID,
+					DebitAccCode:   WarehouseCollatLkdAcc,
+					CreditWalletId: creditWallet.ID,
+					CreditAccCode:  WarehouseCollatAcc,
+					LedgerId:       1,                   // TODO: Dynamically match this to Stelo ledger id
+					Amount:         int64(collatNeeded), // fine to truncate instead of round?
+					Flags:          TrFlagPending,
+					Code:           input.Code,
+				})
+				if err != nil {
+					return 0, err
+				}
 			}
 		}
 	}
