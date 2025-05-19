@@ -1,6 +1,22 @@
+-- name: UpdateAccountBalances :exec
+UPDATE account
+    SET debits_posted = debits_posted + $1,
+        debits_pending = debits_pending + $2,
+        credits_posted = credits_posted + $3,
+        credits_pending = credits_pending + $4
+    WHERE id = $5;
+
 -- name: UpdateDebitAccountDebitsPosted :one
 UPDATE account
     SET debits_posted = debits_posted + $1
+    WHERE wallet_id = $2
+        AND code = $3
+        AND ledger_id = $4
+    RETURNING id;
+
+-- name: UpdateDebitAccountDebitsPending :one
+UPDATE account
+    SET debits_pending = debits_pending + $1
     WHERE wallet_id = $2
         AND code = $3
         AND ledger_id = $4
@@ -12,7 +28,16 @@ UPDATE account
     WHERE wallet_id = $2
         AND code = $3
         AND ledger_id = $4
-        AND debits_posted >= credits_posted + $1 -- credits must not exceed debits
+        AND debits_posted >= credits_pending + credits_posted + $1 -- credits must not exceed debits
+    RETURNING id;
+
+-- name: UpdateDebitAccountCreditsPending :one
+UPDATE account
+    SET credits_pending = credits_pending + $1
+    WHERE wallet_id = $2
+        AND code = $3
+        AND ledger_id = $4
+        AND debits_posted >= credits_pending + credits_posted + $1 -- credits must not exceed debits
     RETURNING id;
 
 -- name: UpdateCreditAccountDebitsPosted :one
@@ -21,12 +46,29 @@ UPDATE account
     WHERE wallet_id = $2
         AND code = $3
         AND ledger_id = $4
-        AND credits_posted >= debits_posted + $1 -- debits must not exceed credits
+        AND credits_posted >= debits_pending + debits_posted + $1 -- debits must not exceed credits
+    RETURNING id;
+
+-- name: UpdateCreditAccountDebitsPending :one
+UPDATE account
+    SET debits_pending = debits_pending + $1
+    WHERE wallet_id = $2
+        AND code = $3
+        AND ledger_id = $4
+        AND credits_posted >= debits_pending + debits_posted + $1 -- debits must not exceed credits
     RETURNING id;
 
 -- name: UpdateCreditAccountCreditsPosted :one
 UPDATE account
     SET credits_posted = credits_posted + $1
+    WHERE wallet_id = $2
+        AND code = $3
+        AND ledger_id = $4
+    RETURNING id;
+
+-- name: UpdateCreditAccountCreditsPending :one
+UPDATE account
+    SET credits_pending = credits_pending + $1
     WHERE wallet_id = $2
         AND code = $3
         AND ledger_id = $4

@@ -45,6 +45,17 @@ func (a AccountCode) IsCredit() bool {
 	}
 }
 
+func (a AccountCode) IsDebit() bool {
+	return !a.IsCredit()
+}
+
+func (a AccountCode) IsUserCode() bool {
+	if int32(a) >= 100 && int32(a) <= 199 {
+		return true
+	}
+	return false
+}
+
 // func CreatePersonalWallet(address string)
 
 var ErrInvalidAccountConfiguration = errors.New("accounts: invalid account configuration")
