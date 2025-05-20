@@ -67,6 +67,7 @@ func Auth(logger *slog.Logger, sessionsKV jetstream.KeyValue, authRequired bool,
 
 var ErrKeyNotFound = errors.New("middlewares: key not found")
 
+// TODO: replace with ListKeysFiltered
 // getKeyValueWithPattern will search a jetstream kv bucket for the first key that matches a pattern
 func getKeyValueWithPattern(ctx context.Context, sessionsKV jetstream.KeyValue, pattern string) ([]byte, error) {
 	watcher, err := sessionsKV.Watch(ctx, pattern, jetstream.IgnoreDeletes())
