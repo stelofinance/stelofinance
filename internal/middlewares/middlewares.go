@@ -2,12 +2,12 @@ package middlewares
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
 
-	"github.com/fxamacker/cbor/v2"
 	"github.com/go-chi/chi/v5"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stelofinance/stelofinance/internal/sessions"
@@ -54,7 +54,7 @@ func Auth(logger *slog.Logger, sessionsKV jetstream.KeyValue, authRequired bool,
 
 		// Unmarshal data
 		var sData sessions.Data
-		if err := cbor.Unmarshal(sVal, &sData); err != nil {
+		if err := json.Unmarshal(sVal, &sData); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}

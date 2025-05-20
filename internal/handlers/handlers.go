@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -8,7 +9,6 @@ import (
 	"time"
 
 	"github.com/dchest/uniuri"
-	"github.com/fxamacker/cbor/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/markbates/goth/gothic"
 	"github.com/nats-io/nats.go/jetstream"
@@ -161,7 +161,7 @@ func AuthCallback(logger *slog.Logger, db *database.Database, sessionsKV jetstre
 			UserId:    userId,
 			DiscordId: user.UserID,
 		}
-		bytes, err := cbor.Marshal(sData)
+		bytes, err := json.Marshal(sData)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			logger.LogAttrs(

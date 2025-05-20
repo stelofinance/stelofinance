@@ -5,9 +5,8 @@ import "context"
 var sessionContextKey = struct{}{}
 
 type Data struct {
-	_         struct{} `cbor:",toarray"`
-	UserId    int64
-	DiscordId string
+	UserId    int64  `json:"userId"`
+	DiscordId string `json:"discordId"`
 }
 
 func WithSession(ctx context.Context, data *Data) context.Context {

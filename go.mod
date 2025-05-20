@@ -10,7 +10,6 @@ require (
 	github.com/bmatcuk/doublestar/v4 v4.8.1
 	github.com/cridenour/go-postgis v1.0.1
 	github.com/dchest/uniuri v1.2.0
-	github.com/fxamacker/cbor/v2 v2.7.0
 	github.com/go-chi/chi/v5 v5.2.0
 	github.com/go-chi/cors v1.2.1
 	github.com/gorilla/sessions v1.4.0
@@ -39,7 +38,6 @@ require (
 	github.com/nats-io/nkeys v0.4.11 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/sethvargo/go-retry v0.3.0 // indirect
-	github.com/x448/float16 v0.8.4 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/crypto v0.38.0 // indirect
 	golang.org/x/oauth2 v0.17.0 // indirect
