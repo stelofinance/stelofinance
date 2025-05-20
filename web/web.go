@@ -137,6 +137,34 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 		Q:    gensql.New(pgPool),
 	}
 
+	// tx, _ := db.Pool.Begin(ctx)
+	// id, err := accounts.CreateTransaction(ctx, db.Q.WithTx(tx), accounts.TxInput{
+	// 	DebitWalletId:  4,
+	// 	CreditWalletId: 7,
+	// 	Code:           accounts.TxWarehouseTransfer,
+	// 	Memo:           nil,
+	// 	IsPending:      true,
+	// 	Assets: []accounts.TxAssets{{
+	// 		LedgerId: 2,
+	// 		Amount:   2,
+	// 	}},
+	// 	// Assets: []accounts.TxAssets{{
+	// 	// 	LedgerId: 1,
+	// 	// 	Amount:   19,
+	// 	// }},
+	// })
+	// err = accounts.FinalizeTransaction(ctx, db.Q.WithTx(tx), accounts.FinalizeInput{
+	// 	TxId:   53,
+	// 	Status: accounts.TxPostPending,
+	// })
+	// // id, err := accounts.CreateGeneralWallet(ctx, db.Q.WithTx(tx), 1)
+	// if err == nil {
+	// 	err = tx.Commit(ctx)
+	// 	fmt.Println(err)
+	// }
+	// fmt.Println(err)
+	// fmt.Println(id)
+
 	// Create and run server
 	srv := NewServer(logger, tmpls, db, sessionsKV)
 	httpServer := &http.Server{

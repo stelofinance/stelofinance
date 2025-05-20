@@ -8,6 +8,7 @@
 2. Log into fly account with `fly auth login`
 3. Connect to your fly private network via wireguard
 4. Run `task live` (note, ensure the postgres cluster is running)
+  - Note, Taskfile will kill the first startup, so save one of the files to cause it to restart.
 
 ### DB Migrations
 Database migrations are done with [Goose](https://github.com/pressly/goose). Migrations are in `database/migrations/*`.
@@ -30,4 +31,3 @@ The required ENV secrets are stored in `.env` at the project root, and are as fo
 - `DISCORD_CLIENT_ID`: The Discord client ID for OAuth
 - `DISCORD_CLIENT_SECRET`: The Discrod client secret for OAuth
 - `POSTGRES_URI`: Same as `GOOSE_DBSTRING`, the DB connection URI string
-

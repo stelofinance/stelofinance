@@ -8,41 +8,25 @@ env:
 dotenv: [".env"]
 
 tasks:
-  # Currently the live tasks are just melting CPU
-  # Wait till this is pushed:
-  # https://github.com/go-task/task/pull/2048
   live:
-    desc: Run live dev environment. (Don't use, melts CPU currently)
-    cmds:
-      - task live:styles &
-      - task live:go
-
-  live:styles:
-    cmds:
-      - "tailwindcss -i web/styles/tw-input.css -o {{.STATIC_DIR}}/tw-output.css --minify --watch"
-
-  live:go:
-    deps: [live:go:run]
-    watch: true
-    # Copies build:go:app (& deps) so that it gets rerun
-    sources:
-    - "**/*.go"
-    - "**/*.html.tmpl"
-    - "sqlc.yaml"
-    - "database/queries/**/*.sql"
-    - "database/migrations/**/*.sql"
-
-  live:go:run:
+    desc: Run live dev environment.
     deps: [build:go:app]
+    watch: true
     cmds:
       - bin/app
 
+  run:
+    desc: Run Stelo Finance
+    cmds:
+      - bin/app
+    deps: [build:go:app]
+
   build:
     desc: Build all artifacts
-    deps: [build:go:app, build:go:migrate, build:styles]
+    deps: [build:go:app, build:go:migrate]
 
   build:go:app:
-    deps: [build:go:sqlc]
+    deps: [build:go:sqlc, build:styles]
     env:
       GOARCH: amd64
       GOOS: linux
@@ -87,9 +71,3 @@ tasks:
       - web/styles/tw-input.css
     generates:
       - web/static/tw-output.css
-
-  run:
-    desc: Run Stelo Finance
-    cmds:
-      - bin/app
-    deps: [build]
