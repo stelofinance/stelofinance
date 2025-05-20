@@ -7,3 +7,4 @@ database/gensql/
 web/static/tw-output.css
 .task/
 bin/
+result
