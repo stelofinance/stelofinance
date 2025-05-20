@@ -5,11 +5,11 @@ import (
 	"html/template"
 	"io"
 	"io/fs"
-	"os"
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/stelofinance/stelofinance/internal/assets"
+	"github.com/stelofinance/stelofinance/web/static"
 )
 
 var ErrTemplateNotFound = errors.New("templates: template not found")
@@ -100,7 +100,7 @@ func addCustomFuncs() template.FuncMap {
 }
 
 func assetToRawString(safeType, file string) any {
-	fileBytes, err := os.ReadFile("web/static/" + file)
+	fileBytes, err := static.StaticFS.ReadFile(file)
 	if err != nil {
 		return ""
 	}

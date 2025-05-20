@@ -4,17 +4,17 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/stelofinance/stelofinance/web/static"
 )
 
 // Web facing prefix on assets in static folder
 const AssetPrefix string = "/assets/"
 
 func HttpHandler(r chi.Router) {
-	staticHandler := http.FileServer(http.Dir("web/static"))
+	staticHandler := http.FileServerFS(static.StaticFS)
 
 	r.Group(func(r chi.Router) {
 		r.Use(permCache) // Perma cache all static assets, should use cache busting version
@@ -64,7 +64,7 @@ func GetHashedAssetPath(webPath string) string {
 	}
 	ext := "." + strs[len(strs)-1]
 
-	data, err := os.ReadFile("web/static/" + trimmedPath)
+	data, err := static.StaticFS.ReadFile(trimmedPath)
 	if err != nil {
 		return fmt.Sprintf("%v.x%v", strings.TrimSuffix(trimmedPath, ext), ext)
 	}
