@@ -9,7 +9,7 @@ dotenv: [".env"]
 
 tasks:
   live:
-    desc: Run live dev environment. (Currently broken, hangs forever on rebuild)
+    desc: Run live dev environment. (Currently startup is broken, see Taskfile issue 2202)
     deps: [build:go:app]
     watch: true
     cmds:

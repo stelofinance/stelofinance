@@ -7,9 +7,15 @@ type DataLayoutPrimary struct {
 }
 
 type DataLayoutApp struct {
+	NavData     DataComponentAppNav
 	Title       string
 	Description string
-	UserId      string
+	PageData    any
+}
+type DataComponentAppNav struct {
+	WalletAddr   string
+	ProfileImage string
+	Username     string
 }
 
 type DataComponentNav struct{}

@@ -12,3 +12,6 @@ RETURNING id;
 
 -- name: GetWallet :one
 SELECT * FROM wallet WHERE id = $1;
+
+-- name: GetWalletAddr :one
+SELECT address FROM wallet WHERE id = $1;

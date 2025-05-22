@@ -47,9 +47,6 @@ type Config struct {
 // Run sets up all needed dependencies for the server, early returning with
 // an error if one occurs.
 func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writer) error {
-	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-	defer cancel()
-
 	// Create logger
 	logger := slog.New(slog.NewJSONHandler(stdout, nil))
 
@@ -64,7 +61,7 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 	}
 
 	// Parse templates
-	tmpls, err := templates.LoadTemplates(templatesFS, "templates/", ".html.tmpl")
+	tmpls, err := templates.LoadTemplates(templatesFS, "templates/", ".html.tmpl", getenv)
 	if err != nil {
 		return err
 	}
@@ -193,10 +190,13 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		<-ctx.Done()
+		sigCtx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+		defer cancel()
+		<-sigCtx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		// TODO: Maybe gracefully shut this down? Currently it breaks/contradicts datastar's SSE
+		if err := httpServer.Close(); err != nil {
 			fmt.Fprintf(stderr, "error shutting down http server: %s\n", err)
 		}
 		if err := ns.Shutdown(shutdownCtx); err != nil {

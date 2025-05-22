@@ -8,7 +8,7 @@
 2. Log into fly account with `fly auth login`
 3. Connect to your fly private network via wireguard
 4. Run `task live` (note, ensure the postgres cluster is running)
-  - Note, Taskfile will kill the first startup, so save one of the files to cause it to restart.
+  - Note, a Taskfile bug will kill the first startup, so save one of the files to cause it to restart. (issue [#2202](https://github.com/go-task/task/issues/2202))
 
 ### DB Migrations
 Database migrations are done with [Goose](https://github.com/pressly/goose). Migrations are in `database/migrations/*`.

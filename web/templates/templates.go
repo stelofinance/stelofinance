@@ -32,9 +32,9 @@ type Tmpls struct {
 // Currently LoadTemplates also creates separate template trees for anything
 // in a parent "pages" directory, where the parent directory is selected after
 // trimming the prefix.
-func LoadTemplates(fsys fs.FS, prefix, extension string) (*Tmpls, error) {
+func LoadTemplates(fsys fs.FS, prefix, extension string, getenv func(string) string) (*Tmpls, error) {
 	tmpl := template.New("#blankforfuncs#")
-	tmpl.Funcs(addCustomFuncs())
+	tmpl.Funcs(addCustomFuncs(getenv))
 
 	variantTmpls := make(map[string]*template.Template)
 
@@ -90,13 +90,20 @@ func (t *Tmpls) ExecuteTemplate(wr io.Writer, name string, data any) error {
 	return tmpl.Execute(wr, data)
 }
 
-func addCustomFuncs() template.FuncMap {
+func addCustomFuncs(getenv func(string) string) template.FuncMap {
 	funcs := make(template.FuncMap)
 
 	funcs["hash_asset_path"] = assets.GetHashedAssetPath
 	funcs["raw_asset_string"] = assetToRawString
+	funcs["get_env"] = getEnv(getenv)
 
 	return funcs
+}
+
+func getEnv(getenv func(string) string) func(string) string {
+	return func(s string) string {
+		return getenv(s)
+	}
 }
 
 func assetToRawString(safeType, file string) any {
