@@ -34,12 +34,11 @@ func Auth(logger *slog.Logger, sessionsKV jetstream.KeyValue, authRequired bool,
 			return
 		}
 
-		if !strings.HasPrefix(cookie.Value, "stl_") {
+		sid, found := strings.CutPrefix(cookie.Value, "stl_")
+		if !found {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-
-		sid := strings.TrimPrefix(cookie.Value, "stl_")
 
 		// Retrieve session data
 		sVal, err := getKeyValueWithPattern(r.Context(), sessionsKV, "users.*.sessions."+sid)
