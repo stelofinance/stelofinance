@@ -18,9 +18,10 @@ func AddRoutes(mux *chi.Mux, logger *slog.Logger, tmpls *templates.Tmpls, db *da
 
 	mux.Handle("GET /hotreload", handlers.HotReload())
 
-	mux.Handle("GET /", midware.Auth(logger, sessionsKV, false, handlers.Index(tmpls)))
+	mux.With(midware.AuthSession(logger, sessionsKV, false)).Handle("GET /", handlers.Index(tmpls))
 	mux.Handle("GET /login", handlers.Login(tmpls))
 
+	// Login routes
 	mux.Route("/auth/{provider}", func(mux chi.Router) {
 		mux.Use(midware.GothicChiAdapter)
 
@@ -30,12 +31,11 @@ func AddRoutes(mux *chi.Mux, logger *slog.Logger, tmpls *templates.Tmpls, db *da
 
 	// App related routes
 	mux.Route("/app", func(mux chi.Router) {
-		// TODO: Refactor to just use Auth midware here
-		// mux.Use(midware.Auth())
+		mux.Use(midware.AuthSession(logger, sessionsKV, true))
 
-		mux.Handle("GET /wallets/{wallet_addr}", midware.Auth(logger, sessionsKV, true, handlers.WalletHome(tmpls, db)))
-		mux.Handle("GET /wallets/{wallet_addr}/updates", midware.Auth(logger, sessionsKV, true, handlers.WalletHomeUpdates(tmpls, db, nc)))
-		mux.Handle("GET /stream", midware.Auth(logger, sessionsKV, true, handlers.Stream(tmpls)))
-		mux.Handle("GET /logout", midware.Auth(logger, sessionsKV, true, handlers.Logout(sessionsKV)))
+		mux.Handle("GET /wallets/{wallet_addr}", handlers.WalletHome(tmpls, db))
+		mux.Handle("GET /wallets/{wallet_addr}/updates", handlers.WalletHomeUpdates(tmpls, db, nc))
+
+		mux.Handle("GET /logout", handlers.Logout(sessionsKV))
 	})
 }

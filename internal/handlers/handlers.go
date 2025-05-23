@@ -28,8 +28,8 @@ import (
 
 func Index(tmpls *templates.Tmpls) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sData, ok := sessions.GetSession(r.Context())
-		if !ok {
+		sData, found := sessions.GetSession(r.Context())
+		if !found {
 			sData = nil
 		}
 		tmplData := templates.DataLayoutPrimary{
@@ -239,8 +239,8 @@ func App(tmpls *templates.Tmpls) http.HandlerFunc {
 
 func WalletHome(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		sData, ok := sessions.GetSession(r.Context())
-		if !ok {
+		sData, found := sessions.GetSession(r.Context())
+		if !found {
 			panic("missing session")
 		}
 		wAddr := chi.URLParam(r, "wallet_addr")
@@ -344,14 +344,6 @@ func WalletHomeUpdates(tmpls *templates.Tmpls, db *database.Database, nc *nats.C
 	}
 }
 
-func Stream(tmpls *templates.Tmpls) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		sse := datastar.NewSSE(w, r)
-
-		sse.MergeFragments(`<div id="test">` + time.Now().String() + "</div>")
-	}
-}
-
 var hotReloadOnce sync.Once
 
 func HotReload() http.HandlerFunc {
@@ -376,8 +368,8 @@ func HotReload() http.HandlerFunc {
 
 func Logout(sessionsKV jetstream.KeyValue) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		sData, ok := sessions.GetSession(r.Context())
-		if !ok {
+		sData, found := sessions.GetSession(r.Context())
+		if !found {
 			panic("missing session")
 		}
 

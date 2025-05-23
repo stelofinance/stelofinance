@@ -22,46 +22,48 @@ func GothicChiAdapter(next http.Handler) http.Handler {
 	})
 }
 
-func Auth(logger *slog.Logger, sessionsKV jetstream.KeyValue, authRequired bool, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cookie, err := r.Cookie("sid")
-		if err != nil {
-			if !authRequired {
-				next.ServeHTTP(w, r)
+func AuthSession(logger *slog.Logger, sessionsKV jetstream.KeyValue, authRequired bool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			cookie, err := r.Cookie("sid")
+			if err != nil {
+				if !authRequired {
+					next.ServeHTTP(w, r)
+					return
+				}
+				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
 
-		sid, found := strings.CutPrefix(cookie.Value, "stl_")
-		if !found {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-
-		// Retrieve session data
-		sVal, err := getKeyValueWithPattern(r.Context(), sessionsKV, "users.*.sessions."+sid)
-		if err != nil {
-			if errors.Is(err, ErrKeyNotFound) {
+			sid, found := strings.CutPrefix(cookie.Value, "stl_")
+			if !found {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
 
-		// Unmarshal data
-		var sData sessions.Data
-		if err := json.Unmarshal(sVal, &sData); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
+			// Retrieve session data
+			sVal, err := getKeyValueWithPattern(r.Context(), sessionsKV, "users.*.sessions."+sid)
+			if err != nil {
+				if errors.Is(err, ErrKeyNotFound) {
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
 
-		// Add session data to request
-		r = r.WithContext(sessions.WithSession(r.Context(), &sData))
-		next.ServeHTTP(w, r)
-	})
+			// Unmarshal data
+			var sData sessions.Data
+			if err := json.Unmarshal(sVal, &sData); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+
+			// Add session data to request
+			r = r.WithContext(sessions.WithSession(r.Context(), &sData))
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 var ErrKeyNotFound = errors.New("middlewares: key not found")

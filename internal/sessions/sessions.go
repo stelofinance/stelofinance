@@ -13,7 +13,15 @@ func WithSession(ctx context.Context, data *Data) context.Context {
 	return context.WithValue(ctx, sessionContextKey, data)
 }
 
-func GetSession(ctx context.Context) (*Data, bool) {
+func GetSession(ctx context.Context) (data *Data, found bool) {
+	val := ctx.Value(sessionContextKey)
+	if val == nil {
+		return nil, false
+	}
+
 	data, ok := ctx.Value(sessionContextKey).(*Data)
-	return data, ok
+	if !ok {
+		panic("sessions: session context value of wrong type")
+	}
+	return data, true
 }
