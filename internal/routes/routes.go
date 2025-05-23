@@ -4,6 +4,7 @@ import (
 	"log/slog"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stelofinance/stelofinance/database"
 	"github.com/stelofinance/stelofinance/internal/assets"
@@ -12,7 +13,7 @@ import (
 	"github.com/stelofinance/stelofinance/web/templates"
 )
 
-func AddRoutes(mux *chi.Mux, logger *slog.Logger, tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstream.KeyValue) {
+func AddRoutes(mux *chi.Mux, logger *slog.Logger, tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstream.KeyValue, nc *nats.Conn) {
 	assets.HttpHandler(mux)
 
 	mux.Handle("GET /hotreload", handlers.HotReload())
@@ -33,6 +34,7 @@ func AddRoutes(mux *chi.Mux, logger *slog.Logger, tmpls *templates.Tmpls, db *da
 		// mux.Use(midware.Auth())
 
 		mux.Handle("GET /wallets/{wallet_addr}", midware.Auth(logger, sessionsKV, true, handlers.WalletHome(tmpls, db)))
+		mux.Handle("GET /wallets/{wallet_addr}/updates", midware.Auth(logger, sessionsKV, true, handlers.WalletHomeUpdates(tmpls, db, nc)))
 		mux.Handle("GET /stream", midware.Auth(logger, sessionsKV, true, handlers.Stream(tmpls)))
 		mux.Handle("GET /logout", midware.Auth(logger, sessionsKV, true, handlers.Logout(sessionsKV)))
 	})

@@ -79,3 +79,22 @@ INSERT
     INTO account (wallet_id, debits_pending, debits_posted, credits_pending, credits_posted, ledger_id, code, flags, created_at)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
     RETURNING id;
+
+-- name: GetAccountByWalletAddrAndLedgerName :one
+SELECT
+    l.asset_scale,
+    l.code AS ledger_code,
+    a.code AS account_code,
+    a.debits_pending,
+    a.debits_posted,
+    a.credits_pending,
+    a.credits_posted
+FROM
+    wallet AS w
+JOIN
+    account AS a ON a.wallet_id = w.id
+JOIN
+    ledger AS l ON l.id = a.ledger_id
+WHERE
+    w.address = $1 AND l.name = $2
+LIMIT 1;

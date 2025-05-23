@@ -28,6 +28,7 @@ import (
 	"github.com/markbates/goth/gothic"
 	"github.com/markbates/goth/providers/discord"
 	"github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stelofinance/stelofinance/database"
 	"github.com/stelofinance/stelofinance/database/gensql"
@@ -134,36 +135,40 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 		Q:    gensql.New(pgPool),
 	}
 
-	// tx, _ := db.Pool.Begin(ctx)
-	// id, err := accounts.CreateTransaction(ctx, db.Q.WithTx(tx), accounts.TxInput{
-	// 	DebitWalletId:  4,
-	// 	CreditWalletId: 7,
-	// 	Code:           accounts.TxWarehouseTransfer,
-	// 	Memo:           nil,
-	// 	IsPending:      true,
-	// 	Assets: []accounts.TxAssets{{
-	// 		LedgerId: 2,
-	// 		Amount:   2,
-	// 	}},
-	// 	// Assets: []accounts.TxAssets{{
-	// 	// 	LedgerId: 1,
-	// 	// 	Amount:   19,
-	// 	// }},
-	// })
-	// err = accounts.FinalizeTransaction(ctx, db.Q.WithTx(tx), accounts.FinalizeInput{
-	// 	TxId:   53,
-	// 	Status: accounts.TxPostPending,
-	// })
-	// // id, err := accounts.CreateGeneralWallet(ctx, db.Q.WithTx(tx), 1)
-	// if err == nil {
-	// 	err = tx.Commit(ctx)
+	// go func() {
+	// 	time.Sleep(time.Second * 10)
+
+	// 	tx, _ := db.Pool.Begin(ctx)
+	// 	id, err := accounts.CreateTransaction(ctx, db.Q.WithTx(tx), nc, accounts.TxInput{
+	// 		DebitWalletId:  2,
+	// 		CreditWalletId: 7,
+	// 		Code:           accounts.TxUserToUser,
+	// 		Memo:           nil,
+	// 		IsPending:      false,
+	// 		Assets: []accounts.TxAssets{{
+	// 			LedgerId: 1,
+	// 			Amount:   100,
+	// 		}},
+	// 		// Assets: []accounts.TxAssets{{
+	// 		// 	LedgerId: 1,
+	// 		// 	Amount:   19,
+	// 		// }},
+	// 	})
+	// 	// err = accounts.FinalizeTransaction(ctx, db.Q.WithTx(tx), accounts.FinalizeInput{
+	// 	// 	TxId:   53,
+	// 	// 	Status: accounts.TxPostPending,
+	// 	// })
+	// 	// id, err := accounts.CreateGeneralWallet(ctx, db.Q.WithTx(tx), 1)
+	// 	if err == nil {
+	// 		err = tx.Commit(ctx)
+	// 		fmt.Println(err)
+	// 	}
 	// 	fmt.Println(err)
-	// }
-	// fmt.Println(err)
-	// fmt.Println(id)
+	// 	fmt.Println(id)
+	// }()
 
 	// Create and run server
-	srv := NewServer(logger, tmpls, db, sessionsKV)
+	srv := NewServer(logger, tmpls, db, sessionsKV, nc)
 	httpServer := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      srv,
@@ -207,7 +212,7 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 	return nil
 }
 
-func NewServer(logger *slog.Logger, tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstream.KeyValue) http.Handler {
+func NewServer(logger *slog.Logger, tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstream.KeyValue, nc *nats.Conn) http.Handler {
 	mux := chi.NewMux()
 
 	// mux.Use(middleware.Logger)
@@ -223,7 +228,7 @@ func NewServer(logger *slog.Logger, tmpls *templates.Tmpls, db *database.Databas
 	mux.Use(middleware.Heartbeat("/heartbeat"))
 	mux.Use(Compressor(2))
 
-	routes.AddRoutes(mux, logger, tmpls, db, sessionsKV)
+	routes.AddRoutes(mux, logger, tmpls, db, sessionsKV, nc)
 
 	return mux
 }

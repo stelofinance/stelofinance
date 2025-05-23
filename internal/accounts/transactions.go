@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/nats-io/nats.go"
 	"github.com/stelofinance/stelofinance/database/gensql"
 )
 
@@ -57,7 +58,7 @@ var ErrInvalidWarehouseAsset = errors.New("transaction: invalid warehouse asset"
 var ErrInvalidWarehouseTransfer = errors.New("transaction: invalid warehouse transaction")
 var ErrInvalidUserToUser = errors.New("transaction: invalid user to user transaction")
 
-func CreateTransaction(ctx context.Context, q *gensql.Queries, input TxInput) (int64, error) {
+func CreateTransaction(ctx context.Context, q *gensql.Queries, nc *nats.Conn, input TxInput) (int64, error) {
 	txStatus := TxPosted
 	if input.IsPending {
 		txStatus = TxPending
@@ -226,6 +227,10 @@ func CreateTransaction(ctx context.Context, q *gensql.Queries, input TxInput) (i
 			return 0, err
 		}
 	}
+
+	// TODO: Send actual transactions
+	nc.Publish("wallets."+debitWallet.Address+".transactions", []byte("."))
+	nc.Publish("wallets."+creditWallet.Address+".transactions", []byte("."))
 
 	return txId, nil
 }

@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/markbates/goth/gothic"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	datastar "github.com/starfederation/datastar/sdk/go"
 	"github.com/stelofinance/stelofinance/database"
@@ -247,11 +250,23 @@ func WalletHome(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc 
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-
 		pfp := ""
 		if user.DiscordPfp != nil {
 			pfp = *user.DiscordPfp
 		}
+
+		stelo, err := db.Q.GetAccountByWalletAddrAndLedgerName(
+			r.Context(),
+			gensql.GetAccountByWalletAddrAndLedgerNameParams{
+				Address: wAddr,
+				Name:    "stelo",
+			})
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		qty := stelo.DebitsPosted - stelo.CreditsPending - stelo.CreditsPosted
 
 		tmplData := templates.DataLayoutApp{
 			Title:       "Home",
@@ -261,12 +276,70 @@ func WalletHome(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc 
 				ProfileImage: pfp,
 				Username:     user.DiscordUsername,
 			},
+			PageData: templates.DataPageWalletHomepage{
+				WalletAddr: wAddr,
+				SteloSummary: templates.DataComponentSteloSummary{
+					FeaturedAsset:    "Stelo",
+					FeaturedAssetQty: float64(qty) / math.Pow(10, float64(stelo.AssetScale)),
+				},
+			},
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		err = tmpls.ExecuteTemplate(w, "layouts/app", tmplData)
+		err = tmpls.ExecuteTemplate(w, "pages/wallet-home", tmplData)
 		if err != nil {
 			panic(err)
+		}
+	}
+}
+
+func WalletHomeUpdates(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// sData, ok := sessions.GetSession(r.Context())
+		// if !ok {
+		// 	panic("missing session")
+		// }
+		wAddr := chi.URLParam(r, "wallet_addr")
+
+		sse := datastar.NewSSE(w, r)
+
+		txChan := make(chan *nats.Msg)
+		sub, err := nc.ChanSubscribe("wallets."+wAddr+".transactions", txChan)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+	loop:
+		for {
+			select {
+			case <-txChan:
+				stelo, err := db.Q.GetAccountByWalletAddrAndLedgerName(
+					r.Context(),
+					gensql.GetAccountByWalletAddrAndLedgerNameParams{
+						Address: wAddr,
+						Name:    "stelo",
+					})
+				if err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+
+				qty := stelo.DebitsPosted - stelo.CreditsPending - stelo.CreditsPosted
+
+				buff := new(bytes.Buffer)
+				err = tmpls.ExecuteTemplate(buff, "components/stelo-summary", templates.DataComponentSteloSummary{
+					FeaturedAsset:    "Stelo",
+					FeaturedAssetQty: float64(qty) / math.Pow(10, float64(stelo.AssetScale)),
+				})
+				if err != nil {
+					panic(err)
+				}
+				sse.MergeFragments(string(buff.Bytes()))
+			case <-r.Context().Done():
+				sub.Unsubscribe()
+				break loop
+			}
 		}
 	}
 }

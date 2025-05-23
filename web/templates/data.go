@@ -29,6 +29,16 @@ type DataComponentFooterLink struct {
 	Text string
 }
 
+type DataPageWalletHomepage struct {
+	WalletAddr   string
+	SteloSummary DataComponentSteloSummary
+}
+
+type DataComponentSteloSummary struct {
+	FeaturedAsset    string
+	FeaturedAssetQty float64
+}
+
 type DataPageHomepage struct {
 	User      bool
 	InfoCards []DataPageHomepageInfoCard

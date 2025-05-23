@@ -22,10 +22,6 @@
     {{block "page-content" .PageData}}
     <p>No content</p>
     {{end}}
-    <input type="text" data-bind-input class="text-white">
-    <p data-text="$input.toUpperCase()" class="text-white"></p>
-    <button class="text-white" data-on-click="@get('/app/stream')">CLICK ME</button>
-    <p id="test" class="text-white">YUP, imma test 3</p>
     {{if get_env "ENV" | eq "dev"}}
     <div data-on-load="@get('/hotreload', {retryInterval: 100, retryScaler: 1, retryMaxCount: 200})"></div>
     {{end}}
