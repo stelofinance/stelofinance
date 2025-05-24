@@ -2,8 +2,8 @@
   <button data-on-click="$navOpen = true" class="justify-self-start">
     {{template "icons/hamburger" `size-7`}}
   </button>
-  <a href="/app/wallets/{{.WalletAddr}}" aria-label="Go to wallet homepage">
-    {{template "icons/logo-full" `w-28 h-auto mr-auto 2xl:w-32`}}
+  <a href="/app/wallets/{{.WalletAddr}}" aria-label="Go to wallet homepage" class="flex justify-center">
+    {{template "icons/logo-full" `w-28 h-auto 2xl:w-32`}}
   </a>
   <div class="justify-self-end flex items-center">
     <p class="text-sm text-gray-400">#{{.WalletAddr}}</p>
