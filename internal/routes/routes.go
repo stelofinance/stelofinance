@@ -7,6 +7,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stelofinance/stelofinance/database"
+	"github.com/stelofinance/stelofinance/internal/accounts"
 	"github.com/stelofinance/stelofinance/internal/assets"
 	"github.com/stelofinance/stelofinance/internal/handlers"
 	midware "github.com/stelofinance/stelofinance/internal/middlewares"
@@ -33,8 +34,16 @@ func AddRoutes(mux *chi.Mux, logger *slog.Logger, tmpls *templates.Tmpls, db *da
 	mux.Route("/app", func(mux chi.Router) {
 		mux.Use(midware.AuthSession(logger, sessionsKV, true))
 
-		mux.Handle("GET /wallets/{wallet_addr}", handlers.WalletHome(tmpls, db))
-		mux.Handle("GET /wallets/{wallet_addr}/updates", handlers.WalletHomeUpdates(tmpls, db, nc))
+		mux.Route("/wallets/{wallet_addr}", func(mux chi.Router) {
+			// mux.Use(handlers)
+
+			mux.
+				With(midware.AuthWallet(db, accounts.PermReadBals)).
+				Handle("GET /", handlers.WalletHome(tmpls, db))
+			mux.
+				With(midware.AuthWallet(db, accounts.PermReadBals)).
+				Handle("GET /updates", handlers.WalletHomeUpdates(tmpls, db, nc))
+		})
 
 		mux.Handle("GET /logout", handlers.Logout(sessionsKV))
 	})

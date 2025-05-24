@@ -261,7 +261,7 @@ func WalletHome(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc 
 				Address: wAddr,
 				Name:    "stelo",
 			})
-		if err != nil {
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}

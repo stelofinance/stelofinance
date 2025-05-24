@@ -91,7 +91,7 @@ func createWallet(ctx context.Context, q *gensql.Queries, input createWalletInpu
 		_, err = q.InsertWalletPermission(ctx, gensql.InsertWalletPermissionParams{
 			WalletID:    walletId,
 			UserID:      input.userId,
-			Permissions: int64(PermIsAdmin),
+			Permissions: int64(PermAdmin),
 			UpdatedAt:   time.Now(),
 			CreatedAt:   time.Now(),
 		})
@@ -114,7 +114,7 @@ func createWallet(ctx context.Context, q *gensql.Queries, input createWalletInpu
 		_, err = q.InsertWalletPermission(ctx, gensql.InsertWalletPermissionParams{
 			WalletID:    walletId,
 			UserID:      input.userId,
-			Permissions: int64(PermIsAdmin),
+			Permissions: int64(PermAdmin),
 			UpdatedAt:   time.Now(),
 			CreatedAt:   time.Now(),
 		})
@@ -147,7 +147,7 @@ func createWallet(ctx context.Context, q *gensql.Queries, input createWalletInpu
 		_, err = q.InsertWalletPermission(ctx, gensql.InsertWalletPermissionParams{
 			WalletID:    walletId,
 			UserID:      input.userId,
-			Permissions: int64(PermIsAdmin),
+			Permissions: int64(PermAdmin),
 			UpdatedAt:   time.Now(),
 			CreatedAt:   time.Now(),
 		})
@@ -195,7 +195,7 @@ func createWallet(ctx context.Context, q *gensql.Queries, input createWalletInpu
 		_, err = q.InsertWalletPermission(ctx, gensql.InsertWalletPermissionParams{
 			WalletID:    walletId,
 			UserID:      input.userId,
-			Permissions: int64(PermIsAdmin),
+			Permissions: int64(PermAdmin),
 			UpdatedAt:   time.Now(),
 			CreatedAt:   time.Now(),
 		})

@@ -9,7 +9,11 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/stelofinance/stelofinance/database"
+	"github.com/stelofinance/stelofinance/database/gensql"
+	"github.com/stelofinance/stelofinance/internal/accounts"
 	"github.com/stelofinance/stelofinance/internal/sessions"
 )
 
@@ -61,6 +65,50 @@ func AuthSession(logger *slog.Logger, sessionsKV jetstream.KeyValue, authRequire
 
 			// Add session data to request
 			r = r.WithContext(sessions.WithSession(r.Context(), &sData))
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// AuthSession must be before AuthWallet on the middleware chain
+// TODO: Maybe support repeated calls to AuthWallet? Save perms in Context?
+func AuthWallet(db *database.Database, perms ...accounts.Permission) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			wAddr := chi.URLParam(r, "wallet_addr")
+
+			sData, found := sessions.GetSession(r.Context())
+			if !found {
+				panic("missing session")
+			}
+
+			// Check if they have the wallet permissions
+			permsResult, err := db.Q.GetWalletPermissions(r.Context(), gensql.GetWalletPermissionsParams{
+				ID:      sData.UserId,
+				Address: wAddr,
+			})
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					w.WriteHeader(http.StatusForbidden)
+					return
+				}
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			walletPerms := accounts.Permission(permsResult)
+
+			// Wallet admin can bypass all
+			if accounts.PermAdmin&walletPerms == accounts.PermAdmin {
+				next.ServeHTTP(w, r)
+			}
+
+			for _, perm := range perms {
+				if perm&walletPerms != perm {
+					w.WriteHeader(http.StatusForbidden)
+					return
+				}
+			}
+
 			next.ServeHTTP(w, r)
 		})
 	}
