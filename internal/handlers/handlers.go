@@ -348,6 +348,81 @@ func WalletHomeUpdates(tmpls *templates.Tmpls, db *database.Database, nc *nats.C
 	}
 }
 
+func WalletAssets(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sData, found := sessions.GetSession(r.Context())
+		if !found {
+			panic("missing session")
+		}
+		wAddr := chi.URLParam(r, "wallet_addr")
+
+		user, err := db.Q.GetUserById(r.Context(), sData.UserId)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		pfp := ""
+		if user.DiscordPfp != nil {
+			pfp = *user.DiscordPfp
+		}
+
+		accResult, err := db.Q.GetAccountBalancesByWalletAddr(r.Context(), wAddr)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		assets := make([]templates.DataComponentAssetAsset, 0, len(accResult))
+		steloBal := 0.0
+
+		for _, acc := range accResult {
+			bal := acc.DebitBalance
+			if accounts.AccountCode(acc.Code).IsCredit() {
+				bal = acc.CreditBalance
+			}
+
+			if acc.AssetName == "stelo" {
+				steloBal = float64(bal) / math.Pow(10, float64(acc.AssetScale))
+			} else {
+				assets = append(assets, templates.DataComponentAssetAsset{
+					Name: acc.AssetName,
+					Qty:  float64(bal) / math.Pow(10, float64(acc.AssetScale)),
+				})
+			}
+		}
+
+		tmplData := templates.DataLayoutApp{
+			Title:       "Assets",
+			Description: "An overview of your wallet's assets",
+			NavData: templates.DataComponentAppNav{
+				WalletAddr:   wAddr,
+				ProfileImage: pfp,
+				Username:     user.DiscordUsername,
+			},
+			MenuData: templates.DataComponentAppMenu{
+				ActivePage: "assets",
+				WalletAddr: wAddr,
+			},
+			PageData: templates.DataPageWalletAssets{
+				WalletAddr: wAddr,
+				SteloSummary: templates.DataComponentSteloSummary{
+					FeaturedAsset:    "Stelo",
+					FeaturedAssetQty: steloBal,
+				},
+				Assets: templates.DataComponentAssets{
+					Assets: assets,
+				},
+			},
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		err = tmpls.ExecuteTemplate(w, "pages/wallet-assets", tmplData)
+		if err != nil {
+			panic(err)
+		}
+	}
+}
+
 var hotReloadOnce sync.Once
 
 func HotReload() http.HandlerFunc {

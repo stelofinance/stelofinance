@@ -47,6 +47,21 @@ type DataComponentSteloSummary struct {
 	FeaturedAssetQty float64
 }
 
+// pages/wallet-home
+
+type DataPageWalletAssets struct {
+	WalletAddr   string
+	SteloSummary DataComponentSteloSummary
+	Assets       DataComponentAssets
+}
+type DataComponentAssets struct {
+	Assets []DataComponentAssetAsset
+}
+type DataComponentAssetAsset struct {
+	Name string
+	Qty  float64
+}
+
 // pages/homepage
 
 type DataPageHomepage struct {

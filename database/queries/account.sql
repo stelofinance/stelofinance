@@ -98,3 +98,16 @@ JOIN
 WHERE
     w.address = $1 AND l.name = $2
 LIMIT 1;
+
+-- name: GetAccountBalancesByWalletAddr :many
+SELECT
+    l.name AS asset_name,
+    (a.debits_posted - a.credits_posted - a.credits_pending)::BIGINT AS debit_balance,
+    (a.credits_posted - a.debits_posted - a.debits_pending)::BIGINT AS credit_balance,
+    l.asset_scale,
+    a.code
+FROM
+    account AS a
+JOIN ledger AS l ON a.ledger_id = l.id
+JOIN wallet AS w ON w.id = a.wallet_id
+WHERE w.address = $1;

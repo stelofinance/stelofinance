@@ -1,0 +1,10 @@
+{{template "layouts/app" .}}
+
+{{define "page-content"}}
+<main
+  class="flex flex-col items-center justify-center text-white px-2 py-4"
+>
+  {{template "components/stelo-summary" .SteloSummary}}
+  {{template "components/assets" .Assets}}
+</main>
+{{end}}

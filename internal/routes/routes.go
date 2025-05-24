@@ -43,6 +43,10 @@ func AddRoutes(mux *chi.Mux, logger *slog.Logger, tmpls *templates.Tmpls, db *da
 			mux.
 				With(midware.AuthWallet(db, accounts.PermReadBals)).
 				Handle("GET /updates", handlers.WalletHomeUpdates(tmpls, db, nc))
+
+			mux.
+				With(midware.AuthWallet(db, accounts.PermReadBals)).
+				Handle("GET /assets", handlers.WalletAssets(tmpls, db))
 		})
 
 		mux.Handle("GET /logout", handlers.Logout(sessionsKV))
