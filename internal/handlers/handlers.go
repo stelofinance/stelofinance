@@ -380,13 +380,14 @@ func WalletAssets(tmpls *templates.Tmpls, db *database.Database) http.HandlerFun
 			if accounts.AccountCode(acc.Code).IsCredit() {
 				bal = acc.CreditBalance
 			}
+			balFmtd := float64(bal) / math.Pow(10, float64(acc.AssetScale))
 
 			if acc.AssetName == "stelo" {
-				steloBal = float64(bal) / math.Pow(10, float64(acc.AssetScale))
+				steloBal = balFmtd
 			} else {
 				assets = append(assets, templates.DataComponentAssetAsset{
 					Name: acc.AssetName,
-					Qty:  float64(bal) / math.Pow(10, float64(acc.AssetScale)),
+					Qty:  balFmtd,
 				})
 			}
 		}
@@ -419,6 +420,73 @@ func WalletAssets(tmpls *templates.Tmpls, db *database.Database) http.HandlerFun
 		err = tmpls.ExecuteTemplate(w, "pages/wallet-assets", tmplData)
 		if err != nil {
 			panic(err)
+		}
+	}
+}
+
+func WalletAssetsUpdates(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// sData, ok := sessions.GetSession(r.Context())
+		// if !ok {
+		// 	panic("missing session")
+		// }
+		wAddr := chi.URLParam(r, "wallet_addr")
+
+		sse := datastar.NewSSE(w, r)
+
+		txChan := make(chan *nats.Msg)
+		sub, err := nc.ChanSubscribe("wallets."+wAddr+".transactions", txChan)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+	loop:
+		for {
+			select {
+			case <-txChan:
+				accResult, err := db.Q.GetAccountBalancesByWalletAddr(r.Context(), wAddr)
+				if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+
+				assets := make([]templates.DataComponentAssetAsset, 0, len(accResult))
+				steloBal := 0.0
+
+				for _, acc := range accResult {
+					bal := acc.DebitBalance
+					if accounts.AccountCode(acc.Code).IsCredit() {
+						bal = acc.CreditBalance
+					}
+					balFmtd := float64(bal) / math.Pow(10, float64(acc.AssetScale))
+
+					if acc.AssetName == "stelo" {
+						steloBal = balFmtd
+					} else {
+						assets = append(assets, templates.DataComponentAssetAsset{
+							Name: acc.AssetName,
+							Qty:  balFmtd,
+						})
+					}
+				}
+
+				buff := new(bytes.Buffer)
+				err = tmpls.ExecuteTemplate(buff, "components/stelo-summary", templates.DataComponentSteloSummary{
+					FeaturedAsset:    "Stelo",
+					FeaturedAssetQty: steloBal,
+				})
+				err = tmpls.ExecuteTemplate(buff, "components/assets", templates.DataComponentAssets{
+					Assets: assets,
+				})
+				if err != nil {
+					panic(err)
+				}
+				sse.MergeFragments(string(buff.Bytes()))
+			case <-r.Context().Done():
+				sub.Unsubscribe()
+				break loop
+			}
 		}
 	}
 }

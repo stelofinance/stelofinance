@@ -35,18 +35,15 @@ func AddRoutes(mux *chi.Mux, logger *slog.Logger, tmpls *templates.Tmpls, db *da
 		mux.Use(midware.AuthSession(logger, sessionsKV, true))
 
 		mux.Route("/wallets/{wallet_addr}", func(mux chi.Router) {
-			// mux.Use(handlers)
+			mux.Group(func(mux chi.Router) {
+				mux.Use(midware.AuthWallet(db, accounts.PermReadBals))
 
-			mux.
-				With(midware.AuthWallet(db, accounts.PermReadBals)).
-				Handle("GET /", handlers.WalletHome(tmpls, db))
-			mux.
-				With(midware.AuthWallet(db, accounts.PermReadBals)).
-				Handle("GET /updates", handlers.WalletHomeUpdates(tmpls, db, nc))
+				mux.Handle("GET /", handlers.WalletHome(tmpls, db))
+				mux.Handle("GET /updates", handlers.WalletHomeUpdates(tmpls, db, nc))
 
-			mux.
-				With(midware.AuthWallet(db, accounts.PermReadBals)).
-				Handle("GET /assets", handlers.WalletAssets(tmpls, db))
+				mux.Handle("GET /assets", handlers.WalletAssets(tmpls, db))
+				mux.Handle("GET /assets/updates", handlers.WalletAssetsUpdates(tmpls, db, nc))
+			})
 		})
 
 		mux.Handle("GET /logout", handlers.Logout(sessionsKV))
