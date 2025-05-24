@@ -22,6 +22,7 @@
     {{block "page-content" .PageData}}
     <p>No content</p>
     {{end}}
+    {{template "components/app-menu" .MenuData}}
     {{if get_env "ENV" | eq "dev"}}
     <div data-on-load="@get('/hotreload', {retryInterval: 100, retryScaler: 1, retryMaxCount: 200})"></div>
     {{end}}

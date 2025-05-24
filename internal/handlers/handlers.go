@@ -276,6 +276,10 @@ func WalletHome(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc 
 				ProfileImage: pfp,
 				Username:     user.DiscordUsername,
 			},
+			MenuData: templates.DataComponentAppMenu{
+				ActivePage: "home",
+				WalletAddr: wAddr,
+			},
 			PageData: templates.DataPageWalletHomepage{
 				WalletAddr: wAddr,
 				SteloSummary: templates.DataComponentSteloSummary{

@@ -21,6 +21,7 @@ type DataComponentFooterLink struct {
 
 type DataLayoutApp struct {
 	NavData     DataComponentAppNav
+	MenuData    DataComponentAppMenu
 	Title       string
 	Description string
 	PageData    any
@@ -29,6 +30,10 @@ type DataComponentAppNav struct {
 	WalletAddr   string
 	ProfileImage string
 	Username     string
+}
+type DataComponentAppMenu struct {
+	ActivePage string
+	WalletAddr string
 }
 
 // pages/wallet-home
