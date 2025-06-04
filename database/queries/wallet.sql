@@ -15,3 +15,22 @@ SELECT * FROM wallet WHERE id = $1;
 
 -- name: GetWalletAddr :one
 SELECT address FROM wallet WHERE id = $1;
+
+-- name: SearchWalletAddr :many
+SELECT wallet.address
+FROM wallet
+WHERE wallet.address ILIKE $1
+LIMIT $2;
+
+-- name: SearchWalletAddrByDiscord :many
+SELECT
+	u.discord_username,
+	w.address
+FROM
+	"user" AS u
+JOIN wallet AS w ON w.id = u.wallet_id
+WHERE u.discord_username ILIKE $1
+LIMIT $2;
+
+-- name: GetWalletIdsByAddr :many
+SELECT id, address FROM wallet WHERE address = ANY($1::TEXT[]);

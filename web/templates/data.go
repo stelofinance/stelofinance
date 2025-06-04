@@ -62,6 +62,27 @@ type DataComponentAssetAsset struct {
 	Qty  float64
 }
 
+// pages/transact
+type DataPageWalletTransact struct {
+	OnlyRenderPage       bool
+	WalletAddr           string
+	TxType               string
+	TxRecipient          string
+	RecipientSuggestions []DataRecipientSuggestion
+	Assets               []DataTransactAsset
+}
+
+type DataTransactAsset struct {
+	LedgerId int64
+	Name     string
+}
+
+type DataRecipientSuggestion struct {
+	Type       string
+	Value      string
+	WalletAddr string
+}
+
 // pages/homepage
 
 type DataPageHomepage struct {

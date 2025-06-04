@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -488,6 +489,215 @@ func WalletAssetsUpdates(tmpls *templates.Tmpls, db *database.Database, nc *nats
 				break loop
 			}
 		}
+	}
+}
+
+func WalletTransact(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sData, found := sessions.GetSession(r.Context())
+		if !found {
+			panic("missing session")
+		}
+		wAddr := chi.URLParam(r, "wallet_addr")
+
+		user, err := db.Q.GetUserById(r.Context(), sData.UserId)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		pfp := ""
+		if user.DiscordPfp != nil {
+			pfp = *user.DiscordPfp
+		}
+
+		accBals, err := db.Q.GetAccountBalancesByWalletAddr(r.Context(), wAddr)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		assets := make([]templates.DataTransactAsset, 0, len(accBals))
+		for _, acc := range accBals {
+			assets = append(assets, templates.DataTransactAsset{
+				LedgerId: acc.LedgerID,
+				Name:     acc.AssetName,
+			})
+		}
+
+		tmplData := templates.DataLayoutApp{}
+		if r.URL.Query().Has("datastar") {
+			type input struct {
+				Search string `json:"recipientSearch"`
+				Tx     struct {
+					Type      string `json:"type"`
+					Recipient string `json:"recipient"`
+				} `json:"tx"`
+			}
+			var ds input
+			err = json.Unmarshal([]byte(r.URL.Query().Get("datastar")), &ds)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			data := templates.DataPageWalletTransact{
+				WalletAddr: wAddr,
+				RecipientForm: templates.DataComponentRecipientForm{
+					WalletAddr: wAddr,
+				},
+				Assets:         assets,
+				OnlyRenderPage: true,
+				TxType:         ds.Tx.Type,
+				TxRecipient:    ds.Tx.Recipient,
+			}
+
+			if ds.Tx.Recipient == "" && ds.Search != "" {
+				wallets, err := db.Q.SearchWalletAddr(r.Context(), gensql.SearchWalletAddrParams{
+					Address: "%" + ds.Search + "%",
+					Limit:   3,
+				})
+				if err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				usrWallets, err := db.Q.SearchWalletAddrByDiscord(r.Context(), gensql.SearchWalletAddrByDiscordParams{
+					DiscordUsername: "%" + ds.Search + "%",
+					Limit:           3,
+				})
+				suggestions := make([]templates.DataComponentRecipientSuggestion, 0, len(usrWallets)+len(wallets))
+				for _, w := range usrWallets {
+					suggestions = append(suggestions, templates.DataComponentRecipientSuggestion{
+						Type:       "user",
+						Value:      w.DiscordUsername,
+						WalletAddr: w.Address,
+					})
+				}
+				for _, w := range wallets {
+					suggestions = append(suggestions, templates.DataComponentRecipientSuggestion{
+						Type:       "wallet",
+						Value:      w,
+						WalletAddr: w,
+					})
+				}
+				data.RecipientSuggestions = suggestions
+			}
+
+			sse := datastar.NewSSE(w, r)
+
+			tmplData.PageData = data
+			buff := new(bytes.Buffer)
+			err = tmpls.ExecuteTemplate(buff, "pages/transact", tmplData)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			sse.MergeFragments(string(buff.Bytes()))
+			return
+		} else {
+			tmplData = templates.DataLayoutApp{
+				Title:       "Home",
+				Description: "Wallet homepage",
+				NavData: templates.DataComponentAppNav{
+					WalletAddr:   wAddr,
+					ProfileImage: pfp,
+					Username:     user.DiscordUsername,
+				},
+				MenuData: templates.DataComponentAppMenu{
+					ActivePage: "transact",
+					WalletAddr: wAddr,
+				},
+				PageData: templates.DataPageWalletTransact{
+					WalletAddr: wAddr,
+					RecipientForm: templates.DataComponentRecipientForm{
+						WalletAddr: wAddr,
+					},
+					Assets: assets,
+					TxType: "transfer",
+				},
+			}
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		err = tmpls.ExecuteTemplate(w, "pages/transact", tmplData)
+		if err != nil {
+			panic(err)
+		}
+	}
+}
+
+func WalletCreateTransaction(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		wAddr := chi.URLParam(r, "wallet_addr")
+
+		recipient := r.FormValue("recipientSelected")
+		ledgerIdStr := r.FormValue("ledgerId")
+		qtyStr := r.FormValue("qty")
+		memoStr := r.FormValue("memo")
+
+		var memo *string
+		if memoStr != "" {
+			memo = &memoStr
+		}
+
+		qty, err := strconv.ParseFloat(qtyStr, 64)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		ledgerId, err := strconv.Atoi(ledgerIdStr)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		// Search ledger
+		ledger, err := db.Q.GetLedger(r.Context(), int64(ledgerId))
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		// Search up wallet ids
+		idRows, err := db.Q.GetWalletIdsByAddr(r.Context(), []string{wAddr, recipient})
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		debitIndx := slices.IndexFunc(idRows, func(r gensql.GetWalletIdsByAddrRow) bool {
+			return r.Address == recipient
+		})
+		creditIndx := slices.IndexFunc(idRows, func(r gensql.GetWalletIdsByAddrRow) bool {
+			return r.Address == wAddr
+		})
+		if debitIndx == -1 || creditIndx == -1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		tx, err := db.Pool.Begin(r.Context())
+		defer tx.Rollback(r.Context())
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, err = accounts.CreateTransaction(r.Context(), gensql.New(tx), nc, accounts.TxInput{
+			DebitWalletId:  idRows[debitIndx].ID,
+			CreditWalletId: idRows[creditIndx].ID,
+			Code:           accounts.TxUserToUser,
+			Memo:           memo,
+			IsPending:      false,
+			Assets: []accounts.TxAssets{{
+				LedgerId: int64(ledgerId),
+				Amount:   int64(qty * math.Pow(10, float64(ledger.AssetScale))),
+			}},
+		})
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		tx.Commit(r.Context())
+
+		sse := datastar.NewSSE(w, r)
+		sse.MergeFragments(`<button id="submit-btn" type="submit" disabled class="border border-neutral-500 text-xl w-full mt-4 py-2">SENT!</button>`)
 	}
 }
 

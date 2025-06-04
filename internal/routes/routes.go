@@ -44,6 +44,13 @@ func AddRoutes(mux *chi.Mux, logger *slog.Logger, tmpls *templates.Tmpls, db *da
 				mux.Handle("GET /assets", handlers.WalletAssets(tmpls, db))
 				mux.Handle("GET /assets/updates", handlers.WalletAssetsUpdates(tmpls, db, nc))
 			})
+
+			mux.Group(func(mux chi.Router) {
+				mux.Use(midware.AuthWallet(db, accounts.PermAdmin))
+
+				mux.Handle("GET /transact", handlers.WalletTransact(tmpls, db))
+				mux.Handle("POST /transact", handlers.WalletCreateTransaction(tmpls, db, nc))
+			})
 		})
 
 		mux.Handle("GET /logout", handlers.Logout(sessionsKV))

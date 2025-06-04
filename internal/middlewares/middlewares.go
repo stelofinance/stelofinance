@@ -100,6 +100,7 @@ func AuthWallet(db *database.Database, perms ...accounts.Permission) func(http.H
 			// Wallet admin can bypass all
 			if accounts.PermAdmin&walletPerms == accounts.PermAdmin {
 				next.ServeHTTP(w, r)
+				return
 			}
 
 			for _, perm := range perms {
