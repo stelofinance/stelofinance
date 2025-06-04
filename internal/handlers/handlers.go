@@ -539,10 +539,7 @@ func WalletTransact(tmpls *templates.Tmpls, db *database.Database) http.HandlerF
 				return
 			}
 			data := templates.DataPageWalletTransact{
-				WalletAddr: wAddr,
-				RecipientForm: templates.DataComponentRecipientForm{
-					WalletAddr: wAddr,
-				},
+				WalletAddr:     wAddr,
 				Assets:         assets,
 				OnlyRenderPage: true,
 				TxType:         ds.Tx.Type,
@@ -562,16 +559,16 @@ func WalletTransact(tmpls *templates.Tmpls, db *database.Database) http.HandlerF
 					DiscordUsername: "%" + ds.Search + "%",
 					Limit:           3,
 				})
-				suggestions := make([]templates.DataComponentRecipientSuggestion, 0, len(usrWallets)+len(wallets))
+				suggestions := make([]templates.DataRecipientSuggestion, 0, len(usrWallets)+len(wallets))
 				for _, w := range usrWallets {
-					suggestions = append(suggestions, templates.DataComponentRecipientSuggestion{
+					suggestions = append(suggestions, templates.DataRecipientSuggestion{
 						Type:       "user",
 						Value:      w.DiscordUsername,
 						WalletAddr: w.Address,
 					})
 				}
 				for _, w := range wallets {
-					suggestions = append(suggestions, templates.DataComponentRecipientSuggestion{
+					suggestions = append(suggestions, templates.DataRecipientSuggestion{
 						Type:       "wallet",
 						Value:      w,
 						WalletAddr: w,
@@ -606,11 +603,8 @@ func WalletTransact(tmpls *templates.Tmpls, db *database.Database) http.HandlerF
 				},
 				PageData: templates.DataPageWalletTransact{
 					WalletAddr: wAddr,
-					RecipientForm: templates.DataComponentRecipientForm{
-						WalletAddr: wAddr,
-					},
-					Assets: assets,
-					TxType: "transfer",
+					Assets:     assets,
+					TxType:     "transfer",
 				},
 			}
 		}
@@ -635,6 +629,10 @@ func WalletCreateTransaction(tmpls *templates.Tmpls, db *database.Database, nc *
 		var memo *string
 		if memoStr != "" {
 			memo = &memoStr
+			if len(memoStr) > 100 {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
 		}
 
 		qty, err := strconv.ParseFloat(qtyStr, 64)
