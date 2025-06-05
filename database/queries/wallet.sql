@@ -34,3 +34,16 @@ LIMIT $2;
 
 -- name: GetWalletIdsByAddr :many
 SELECT id, address FROM wallet WHERE address = ANY($1::TEXT[]);
+
+-- name: GetWalletsByLocation :many
+SELECT
+	w.address,
+	ST_AsText(w.location) AS warehouse_coordinates,
+	ST_Distance($1, w.location) AS distance
+FROM
+	wallet AS w
+WHERE
+	w.code = 200
+ORDER BY
+	distance
+LIMIT $2;
