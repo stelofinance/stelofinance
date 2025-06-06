@@ -475,6 +475,7 @@ var ErrInvalidFinalizeStatus = errors.New("transaction: invalid tx status to fin
 var ErrTransactionNotPending = errors.New("transaction: transaction not in pending status")
 var ErrUnexpectedNonPendingTransfer = errors.New("transaction: unexpected non-pending transfer")
 
+// TODO: Send tx msg in NATS
 func FinalizeTransaction(ctx context.Context, q *gensql.Queries, input FinalizeInput) error {
 	if input.Status != TxPostPending && input.Status != TxVoidPending {
 		return ErrInvalidFinalizeStatus
