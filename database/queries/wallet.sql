@@ -38,8 +38,8 @@ SELECT id, address FROM wallet WHERE address = ANY($1::TEXT[]);
 -- name: GetWalletsByLocation :many
 SELECT
 	w.address,
-	ST_AsText(w.location) AS warehouse_coordinates,
-	ST_Distance($1, w.location) AS distance
+	ST_AsText(w.location)::TEXT AS warehouse_coordinates,
+	ST_Distance($1, w.location)::INT AS distance
 FROM
 	wallet AS w
 WHERE

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math"
 	"net/http"
@@ -528,8 +529,11 @@ func WalletTransact(tmpls *templates.Tmpls, db *database.Database) http.HandlerF
 			type input struct {
 				Search string `json:"recipientSearch"`
 				Tx     struct {
-					Type      string `json:"type"`
-					Recipient string `json:"recipient"`
+					Type          string `json:"type"`
+					Recipient     string `json:"recipient"`
+					NCoord        int    `json:"nCoord"`
+					ECoord        int    `json:"eCoord"`
+					WarehouseAddr string `json:"warehouseAddr"`
 				} `json:"tx"`
 			}
 			var ds input
@@ -544,8 +548,47 @@ func WalletTransact(tmpls *templates.Tmpls, db *database.Database) http.HandlerF
 				OnlyRenderPage: true,
 				TxType:         ds.Tx.Type,
 				TxRecipient:    ds.Tx.Recipient,
+				TxWarehouse:    ds.Tx.WarehouseAddr,
+				TxNCoord:       ds.Tx.NCoord,
+				TxECoord:       ds.Tx.ECoord,
 			}
+			if ds.Tx.Type == "deposit" {
+				allAssets, err := db.Q.GetLedgersByCode(r.Context(), int32(accounts.Item))
+				if err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				for _, a := range allAssets {
+					data.AllAssets = append(data.AllAssets, templates.DataTransactAsset{
+						LedgerId: a.ID,
+						Name:     a.Name,
+					})
+				}
 
+				if ds.Tx.WarehouseAddr == "" {
+					locations, err := db.Q.GetWalletsByLocation(r.Context(), gensql.GetWalletsByLocationParams{
+						StDistance: fmt.Sprintf("POINT(%d %d)", ds.Tx.NCoord, ds.Tx.ECoord),
+						Limit:      5,
+					})
+					if err != nil {
+						w.WriteHeader(http.StatusInternalServerError)
+						return
+					}
+					for _, l := range locations {
+						str := strings.TrimPrefix(l.WarehouseCoordinates, "POINT(")
+						str = strings.TrimSuffix(str, ")")
+						coords := strings.Split(str, " ")
+						if len(coords) != 2 {
+							w.WriteHeader(http.StatusInternalServerError)
+							return
+						}
+						data.WarehouseSuggestions = append(data.WarehouseSuggestions, templates.DataWarehouseSuggestion{
+							Label:      fmt.Sprintf("N:%v E:%v (dist: %d)", coords[0], coords[1], l.Distance),
+							WalletAddr: l.Address,
+						})
+					}
+				}
+			}
 			if ds.Tx.Recipient == "" && ds.Search != "" {
 				wallets, err := db.Q.SearchWalletAddr(r.Context(), gensql.SearchWalletAddrParams{
 					Address: "%" + ds.Search + "%",
@@ -621,19 +664,11 @@ func WalletCreateTransaction(tmpls *templates.Tmpls, db *database.Database, nc *
 	return func(w http.ResponseWriter, r *http.Request) {
 		wAddr := chi.URLParam(r, "wallet_addr")
 
+		txType := r.FormValue("type")
 		recipient := r.FormValue("recipientSelected")
 		ledgerIdStr := r.FormValue("ledgerId")
 		qtyStr := r.FormValue("qty")
 		memoStr := r.FormValue("memo")
-
-		var memo *string
-		if memoStr != "" {
-			memo = &memoStr
-			if len(memoStr) > 100 {
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
-		}
 
 		qty, err := strconv.ParseFloat(qtyStr, 64)
 		if err != nil {
@@ -651,6 +686,15 @@ func WalletCreateTransaction(tmpls *templates.Tmpls, db *database.Database, nc *
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
+		}
+
+		var memo *string
+		if memoStr != "" {
+			memo = &memoStr
+			if len(memoStr) > 100 {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
 		}
 
 		// Search up wallet ids
@@ -676,12 +720,22 @@ func WalletCreateTransaction(tmpls *templates.Tmpls, db *database.Database, nc *
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
+		code := accounts.TxUserToUser
+		pending := false
+		creditId := idRows[creditIndx].ID
+		debitId := idRows[debitIndx].ID
+		if txType == "deposit" {
+			code = accounts.TxWarehouseTransfer
+			pending = true
+			creditId = debitId
+			debitId = idRows[creditIndx].ID
+		}
 		_, err = accounts.CreateTransaction(r.Context(), gensql.New(tx), nc, accounts.TxInput{
-			DebitWalletId:  idRows[debitIndx].ID,
-			CreditWalletId: idRows[creditIndx].ID,
-			Code:           accounts.TxUserToUser,
+			DebitWalletId:  debitId,
+			CreditWalletId: creditId,
+			Code:           code,
 			Memo:           memo,
-			IsPending:      false,
+			IsPending:      pending,
 			Assets: []accounts.TxAssets{{
 				LedgerId: int64(ledgerId),
 				Amount:   int64(qty * math.Pow(10, float64(ledger.AssetScale))),
@@ -695,7 +749,11 @@ func WalletCreateTransaction(tmpls *templates.Tmpls, db *database.Database, nc *
 		tx.Commit(r.Context())
 
 		sse := datastar.NewSSE(w, r)
-		sse.MergeFragments(`<button id="submit-btn" type="submit" disabled class="border border-neutral-500 text-xl w-full mt-4 py-2">SENT!</button>`)
+		if txType == "deposit" {
+			sse.MergeFragments(`<button id="submit-btn" type="submit" disabled class="border border-neutral-500 text-xl w-full mt-4 py-2">CREATED!</button>`)
+		} else {
+			sse.MergeFragments(`<button id="submit-btn" type="submit" disabled class="border border-neutral-500 text-xl w-full mt-4 py-2">SENT!</button>`)
+		}
 	}
 }
 

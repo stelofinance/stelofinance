@@ -68,18 +68,25 @@ type DataPageWalletTransact struct {
 	WalletAddr           string
 	TxType               string
 	TxRecipient          string
+	TxWarehouse          string
+	TxNCoord             int
+	TxECoord             int
 	RecipientSuggestions []DataRecipientSuggestion
+	WarehouseSuggestions []DataWarehouseSuggestion
 	Assets               []DataTransactAsset
+	AllAssets            []DataTransactAsset
 }
-
 type DataTransactAsset struct {
 	LedgerId int64
 	Name     string
 }
-
 type DataRecipientSuggestion struct {
 	Type       string
 	Value      string
+	WalletAddr string
+}
+type DataWarehouseSuggestion struct {
+	Label      string
 	WalletAddr string
 }
 
