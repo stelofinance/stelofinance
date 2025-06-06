@@ -43,6 +43,9 @@ func AddRoutes(mux *chi.Mux, logger *slog.Logger, tmpls *templates.Tmpls, db *da
 
 				mux.Handle("GET /assets", handlers.WalletAssets(tmpls, db))
 				mux.Handle("GET /assets/updates", handlers.WalletAssetsUpdates(tmpls, db, nc))
+
+				mux.Handle("GET /transactions", handlers.WalletTransactions(tmpls, db))
+				mux.Handle("GET /transactions/updates", handlers.WalletTransactionsUpdates(tmpls, db, nc))
 			})
 
 			mux.Group(func(mux chi.Router) {

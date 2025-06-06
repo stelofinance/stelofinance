@@ -47,3 +47,8 @@ WHERE
 ORDER BY
 	distance
 LIMIT $2;
+
+-- name: GetWalletIdByAddr :one
+SELECT id
+FROM wallet
+WHERE address = $1;

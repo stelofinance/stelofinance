@@ -25,6 +25,7 @@ require (
 require (
 	github.com/a-h/templ v0.3.865 // indirect
 	github.com/delaneyj/gostar v0.8.0 // indirect
+	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/go-tpm v0.9.5 // indirect

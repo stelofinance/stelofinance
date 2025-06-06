@@ -90,6 +90,23 @@ type DataWarehouseSuggestion struct {
 	WalletAddr string
 }
 
+// pages/wallet-transactions
+type DataPageWalletTransactions struct {
+	OnlyRenderPage bool
+	WalletAddr     string
+	Transactions   []DataTransaction
+}
+type DataTransaction struct {
+	Direction string
+	Recipient string
+	Timestamp string
+	Memo      string
+	Assets    []struct {
+		Name string
+		Qty  float64
+	}
+}
+
 // pages/homepage
 
 type DataPageHomepage struct {

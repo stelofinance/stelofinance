@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/dchest/uniuri"
+	"github.com/dustin/go-humanize"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/markbates/goth/gothic"
@@ -753,6 +754,161 @@ func WalletCreateTransaction(tmpls *templates.Tmpls, db *database.Database, nc *
 			sse.MergeFragments(`<button id="submit-btn" type="submit" disabled class="border border-neutral-500 text-xl w-full mt-4 py-2">CREATED!</button>`)
 		} else {
 			sse.MergeFragments(`<button id="submit-btn" type="submit" disabled class="border border-neutral-500 text-xl w-full mt-4 py-2">SENT!</button>`)
+		}
+	}
+}
+
+func WalletTransactions(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sData, found := sessions.GetSession(r.Context())
+		if !found {
+			panic("missing session")
+		}
+		wAddr := chi.URLParam(r, "wallet_addr")
+
+		user, err := db.Q.GetUserById(r.Context(), sData.UserId)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		pfp := ""
+		if user.DiscordPfp != nil {
+			pfp = *user.DiscordPfp
+		}
+		txs := make([]templates.DataTransaction, 0)
+
+		walletId, err := db.Q.GetWalletIdByAddr(r.Context(), wAddr)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		txsRes, err := db.Q.GetTransactionsByWalletId(r.Context(), gensql.GetTransactionsByWalletIdParams{
+			DebitWalletID: walletId,
+			Limit:         50,
+		})
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		for _, tx := range txsRes {
+			direction := "outgoing"
+			recip := tx.DebitAddress
+			if tx.DebitWalletID == walletId {
+				direction = "incoming"
+				recip = tx.CreditAddress
+			}
+			memo := ""
+			if tx.Memo != nil {
+				memo = *tx.Memo
+			}
+
+			txs = append(txs, templates.DataTransaction{
+				Direction: direction,
+				Recipient: recip,
+				Timestamp: humanize.Time(tx.CreatedAt),
+				Memo:      memo,
+			})
+		}
+
+		tmplData := templates.DataLayoutApp{
+			Title:       "History",
+			Description: "Wallet transaction history",
+			NavData: templates.DataComponentAppNav{
+				WalletAddr:   wAddr,
+				ProfileImage: pfp,
+				Username:     user.DiscordUsername,
+			},
+			MenuData: templates.DataComponentAppMenu{
+				ActivePage: "home",
+				WalletAddr: wAddr,
+			},
+			PageData: templates.DataPageWalletTransactions{
+				WalletAddr:   wAddr,
+				Transactions: txs,
+			},
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		err = tmpls.ExecuteTemplate(w, "pages/wallet-transactions", tmplData)
+		if err != nil {
+			panic(err)
+		}
+	}
+}
+
+func WalletTransactionsUpdates(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		wAddr := chi.URLParam(r, "wallet_addr")
+		walletId, err := db.Q.GetWalletIdByAddr(r.Context(), wAddr)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		sse := datastar.NewSSE(w, r)
+
+		txChan := make(chan *nats.Msg)
+		sub, err := nc.ChanSubscribe("wallets."+wAddr+".transactions", txChan)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+	loop:
+		for {
+			select {
+			case <-txChan:
+				txs := make([]templates.DataTransaction, 0)
+
+				txsRes, err := db.Q.GetTransactionsByWalletId(r.Context(), gensql.GetTransactionsByWalletIdParams{
+					DebitWalletID: walletId,
+					Limit:         50,
+				})
+				if err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+
+				for _, tx := range txsRes {
+					direction := "outgoing"
+					recip := tx.DebitAddress
+					if tx.DebitWalletID == walletId {
+						direction = "incoming"
+						recip = tx.CreditAddress
+					}
+					memo := ""
+					if tx.Memo != nil {
+						memo = *tx.Memo
+					}
+
+					txs = append(txs, templates.DataTransaction{
+						Direction: direction,
+						Recipient: recip,
+						Timestamp: humanize.Time(tx.CreatedAt),
+						Memo:      memo,
+					})
+				}
+
+				tmplData := templates.DataLayoutApp{
+					PageData: templates.DataPageWalletTransactions{
+						WalletAddr:     wAddr,
+						OnlyRenderPage: true,
+						Transactions:   txs,
+					},
+				}
+
+				buff := new(bytes.Buffer)
+				err = tmpls.ExecuteTemplate(buff, "pages/wallet-transactions", tmplData)
+				if err != nil {
+					panic(err)
+				}
+				sse.MergeFragments(string(buff.Bytes()))
+			case <-r.Context().Done():
+				sub.Unsubscribe()
+				break loop
+			}
 		}
 	}
 }
