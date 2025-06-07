@@ -57,14 +57,14 @@ func AuthSession(logger *slog.Logger, sessionsKV jetstream.KeyValue, authRequire
 			}
 
 			// Unmarshal data
-			var sData sessions.Data
-			if err := json.Unmarshal(sVal, &sData); err != nil {
+			var usrData sessions.UserData
+			if err := json.Unmarshal(sVal, &usrData); err != nil {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
 
 			// Add session data to request
-			r = r.WithContext(sessions.WithSession(r.Context(), &sData))
+			r = r.WithContext(sessions.WithUser(r.Context(), &usrData))
 			next.ServeHTTP(w, r)
 		})
 	}
@@ -76,12 +76,11 @@ func AuthWallet(db *database.Database, perms ...accounts.Permission) func(http.H
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			wAddr := chi.URLParam(r, "wallet_addr")
-
-			sData := sessions.GetSession(r.Context())
+			sData := sessions.GetUser(r.Context())
 
 			// Check if they have the wallet permissions
 			permsResult, err := db.Q.GetWalletPermissions(r.Context(), gensql.GetWalletPermissionsParams{
-				ID:      sData.UserId,
+				ID:      sData.Id,
 				Address: wAddr,
 			})
 			if err != nil {
@@ -92,7 +91,13 @@ func AuthWallet(db *database.Database, perms ...accounts.Permission) func(http.H
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
-			walletPerms := accounts.Permission(permsResult)
+			walletPerms := accounts.Permission(permsResult.Permissions)
+
+			// Add wallet data to session
+			r = r.WithContext(sessions.WithWallet(r.Context(), &sessions.WalletData{
+				Id:      permsResult.WalletID,
+				Address: wAddr,
+			}))
 
 			// Wallet admin can bypass all
 			if accounts.PermAdmin&walletPerms == accounts.PermAdmin {

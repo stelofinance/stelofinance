@@ -1,5 +1,6 @@
 -- name: GetWalletPermissions :one
 SELECT
+	wp.wallet_id,
 	wp.permissions
 FROM
 	wallet_permission AS wp
