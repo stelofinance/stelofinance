@@ -1,8 +1,12 @@
 package sessions
 
-import "context"
+import (
+	"context"
+)
 
-var userContextKey = struct{}{}
+type userCtxKey struct{}
+
+var userContextKey = userCtxKey{}
 
 type UserData struct {
 	Id        int64  `json:"userId"` // The user's id
@@ -21,14 +25,16 @@ func GetUser(ctx context.Context) *UserData {
 		return nil
 	}
 
-	data, ok := val.(*UserData)
+	data, ok := ctx.Value(userContextKey).(*UserData)
 	if !ok {
-		panic("sessions: session context value of wrong type")
+		panic("sessions: user context value of wrong type")
 	}
 	return data
 }
 
-var walletContextKey = struct{}{}
+type walletCtxKey struct{}
+
+var walletContextKey = walletCtxKey{}
 
 type WalletData struct {
 	Id      int64 // The wallet's id
@@ -49,7 +55,7 @@ func GetWallet(ctx context.Context) *WalletData {
 
 	data, ok := val.(*WalletData)
 	if !ok {
-		panic("sessions: session context value of wrong type")
+		panic("sessions: wallet context value of wrong type")
 	}
 	return data
 }
