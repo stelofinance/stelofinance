@@ -77,10 +77,7 @@ func AuthWallet(db *database.Database, perms ...accounts.Permission) func(http.H
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			wAddr := chi.URLParam(r, "wallet_addr")
 
-			sData, found := sessions.GetSession(r.Context())
-			if !found {
-				panic("missing session")
-			}
+			sData := sessions.GetSession(r.Context())
 
 			// Check if they have the wallet permissions
 			permsResult, err := db.Q.GetWalletPermissions(r.Context(), gensql.GetWalletPermissionsParams{

@@ -10,6 +10,7 @@ require (
 	github.com/bmatcuk/doublestar/v4 v4.8.1
 	github.com/cridenour/go-postgis v1.0.1
 	github.com/dchest/uniuri v1.2.0
+	github.com/dustin/go-humanize v1.0.1
 	github.com/go-chi/chi/v5 v5.2.0
 	github.com/go-chi/cors v1.2.1
 	github.com/gorilla/sessions v1.4.0
@@ -25,7 +26,6 @@ require (
 require (
 	github.com/a-h/templ v0.3.865 // indirect
 	github.com/delaneyj/gostar v0.8.0 // indirect
-	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/go-tpm v0.9.5 // indirect

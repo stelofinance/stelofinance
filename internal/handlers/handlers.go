@@ -31,10 +31,7 @@ import (
 
 func Index(tmpls *templates.Tmpls) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sData, found := sessions.GetSession(r.Context())
-		if !found {
-			sData = nil
-		}
+		sData := sessions.GetSession(r.Context())
 		tmplData := templates.DataLayoutPrimary{
 			NavData: templates.DataComponentNav{},
 			FooterData: templates.DataComponentFooter{
@@ -242,10 +239,8 @@ func App(tmpls *templates.Tmpls) http.HandlerFunc {
 
 func WalletHome(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		sData, found := sessions.GetSession(r.Context())
-		if !found {
-			panic("missing session")
-		}
+		sData := sessions.GetSession(r.Context())
+
 		wAddr := chi.URLParam(r, "wallet_addr")
 
 		user, err := db.Q.GetUserById(r.Context(), sData.UserId)
@@ -353,10 +348,7 @@ func WalletHomeUpdates(tmpls *templates.Tmpls, db *database.Database, nc *nats.C
 
 func WalletAssets(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		sData, found := sessions.GetSession(r.Context())
-		if !found {
-			panic("missing session")
-		}
+		sData := sessions.GetSession(r.Context())
 		wAddr := chi.URLParam(r, "wallet_addr")
 
 		user, err := db.Q.GetUserById(r.Context(), sData.UserId)
@@ -496,10 +488,7 @@ func WalletAssetsUpdates(tmpls *templates.Tmpls, db *database.Database, nc *nats
 
 func WalletTransact(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		sData, found := sessions.GetSession(r.Context())
-		if !found {
-			panic("missing session")
-		}
+		sData := sessions.GetSession(r.Context())
 		wAddr := chi.URLParam(r, "wallet_addr")
 
 		user, err := db.Q.GetUserById(r.Context(), sData.UserId)
@@ -760,10 +749,7 @@ func WalletCreateTransaction(tmpls *templates.Tmpls, db *database.Database, nc *
 
 func WalletTransactions(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		sData, found := sessions.GetSession(r.Context())
-		if !found {
-			panic("missing session")
-		}
+		sData := sessions.GetSession(r.Context())
 		wAddr := chi.URLParam(r, "wallet_addr")
 
 		user, err := db.Q.GetUserById(r.Context(), sData.UserId)
@@ -937,10 +923,7 @@ func HotReload() http.HandlerFunc {
 
 func Logout(sessionsKV jetstream.KeyValue) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		sData, found := sessions.GetSession(r.Context())
-		if !found {
-			panic("missing session")
-		}
+		sData := sessions.GetSession(r.Context())
 
 		cookie, err := r.Cookie("sid")
 		if err != nil {
