@@ -52,3 +52,21 @@ LIMIT $2;
 SELECT id
 FROM wallet
 WHERE address = $1;
+
+-- name: GetWalletAddrByUsrIdAndCode :one
+SELECT
+	w.address
+FROM "user" AS u
+JOIN wallet_permission AS wp ON wp.user_id = u.id
+JOIN wallet AS w ON wp.wallet_id = w.id
+WHERE w.code = sqlc.arg(wallet_code) AND u.id = sqlc.arg(user_id)
+LIMIT 1;
+
+-- name: GetWalletsByUsrIdAndCodes :many
+SELECT
+	w.address,
+	w.code
+FROM "user" AS u
+JOIN wallet_permission AS wp ON wp.user_id = u.id
+JOIN wallet AS w ON wp.wallet_id = w.id
+WHERE u.id = sqlc.arg(user_id) AND w.code = ANY(sqlc.arg(wallet_codes)::BIGINT[]);

@@ -582,7 +582,7 @@ func WalletTransactions(tmpls *templates.Tmpls, db *database.Database) http.Hand
 				Username:     user.DiscordUsername,
 			},
 			MenuData: templates.DataComponentAppMenu{
-				ActivePage: "home",
+				ActivePage: "history",
 				WalletAddr: wData.Address,
 			},
 			PageData: templates.DataPageWalletTransactions{
@@ -665,6 +665,71 @@ func WalletTransactionsUpdates(tmpls *templates.Tmpls, db *database.Database, nc
 				sub.Unsubscribe()
 				break loop
 			}
+		}
+	}
+}
+
+func Wallets(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uData := sessions.GetUser(r.Context())
+
+		user, err := db.Q.GetUserById(r.Context(), uData.Id)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		pfp := ""
+		if user.DiscordPfp != nil {
+			pfp = *user.DiscordPfp
+		}
+
+		// Get wallets and format them for the template
+		wallets, err := db.Q.GetWalletsByUsrIdAndCodes(r.Context(), gensql.GetWalletsByUsrIdAndCodesParams{
+			UserID:      uData.Id,
+			WalletCodes: []int64{int64(accounts.PersonalAcc), int64(accounts.GeneralAcc)},
+		})
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		primaryAddr := ""
+		walletsFmtd := make([]templates.DataPageWalletsWallet, 0, len(wallets))
+		for _, w := range wallets {
+			walletsFmtd = append(walletsFmtd, templates.DataPageWalletsWallet{
+				Addr:       w.Address,
+				IsPersonal: accounts.AccountCode(w.Code) == accounts.PersonalAcc,
+			})
+
+			if accounts.AccountCode(w.Code) == accounts.PersonalAcc {
+				primaryAddr = w.Address
+			}
+		}
+		if primaryAddr == "" {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		tmplData := templates.DataLayoutApp{
+			Title:       "Wallets",
+			Description: "A list of all your wallets, to edit and select them",
+			NavData: templates.DataComponentAppNav{
+				WalletAddr:   primaryAddr,
+				ProfileImage: pfp,
+				Username:     user.DiscordUsername,
+			},
+			MenuData: templates.DataComponentAppMenu{
+				ActivePage: "wallets",
+				WalletAddr: primaryAddr,
+			},
+			PageData: templates.DataPageWallets{
+				Wallets: walletsFmtd,
+			},
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		err = tmpls.ExecuteTemplate(w, "pages/wallets", tmplData)
+		if err != nil {
+			panic(err)
 		}
 	}
 }

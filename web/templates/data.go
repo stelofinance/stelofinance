@@ -107,6 +107,15 @@ type DataTransaction struct {
 	}
 }
 
+// pages/wallets
+type DataPageWallets struct {
+	Wallets []DataPageWalletsWallet
+}
+type DataPageWalletsWallet struct {
+	Addr       string
+	IsPersonal bool
+}
+
 // pages/homepage
 
 type DataPageHomepage struct {
