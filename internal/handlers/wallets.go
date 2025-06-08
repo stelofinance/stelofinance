@@ -733,3 +733,30 @@ func Wallets(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
 		}
 	}
 }
+
+func WalletsCreate(db *database.Database) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uData := sessions.GetUser(r.Context())
+
+		tx, err := db.Pool.Begin(r.Context())
+		defer tx.Rollback(r.Context())
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, addr, err := accounts.CreateGeneralWallet(r.Context(), gensql.New(tx), uData.Id)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		err = tx.Commit(r.Context())
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		// Redirect to the new wallet homepage
+		sse := datastar.NewSSE(w, r)
+		sse.Redirect("/app/wallets/" + addr)
+	}
+}

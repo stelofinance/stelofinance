@@ -235,7 +235,7 @@ func CreatePersonalWallet(ctx context.Context, q *gensql.Queries, input CreatePe
 	return accId, err
 }
 
-func CreateGeneralWallet(ctx context.Context, q *gensql.Queries, userId int64) (int64, error) {
+func CreateGeneralWallet(ctx context.Context, q *gensql.Queries, userId int64) (int64, string, error) {
 	// 512 billion possible variants
 	addr := uniuri.NewLenChars(9, AddressStdChars)
 
@@ -249,9 +249,9 @@ func CreateGeneralWallet(ctx context.Context, q *gensql.Queries, userId int64) (
 		code:    GeneralAcc,
 	})
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
-	return accId, err
+	return accId, addr, err
 }
 
 type CreateWarehouseInput struct {

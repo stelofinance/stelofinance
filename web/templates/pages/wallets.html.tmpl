@@ -3,7 +3,7 @@
 {{define "page-content"}}
 <main id="page-content" class="flex flex-col items-center justify-center text-white px-2 py-4">
   <h1 class="text-2xl mr-auto pl-2">Wallets</h1>
-  <button class="mt-3 bg-neutral-800 py-1 px-3 rounded">Create new wallet</button>
+  <button data-on-click="@post('/app/wallets')" class="mt-3 bg-neutral-800 py-1 px-3 rounded">Create new wallet</button>
   <div class="flex flex-col gap-2 w-full mt-6">
     {{range .Wallets}}
     <div class="flex p-1 w-full bg-neutral-800 rounded">

@@ -35,6 +35,7 @@ func AddRoutes(mux *chi.Mux, logger *slog.Logger, tmpls *templates.Tmpls, db *da
 		mux.Use(midware.AuthSession(logger, sessionsKV, true))
 
 		mux.Handle("GET /wallets", handlers.Wallets(tmpls, db))
+		mux.Handle("POST /wallets", handlers.WalletsCreate(db))
 
 		mux.Route("/wallets/{wallet_addr}", func(mux chi.Router) {
 			mux.Group(func(mux chi.Router) {
