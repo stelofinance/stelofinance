@@ -47,6 +47,17 @@ type DataComponentSteloSummary struct {
 	FeaturedAssetQty float64
 }
 
+// pages/wallet-settings
+type DataPageWalletSettings struct {
+	OnlyRenderPage bool
+	WalletAddr     string
+	Users          []DataPageWalletSettingsUser
+}
+type DataPageWalletSettingsUser struct {
+	Name        string
+	Permissions []string
+}
+
 // pages/wallet-home
 
 type DataPageWalletAssets struct {
@@ -114,6 +125,7 @@ type DataPageWallets struct {
 type DataPageWalletsWallet struct {
 	Addr       string
 	IsPersonal bool
+	IsAdmin    bool
 }
 
 // pages/homepage

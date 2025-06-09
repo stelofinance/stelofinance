@@ -4,12 +4,6 @@ INSERT
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING id;
 
--- name: InsertWalletPermission :one
-INSERT
-    INTO wallet_permission (wallet_id, user_id, permissions, updated_at, created_at)
-    VALUES ($1, $2, $3, $4, $5)
-RETURNING id;
-
 -- name: GetWallet :one
 SELECT * FROM wallet WHERE id = $1;
 
@@ -65,7 +59,8 @@ LIMIT 1;
 -- name: GetWalletsByUsrIdAndCodes :many
 SELECT
 	w.address,
-	w.code
+	w.code,
+	wp.permissions
 FROM "user" AS u
 JOIN wallet_permission AS wp ON wp.user_id = u.id
 JOIN wallet AS w ON wp.wallet_id = w.id

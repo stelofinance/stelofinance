@@ -7,13 +7,16 @@
   <div class="flex flex-col gap-2 w-full mt-6">
     {{range .Wallets}}
     <div class="flex p-1 w-full bg-neutral-800 rounded">
-      <div class="flex flex-col">
+      <div class="flex flex-col mr-auto">
         <p class="text-xl">{{.Addr}}</p>
         {{if .IsPersonal}}
         <p class="text-sm text-neutral-400 leading-tight">personal</p>
         {{end}}
       </div>
-      <a href="/app/wallets/{{.Addr}}" class="ml-auto bg-white text-black px-2 underline content-center">Select</a>
+      {{if not .IsPersonal | and .IsAdmin}}
+      <a href="/app/wallets/{{.Addr}}/settings" class="bg-white text-black px-2 underline content-center mr-1">Settings</a>
+      {{end}}
+      <a href="/app/wallets/{{.Addr}}" class="bg-white text-black px-2 underline content-center">Select</a>
     </div>
     {{end}}
   </div>

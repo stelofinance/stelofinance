@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/dustin/go-humanize"
 	"github.com/jackc/pgx/v5"
@@ -698,6 +699,7 @@ func Wallets(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
 			walletsFmtd = append(walletsFmtd, templates.DataPageWalletsWallet{
 				Addr:       w.Address,
 				IsPersonal: accounts.AccountCode(w.Code) == accounts.PersonalAcc,
+				IsAdmin:    accounts.PermAdmin&accounts.Permission(w.Permissions) == accounts.PermAdmin,
 			})
 
 			if accounts.AccountCode(w.Code) == accounts.PersonalAcc {
@@ -731,6 +733,140 @@ func Wallets(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
 		if err != nil {
 			panic(err)
 		}
+	}
+}
+
+func WalletSettings(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uData := sessions.GetUser(r.Context())
+		wData := sessions.GetWallet(r.Context())
+
+		user, err := db.Q.GetUserById(r.Context(), uData.Id)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		pfp := ""
+		if user.DiscordPfp != nil {
+			pfp = *user.DiscordPfp
+		}
+
+		// Get wallets and format them for the template
+		usrsOnWallet, err := db.Q.GetUsersOnWallet(r.Context(), wData.Address)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		usrs := make([]templates.DataPageWalletSettingsUser, 0)
+		for _, usr := range usrsOnWallet {
+			perms := make([]string, 0, 10)
+			// TODO: make this not... exist LOL
+			if accounts.PermAdmin&accounts.Permission(usr.Permissions) == accounts.PermAdmin {
+				perms = append(perms, "admin")
+			}
+			if accounts.PermReadBals&accounts.Permission(usr.Permissions) == accounts.PermReadBals {
+				perms = append(perms, "read")
+			}
+
+			usrs = append(usrs, templates.DataPageWalletSettingsUser{
+				Name:        usr.DiscordUsername,
+				Permissions: perms,
+			})
+		}
+
+		tmplData := templates.DataLayoutApp{
+			Title:       "Wallet Settings",
+			Description: "Settings for your wallet, to add and remove users and change their permissions.",
+			NavData: templates.DataComponentAppNav{
+				WalletAddr:   wData.Address,
+				ProfileImage: pfp,
+				Username:     user.DiscordUsername,
+			},
+			MenuData: templates.DataComponentAppMenu{
+				ActivePage: "wallet-settings",
+				WalletAddr: wData.Address,
+			},
+			PageData: templates.DataPageWalletSettings{
+				WalletAddr:     wData.Address,
+				OnlyRenderPage: false,
+				Users:          usrs,
+			},
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		err = tmpls.ExecuteTemplate(w, "pages/wallet-settings", tmplData)
+		if err != nil {
+			panic(err)
+		}
+	}
+}
+
+func WalletAddUser(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		wData := sessions.GetWallet(r.Context())
+
+		type bodyInput struct {
+			Username string `json:"username"`
+		}
+		var body bodyInput
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		// Get userid
+		userId, err := db.Q.GetUserIdByDiscordName(r.Context(), body.Username)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		// Add to wallet permissions
+		_, err = db.Q.InsertWalletPermission(r.Context(), gensql.InsertWalletPermissionParams{
+			WalletID:    wData.Id,
+			UserID:      userId,
+			Permissions: int64(accounts.PermReadBals),
+			UpdatedAt:   time.Now(),
+			CreatedAt:   time.Now(),
+		})
+
+		// Get wallets and format them for the template
+		usrsOnWallet, err := db.Q.GetUsersOnWallet(r.Context(), wData.Address)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		usrs := make([]templates.DataPageWalletSettingsUser, 0)
+		for _, usr := range usrsOnWallet {
+			perms := make([]string, 0, 10)
+			// TODO: make this not... exist LOL
+			if accounts.PermAdmin&accounts.Permission(usr.Permissions) == accounts.PermAdmin {
+				perms = append(perms, "admin")
+			}
+			if accounts.PermReadBals&accounts.Permission(usr.Permissions) == accounts.PermReadBals {
+				perms = append(perms, "read")
+			}
+
+			usrs = append(usrs, templates.DataPageWalletSettingsUser{
+				Name:        usr.DiscordUsername,
+				Permissions: perms,
+			})
+		}
+
+		tmplData := templates.DataLayoutApp{
+			PageData: templates.DataPageWalletSettings{
+				WalletAddr:     wData.Address,
+				OnlyRenderPage: true,
+				Users:          usrs,
+			},
+		}
+
+		sse := datastar.NewSSE(w, r)
+		buff := new(bytes.Buffer)
+		err = tmpls.ExecuteTemplate(buff, "pages/wallet-settings", tmplData)
+		if err != nil {
+			panic(err)
+		}
+		sse.MergeFragments(string(buff.Bytes()))
 	}
 }
 
