@@ -1,0 +1,30 @@
+{{if not .PageData.OnlyRenderPage}}
+{{template "layouts/app" .}}
+{{end}}
+
+{{define "page-content"}}
+<main
+  id="page-content"
+  class="flex flex-col text-white px-2 py-4"
+>
+  <h1 class="text-2xl mr-auto pl-2">Wallet User Settings</h1>
+  <p>user: {{.Username}}</p>
+  <h2 class="text-xl mt-6">Permissions</h2>
+  <div
+    data-signals="{perms: { {{range $i, $e := .Perms}}{{if $i}}, {{end}}{{.}}: {{if contains $.EnabledPerms .}}true{{else}}false{{end}}{{end}} }}"
+    data-on-signal-change-perms.*="@put('/app/wallets/{{.WalletAddr}}/users/{{.Username}}/permissions')"
+    class="flex flex-col gap-2"
+  >
+    {{range .Perms}}
+    <label>
+      <input data-bind="$perms.{{.}}" type="checkbox" {{if contains $.EnabledPerms .}}checked{{end}}>
+      <span>{{.}}</span>
+    </label>
+    {{end}}
+  </div>
+</main>
+{{end}}
+
+{{if .PageData.OnlyRenderPage}}
+{{template "page-content" .PageData}}
+{{end}}

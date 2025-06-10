@@ -55,7 +55,17 @@ type DataPageWalletSettings struct {
 }
 type DataPageWalletSettingsUser struct {
 	Name        string
+	IsUser      bool
 	Permissions []string
+}
+
+// pages/wallet-user-settings
+type DataPageWalletUserSettings struct {
+	OnlyRenderPage bool
+	WalletAddr     string
+	Username       string
+	Perms          []string
+	EnabledPerms   []string
 }
 
 // pages/wallet-home

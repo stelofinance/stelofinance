@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"io"
 	"io/fs"
+	"reflect"
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -96,6 +97,7 @@ func addCustomFuncs(getenv func(string) string) template.FuncMap {
 	funcs["hash_asset_path"] = assets.GetHashedAssetPath
 	funcs["raw_asset_string"] = assetToRawString
 	funcs["get_env"] = getEnv(getenv)
+	funcs["contains"] = contains
 
 	return funcs
 }
@@ -104,6 +106,29 @@ func getEnv(getenv func(string) string) func(string) string {
 	return func(s string) string {
 		return getenv(s)
 	}
+}
+
+func contains(arrVal, target reflect.Value) (bool, error) {
+	if arrVal.Kind() != reflect.Slice {
+		return false, errors.New("array value isn't a slice")
+	}
+	if arrVal.Len() == 0 {
+		return false, nil
+	}
+
+	if !arrVal.Index(0).Comparable() || !target.Comparable() {
+		return false, errors.New("type(s) aren't comparable")
+	}
+	if arrVal.Index(0).Type() != target.Type() {
+		return false, errors.New("types don't match")
+	}
+	for i := range arrVal.Len() {
+		if arrVal.Index(i).Equal(target) {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 func assetToRawString(safeType, file string) any {

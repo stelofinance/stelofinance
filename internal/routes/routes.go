@@ -59,6 +59,10 @@ func AddRoutes(mux *chi.Mux, logger *slog.Logger, tmpls *templates.Tmpls, db *da
 
 				mux.Handle("GET /settings", handlers.WalletSettings(tmpls, db))
 				mux.Handle("POST /users", handlers.WalletAddUser(tmpls, db))
+
+				mux.Handle("DELETE /users/{discord_username}", handlers.WalletRemoveUser(tmpls, db))
+				mux.Handle("GET /users/{discord_username}", handlers.WalletUserSettings(tmpls, db))
+				mux.Handle("PUT /users/{discord_username}/permissions", handlers.UpdateWalletUserSettings(tmpls, db))
 			})
 		})
 
