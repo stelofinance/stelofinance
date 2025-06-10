@@ -11,7 +11,7 @@
   <p>user: {{.Username}}</p>
   <h2 class="text-xl mt-6">Permissions</h2>
   <div
-    data-signals="{perms: { {{range $i, $e := .Perms}}{{if $i}}, {{end}}{{.}}: {{if contains $.EnabledPerms .}}true{{else}}false{{end}}{{end}} }}"
+    data-signals="{perms: { {{range $i, $e := .Perms}}{{if $i}}, {{end}}{{.}}: {{contains $.EnabledPerms .}}{{end}} }}"
     data-on-signal-change-perms.*="@put('/app/wallets/{{.WalletAddr}}/users/{{.Username}}/permissions')"
     class="flex flex-col gap-2"
   >
