@@ -1082,3 +1082,41 @@ func UpdateWalletUserSettings(tmpls *templates.Tmpls, db *database.Database) htt
 		sse.MergeFragments(string(buff.Bytes()))
 	}
 }
+
+func WalletMarket(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uData := sessions.GetUser(r.Context())
+		wData := sessions.GetWallet(r.Context())
+
+		user, err := db.Q.GetUserById(r.Context(), uData.Id)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		pfp := ""
+		if user.DiscordPfp != nil {
+			pfp = *user.DiscordPfp
+		}
+
+		tmplData := templates.DataLayoutApp{
+			Title:       "Market",
+			Description: "Marketplace for buying, selling, and trading items",
+			NavData: templates.DataComponentAppNav{
+				WalletAddr:   wData.Address,
+				ProfileImage: pfp,
+				Username:     user.DiscordUsername,
+			},
+			MenuData: templates.DataComponentAppMenu{
+				ActivePage: "market",
+				WalletAddr: wData.Address,
+			},
+			PageData: templates.DataPageWalletMarket{},
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		err = tmpls.ExecuteTemplate(w, "pages/wallet-market", tmplData)
+		if err != nil {
+			panic(err)
+		}
+	}
+}

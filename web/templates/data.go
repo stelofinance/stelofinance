@@ -128,6 +128,11 @@ type DataTransaction struct {
 	}
 }
 
+// pages/wallet-market
+type DataPageWalletMarket struct {
+	OnlyRenderPage bool
+}
+
 // pages/wallets
 type DataPageWallets struct {
 	Wallets []DataPageWalletsWallet
