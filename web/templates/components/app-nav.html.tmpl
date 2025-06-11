@@ -2,12 +2,20 @@
   <button data-on-click="$navOpen = true" class="justify-self-start">
     {{template "icons/hamburger" `size-7`}}
   </button>
-  <a href="/app/wallets/{{.WalletAddr}}" aria-label="Go to wallet homepage" class="flex justify-center">
+  {{if .ForWarehouse}}
+  <a href="/app/warehouses" aria-label="Go to warehouses page" class="flex justify-center">
     {{template "icons/logo-full" `w-28 h-auto 2xl:w-32`}}
   </a>
+  {{else}}
+  <a href="/app/wallets" aria-label="Go to wallets" class="flex justify-center">
+    {{template "icons/logo-full" `w-28 h-auto 2xl:w-32`}}
+  </a>
+  {{end}}
+  {{if .WalletAddr}}
   <div class="justify-self-end flex items-center">
     <p class="text-sm text-gray-400">#{{.WalletAddr}}</p>
   </div>
+  {{end}}
   <style>
     * {
     --header-offset: 62.3px;
@@ -43,8 +51,15 @@
     {{end}}
     <p class="text-xl mt-2">{{.Username}}</p>
     <hr class="mt-2 border-neutral-700 w-full">
-    <a href="/app/wallets/{{.WalletAddr}}/transactions" class="mt-6 underline text-xl">History</a>
+    {{if .ForWarehouse}}
     <a href="/app/wallets" class="mt-6 underline text-xl">Wallets</a>
+    {{else}}
+    {{if .WalletAddr}}
+    <a href="/app/wallets/{{.WalletAddr}}/transactions" class="mt-6 underline text-xl">History</a>
+    {{end}}
+    <a href="/app/wallets" class="mt-6 underline text-xl">Wallets</a>
+    <a href="/app/warehouses" class="mt-6 underline text-xl">Warehouses</a>
+    {{end}}
     <a href="/app/logout" class="underline text-red-500 mt-auto mx-auto">LOGOUT</a>
   </nav>
 </nav>

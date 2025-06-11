@@ -1,0 +1,10 @@
+{{template "layouts/app" .}}
+
+{{define "page-content"}}
+<main id="page-content" class="flex flex-col items-center justify-center text-white px-2 py-4">
+  <h1 class="text-2xl mr-auto pl-2">Warehouses</h1>
+  <button data-on-click="@post('/app/warehouses')" class="mt-3 bg-neutral-800 py-1 px-3 rounded">Create new wallet</button>
+  <div class="flex flex-col gap-2 w-full mt-6">
+  </div>
+</main>
+{{end}}

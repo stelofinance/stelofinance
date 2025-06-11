@@ -27,13 +27,15 @@ type DataLayoutApp struct {
 	PageData    any
 }
 type DataComponentAppNav struct {
-	WalletAddr   string
+	ForWarehouse bool
+	WalletAddr   string // optional
 	ProfileImage string
 	Username     string
 }
 type DataComponentAppMenu struct {
-	ActivePage string
-	WalletAddr string
+	ForWarehouse bool
+	ActivePage   string
+	WalletAddr   string //optional, won't render if not supplied though
 }
 
 // pages/wallet-home

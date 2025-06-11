@@ -36,7 +36,6 @@ func AddRoutes(mux *chi.Mux, logger *slog.Logger, tmpls *templates.Tmpls, db *da
 
 		mux.Handle("GET /wallets", handlers.Wallets(tmpls, db))
 		mux.Handle("POST /wallets", handlers.WalletsCreate(db))
-
 		mux.Route("/wallets/{wallet_addr}", func(mux chi.Router) {
 			mux.Group(func(mux chi.Router) {
 				mux.Use(midware.AuthWallet(db, accounts.PermReadBals))
@@ -67,6 +66,8 @@ func AddRoutes(mux *chi.Mux, logger *slog.Logger, tmpls *templates.Tmpls, db *da
 				mux.Handle("PUT /users/{discord_username}/permissions", handlers.UpdateWalletUserSettings(tmpls, db))
 			})
 		})
+
+		mux.Handle("GET /warehouses", handlers.Warehouses(tmpls, db))
 
 		mux.Handle("GET /logout", handlers.Logout(sessionsKV))
 	})
