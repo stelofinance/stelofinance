@@ -523,13 +523,26 @@ func FinalizeTransaction(ctx context.Context, q *gensql.Queries, input FinalizeI
 		})
 		if trFlag == TrFlagPostPending {
 			accountUpdates = append(accountUpdates, gensql.UpdateAccountBalancesParams{
-				CreditsPosted: tr.Amount,
-				ID:            tr.CreditAccountID,
+				CreditsPosted:  tr.Amount,
+				CreditsPending: -tr.Amount,
+				ID:             tr.CreditAccountID,
 			})
 			accountUpdates = append(accountUpdates, gensql.UpdateAccountBalancesParams{
-				DebitsPosted: tr.Amount,
-				ID:           tr.DebitAccountID,
+				DebitsPosted:  tr.Amount,
+				DebitsPending: -tr.Amount,
+				ID:            tr.DebitAccountID,
 			})
+			// else, must be void pending
+		} else {
+			accountUpdates = append(accountUpdates, gensql.UpdateAccountBalancesParams{
+				CreditsPending: -tr.Amount,
+				ID:             tr.CreditAccountID,
+			})
+			accountUpdates = append(accountUpdates, gensql.UpdateAccountBalancesParams{
+				DebitsPending: -tr.Amount,
+				ID:            tr.DebitAccountID,
+			})
+
 		}
 	}
 
