@@ -3,7 +3,9 @@ package accounts
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/cridenour/go-postgis"
@@ -60,6 +62,9 @@ func (a AccountCode) IsUserCode() bool {
 // func CreatePersonalWallet(address string)
 
 var ErrInvalidAccountConfiguration = errors.New("accounts: invalid account configuration")
+var ErrAddressExceedsLength = errors.New(fmt.Sprintf("accounts: address exceeds max length (%v)", MaxAddressLength))
+
+const MaxAddressLength int = 16
 
 type createWalletInput struct {
 	userId int64 // Admin of the account
@@ -67,14 +72,24 @@ type createWalletInput struct {
 	address  string
 	code     AccountCode
 	webhook  string
-	location [2]int
+	location postgis.Point
 
 	collateralAccountId       int   // Probably not needed, will be created
 	collateralLockedAccountId int   // Probably not needed, will be created
-	collateralPercentage      int64 // Must be between >= 0 and <= 9999 (scale of 3)
+	collateralPercentage      int64 // Must be between >= 0 and <= 9999 (scale of 3, so 0 to 9.999)
 }
 
 func createWallet(ctx context.Context, q *gensql.Queries, input createWalletInput) (int64, error) {
+	if len(input.address) > MaxAddressLength {
+		return 0, ErrAddressExceedsLength
+	}
+	input.address = strings.ToUpper(input.address)
+	if strings.ContainsFunc(input.address, func(r rune) bool {
+		return r < 'A' || r > 'Z'
+	}) {
+		return 0, ErrInvalidAccountConfiguration
+	}
+
 	switch input.code {
 	case DAL:
 		// Create wallet
@@ -170,17 +185,11 @@ func createWallet(ctx context.Context, q *gensql.Queries, input createWalletInpu
 			return 0, errors.New("accounts: invalid collateralPercentage")
 		}
 
-		// Create wallet
-		point := postgis.Point{
-			X: float64(input.location[0]),
-			Y: float64(input.location[1]),
-		}
-
 		walletId, err := q.InsertWallet(ctx, gensql.InsertWalletParams{
-			Address:   input.address,
-			Code:      int32(WarehouseAcc),
-			CreatedAt: time.Now(),
-			Location:  &point,
+			Address:        input.address,
+			Code:           int32(WarehouseAcc),
+			CreatedAt:      time.Now(),
+			StGeomfromewkb: &input.location,
 			CollateralPercentage: pgtype.Numeric{
 				Int:   big.NewInt(input.collateralPercentage),
 				Exp:   -3,
@@ -256,17 +265,21 @@ func CreateGeneralWallet(ctx context.Context, q *gensql.Queries, userId int64) (
 
 type CreateWarehouseInput struct {
 	UserId               int64
-	Location             [2]int
+	Addr                 string // optional, if not provided a random is generated
+	Location             postgis.Point
 	CollateralPercentage int64 // Must be between >= 0 and <= 9999 (scale of 3)
 }
 
 func CreateWarehouseWallet(ctx context.Context, q *gensql.Queries, input CreateWarehouseInput) (int64, error) {
-	// 512 billion possible variants
-	addr := uniuri.NewLenChars(9, AddressStdChars)
+	addr := input.Addr
+	if addr == "" {
+		// 512 billion possible variants
+		addr = uniuri.NewLenChars(9, AddressStdChars)
 
-	// Ensure addr isn't taken, if it is, keep rerolling till you get
-	// one that isn't
-	// TODO: Implement this ^
+		// Ensure addr isn't taken, if it is, keep rerolling till you get
+		// one that isn't
+		// TODO: Implement this ^
+	}
 
 	accId, err := createWallet(ctx, q, createWalletInput{
 		userId:               input.UserId,

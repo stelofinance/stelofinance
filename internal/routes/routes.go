@@ -68,6 +68,14 @@ func AddRoutes(mux *chi.Mux, logger *slog.Logger, tmpls *templates.Tmpls, db *da
 		})
 
 		mux.Handle("GET /warehouses", handlers.Warehouses(tmpls, db))
+		mux.Handle("POST /warehouses", handlers.CreateWarehouse(tmpls, db))
+		mux.Route("/warehouses/{wallet_addr}", func(mux chi.Router) {
+			mux.Group(func(mux chi.Router) {
+				mux.Use(midware.AuthWallet(db, accounts.PermReadBals))
+
+				mux.Handle("GET /", handlers.WarehouseHome(tmpls, db))
+			})
+		})
 
 		mux.Handle("GET /logout", handlers.Logout(sessionsKV))
 	})

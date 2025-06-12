@@ -145,6 +145,19 @@ type DataPageWalletsWallet struct {
 	IsAdmin    bool
 }
 
+// pages/warehouses
+type DataPageWarehouses struct {
+	OnlyRenderPage bool
+	Warehouses     []DataWarehouse
+}
+type DataWarehouse struct {
+	Addr     string
+	Location string
+}
+
+// pages/warehouse-home
+type DataPageWarehouseHome struct{}
+
 // pages/homepage
 
 type DataPageHomepage struct {

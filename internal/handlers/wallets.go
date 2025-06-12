@@ -688,7 +688,7 @@ func Wallets(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
 		// Get wallets and format them for the template
 		wallets, err := db.Q.GetWalletsByUsrIdAndCodes(r.Context(), gensql.GetWalletsByUsrIdAndCodesParams{
 			UserID:      uData.Id,
-			WalletCodes: []int64{int64(accounts.PersonalAcc), int64(accounts.GeneralAcc)},
+			WalletCodes: []int32{int32(accounts.PersonalAcc), int32(accounts.GeneralAcc)},
 		})
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)

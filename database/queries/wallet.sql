@@ -1,7 +1,7 @@
 -- name: InsertWallet :one
 INSERT
     INTO wallet (address, code, webhook, location, collateral_account_id, collateral_locked_account_id, collateral_percentage, created_at)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    VALUES ($1, $2, $3, ST_GeomFromEWKB($4), $5, $6, $7, $8)
 RETURNING id;
 
 -- name: GetWallet :one
@@ -60,8 +60,9 @@ LIMIT 1;
 SELECT
 	w.address,
 	w.code,
+	w.location,
 	wp.permissions
 FROM "user" AS u
 JOIN wallet_permission AS wp ON wp.user_id = u.id
 JOIN wallet AS w ON wp.wallet_id = w.id
-WHERE u.id = sqlc.arg(user_id) AND w.code = ANY(sqlc.arg(wallet_codes)::BIGINT[]);
+WHERE u.id = sqlc.arg(user_id) AND w.code = ANY(sqlc.arg(wallet_codes)::INT[]);

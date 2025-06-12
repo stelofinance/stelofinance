@@ -52,6 +52,7 @@
     <p class="text-xl mt-2">{{.Username}}</p>
     <hr class="mt-2 border-neutral-700 w-full">
     {{if .ForWarehouse}}
+    <a href="/app/warehouses" class="mt-6 underline text-xl">Warehouses</a>
     <a href="/app/wallets" class="mt-6 underline text-xl">Wallets</a>
     {{else}}
     {{if .WalletAddr}}
