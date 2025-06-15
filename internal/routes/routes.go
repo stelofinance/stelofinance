@@ -75,6 +75,12 @@ func AddRoutes(mux *chi.Mux, logger *slog.Logger, tmpls *templates.Tmpls, db *da
 
 				mux.Handle("GET /", handlers.WarehouseHome(tmpls, db))
 			})
+
+			mux.Group(func(mux chi.Router) {
+				mux.Use(midware.AuthWallet(db, accounts.PermAdmin))
+
+				mux.Handle("GET /", handlers.WarehouseHome(tmpls, db))
+			})
 		})
 
 		mux.Handle("GET /logout", handlers.Logout(sessionsKV))

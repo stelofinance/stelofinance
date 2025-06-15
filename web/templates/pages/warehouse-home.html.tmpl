@@ -2,6 +2,11 @@
 
 {{define "page-content"}}
 <main id="page-content" class="flex flex-col items-center justify-center text-white px-2 py-4">
-  <p>Collateral summary or sum'tin idk</p>
+  <div class="flex flex-col w-full bg-neutral-700 rounded px-3 py-1">
+    <p class="text-xl">Collateral Summary</p>
+    <progress class="mt-2 w-full" max="100" value="{{.RemainingPercent}}">{{.RemainingPercent}}%</progress>
+    <p class="mt-2">Free: {{.FreeCollat}}</p>
+    <p class="text-sm text-neutral-400">Total: {{.TotalCollat}}</p>
+  </div>
 </main>
 {{end}}

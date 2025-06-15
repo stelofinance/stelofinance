@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 
 	"github.com/cridenour/go-postgis"
@@ -92,6 +93,27 @@ func WarehouseHome(tmpls *templates.Tmpls, db *database.Database) http.HandlerFu
 			pfp = *user.DiscordPfp
 		}
 
+		bals, err := db.Q.GetAccountBalancesByWalletIdAndCode(r.Context(), gensql.GetAccountBalancesByWalletIdAndCodeParams{
+			Codes:    []int32{int32(accounts.WarehouseCollatAcc), int32(accounts.WarehouseCollatLkdAcc)},
+			WalletID: wData.Id,
+		})
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		var collatAcc gensql.GetAccountBalancesByWalletIdAndCodeRow
+		var collatAccLkd gensql.GetAccountBalancesByWalletIdAndCodeRow
+		for _, b := range bals {
+			if b.Code == int32(accounts.WarehouseCollatAcc) {
+				collatAcc = b
+			} else if b.Code == int32(accounts.WarehouseCollatLkdAcc) {
+				collatAccLkd = b
+			}
+		}
+
+		free := float64(collatAcc.DebitBalance) / math.Pow(10, float64(collatAcc.AssetScale))
+		total := float64(collatAcc.DebitBalance+collatAccLkd.DebitBalance) / math.Pow(10, float64(collatAcc.AssetScale))
+
 		tmplData := templates.DataLayoutApp{
 			Title:       "Home",
 			Description: "Homepage with summaries of information for your warehouse",
@@ -106,7 +128,53 @@ func WarehouseHome(tmpls *templates.Tmpls, db *database.Database) http.HandlerFu
 				ForWarehouse: true,
 				ActivePage:   "home",
 			},
-			PageData: templates.DataPageWarehouseHome{},
+			PageData: templates.DataPageWarehouseHome{
+				RemainingPercent: (free / total) * 100,
+				FreeCollat:       free,
+				TotalCollat:      total,
+			},
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		err = tmpls.ExecuteTemplate(w, "pages/warehouse-home", tmplData)
+		if err != nil {
+			panic(err)
+		}
+	}
+}
+
+func WarehouseDepositWithdraw(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uData := sessions.GetUser(r.Context())
+		wData := sessions.GetWallet(r.Context())
+
+		user, err := db.Q.GetUserById(r.Context(), uData.Id)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		pfp := ""
+		if user.DiscordPfp != nil {
+			pfp = *user.DiscordPfp
+		}
+
+		tmplData := templates.DataLayoutApp{
+			Title:       "Home",
+			Description: "Homepage with summaries of information for your warehouse",
+			NavData: templates.DataComponentAppNav{
+				WalletAddr:   wData.Address,
+				ForWarehouse: true,
+				ProfileImage: pfp,
+				Username:     user.DiscordUsername,
+			},
+			MenuData: templates.DataComponentAppMenu{
+				WalletAddr:   wData.Address,
+				ForWarehouse: true,
+				ActivePage:   "home",
+			},
+			PageData: templates.DataPageWarehouseDepositWithdraw{
+				DepositRequests: []templates.DataDepositRequest{},
+			},
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")

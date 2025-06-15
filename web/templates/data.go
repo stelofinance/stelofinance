@@ -156,7 +156,25 @@ type DataWarehouse struct {
 }
 
 // pages/warehouse-home
-type DataPageWarehouseHome struct{}
+type DataPageWarehouseHome struct {
+	RemainingPercent float64
+	FreeCollat       float64
+	TotalCollat      float64
+}
+
+// pages/warehouse-deposit-withdraw
+type DataPageWarehouseDepositWithdraw struct {
+	OnlyRenderPage  bool
+	DepositRequests []DataDepositRequest
+}
+type DataDepositRequest struct {
+	Depositor string
+	Assets    []DataDepositRequestAsset
+}
+type DataDepositRequestAsset struct {
+	Name string
+	Qty  float64
+}
 
 // pages/homepage
 

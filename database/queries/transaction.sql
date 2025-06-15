@@ -26,3 +26,18 @@ JOIN wallet AS cw ON cw.id = t.credit_wallet_id
 WHERE t.debit_wallet_id = $1 OR t.credit_wallet_id = $1
 ORDER BY t.created_at DESC
 LIMIT $2;
+
+-- name: GetTxs
+SELECT
+    tx.id,
+    du.discord_username AS debit_username,
+    cu.discord_username AS credit_username,
+    tx.status
+FROM transaction tx
+JOIN wallet dw ON dw.id = tx.debit_wallet_id
+JOIN wallet cw ON cw.id = tx.credit_wallet_id
+JOIN wallet_permission dwp ON dwp.wallet_id = dw.id
+JOIN wallet_permission cwp ON cwp.wallet_id = cw.id
+JOIN "user" du ON du.id = dwp.user_id
+JOIN "user" cu ON cu.id = cwp.user_id
+WHERE tx.code = 2 AND tx.status = 1;

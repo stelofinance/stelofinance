@@ -4,6 +4,14 @@
   class="fixed bottom-0 left-0 w-full z-20 grid grid-cols-3 bg-neutral-900 border-t border-neutral-800
     px-5 py-2 text-neutral-400 text-center text-lg"
 >
+  {{if .ForWarehouse}}
+  <a href="/app/warehouses/{{.WalletAddr}}" class="{{if eq .ActivePage `home`}}text-white{{end}}">
+    home
+  </a>
+  <a href="/app/warehouses/{{.WalletAddr}}/deposit-withdraw" class="{{if eq .ActivePage `deposit-withdraw`}}text-white{{end}}">
+    deposit/withdraw
+  </a>
+  {{else}}
   <a href="/app/wallets/{{.WalletAddr}}/assets" class="{{if eq .ActivePage `assets`}}text-white{{end}}">
     assets
   </a>
@@ -13,5 +21,6 @@
   <a href="/app/wallets/{{.WalletAddr}}/market" class="{{if eq .ActivePage `market`}}text-white{{end}}">
     market
   </a>
+  {{end}}
 </nav>
 {{end}}

@@ -1,0 +1,32 @@
+{{if not .PageData.OnlyRenderPage}}
+{{template "layouts/app" .}}
+{{end}}
+
+{{define "page-content"}}
+<main
+  id="page-content"
+  class="flex flex-col text-white px-2 py-4"
+>
+  <p>Deposit Requests</p>
+  <div class="border border-white">
+    {{range .DepositRequests}}
+    <div class="flex flex-col">
+      <div class="flex justify-between">
+        <span class="text-lg">{{.Depositor}}</span>
+        <button class="underline">approve</button>
+      </div>
+      <hr>
+      <div class="grid grid-cols-2">
+        {{range .Assets}}
+        <p>{{.Name}} x{{.Qty}}</p>
+        {{end}}
+      </div>
+    </div>
+    {{end}}
+  </div>
+</main>
+{{end}}
+
+{{if .PageData.OnlyRenderPage}}
+  {{template "page-content" .PageData}}
+{{end}}

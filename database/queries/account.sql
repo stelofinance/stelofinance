@@ -112,3 +112,15 @@ FROM
 JOIN ledger AS l ON a.ledger_id = l.id
 JOIN wallet AS w ON w.id = a.wallet_id
 WHERE w.address = $1;
+
+-- name: GetAccountBalancesByWalletIdAndCode :many
+SELECT
+    l.id AS ledger_id,
+    l.name AS asset_name,
+    (a.debits_posted - a.credits_posted - a.credits_pending)::BIGINT AS debit_balance,
+    (a.credits_posted - a.debits_posted - a.debits_pending)::BIGINT AS credit_balance,
+    l.asset_scale,
+    a.code
+FROM account a
+JOIN ledger l ON a.ledger_id = l.id
+WHERE a.wallet_id = sqlc.arg(wallet_id) AND a.code = ANY(sqlc.arg(codes)::INT[]);
