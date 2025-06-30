@@ -79,7 +79,8 @@ func AddRoutes(mux *chi.Mux, logger *slog.Logger, tmpls *templates.Tmpls, db *da
 			mux.Group(func(mux chi.Router) {
 				mux.Use(midware.AuthWallet(db, accounts.PermAdmin))
 
-				mux.Handle("GET /", handlers.WarehouseHome(tmpls, db))
+				mux.Handle("GET /deposit-withdraw", handlers.WarehouseDepositWithdraw(tmpls, db))
+				mux.Handle("POST /deposits/{deposit_tx_id}/approve", handlers.ApproveDeposit(tmpls, db))
 			})
 		})
 

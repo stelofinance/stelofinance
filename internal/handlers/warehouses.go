@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"strconv"
 
 	"github.com/cridenour/go-postgis"
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	datastar "github.com/starfederation/datastar/sdk/go"
 	"github.com/stelofinance/stelofinance/database"
@@ -158,9 +160,44 @@ func WarehouseDepositWithdraw(tmpls *templates.Tmpls, db *database.Database) htt
 			pfp = *user.DiscordPfp
 		}
 
+		depositsResult, err := db.Q.GetDepositRequests(r.Context(), wData.Id)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		txIds := make([]int64, 0, len(depositsResult))
+		for _, d := range depositsResult {
+			txIds = append(txIds, d.ID)
+		}
+
+		assetsResult, err := db.Q.GetTransfersAssetsByTxIds(r.Context(), txIds)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		dpstReqs := make([]templates.DataDepositRequest, 0, len(depositsResult))
+		for _, d := range depositsResult {
+			assets := make([]templates.DataDepositRequestAsset, 0)
+			for _, a := range assetsResult {
+				if a.TransactionID == d.ID {
+					assets = append(assets, templates.DataDepositRequestAsset{
+						Name: a.Name,
+						Qty:  float64(a.Amount) * math.Pow(10, float64(a.AssetScale)),
+					})
+				}
+			}
+
+			dpstReqs = append(dpstReqs, templates.DataDepositRequest{
+				Depositor: d.DebitUsername,
+				DepositId: d.ID,
+				Assets:    assets,
+			})
+		}
+
 		tmplData := templates.DataLayoutApp{
-			Title:       "Home",
-			Description: "Homepage with summaries of information for your warehouse",
+			Title:       "Deposit/Withdraw",
+			Description: "Manage your warehouses deposit and withdraw requests.",
 			NavData: templates.DataComponentAppNav{
 				WalletAddr:   wData.Address,
 				ForWarehouse: true,
@@ -170,18 +207,114 @@ func WarehouseDepositWithdraw(tmpls *templates.Tmpls, db *database.Database) htt
 			MenuData: templates.DataComponentAppMenu{
 				WalletAddr:   wData.Address,
 				ForWarehouse: true,
-				ActivePage:   "home",
+				ActivePage:   "deposit-withdraw",
 			},
 			PageData: templates.DataPageWarehouseDepositWithdraw{
-				DepositRequests: []templates.DataDepositRequest{},
+				WalletAddr:      wData.Address,
+				DepositRequests: dpstReqs,
 			},
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		err = tmpls.ExecuteTemplate(w, "pages/warehouse-home", tmplData)
+		err = tmpls.ExecuteTemplate(w, "pages/warehouse-deposit-withdraw", tmplData)
 		if err != nil {
 			panic(err)
 		}
+	}
+}
+
+func ApproveDeposit(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		wData := sessions.GetWallet(r.Context())
+
+		// Verify TX belongs to wallet
+		depoTxId, err := strconv.Atoi(chi.URLParam(r, "deposit_tx_id"))
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		res, err := db.Q.GetTransaction(r.Context(), int64(depoTxId))
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if res.CreditWalletID != wData.Id {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+
+		tx, err := db.Pool.Begin(r.Context())
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		defer tx.Rollback(r.Context())
+
+		// Finalize the TX
+		accounts.FinalizeTransaction(r.Context(), gensql.New(tx), accounts.FinalizeInput{
+			TxId:   int64(depoTxId),
+			Status: accounts.TxPostPending,
+		})
+
+		err = tx.Commit(r.Context())
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		// Render new page and serve
+		depositsResult, err := db.Q.GetDepositRequests(r.Context(), wData.Id)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		txIds := make([]int64, 0, len(depositsResult))
+		for _, d := range depositsResult {
+			txIds = append(txIds, d.ID)
+		}
+
+		assetsResult, err := db.Q.GetTransfersAssetsByTxIds(r.Context(), txIds)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		dpstReqs := make([]templates.DataDepositRequest, 0, len(depositsResult))
+		for _, d := range depositsResult {
+			assets := make([]templates.DataDepositRequestAsset, 0)
+			for _, a := range assetsResult {
+				if a.TransactionID == d.ID {
+					assets = append(assets, templates.DataDepositRequestAsset{
+						Name: a.Name,
+						Qty:  float64(a.Amount) * math.Pow(10, float64(a.AssetScale)),
+					})
+				}
+			}
+
+			dpstReqs = append(dpstReqs, templates.DataDepositRequest{
+				Depositor: d.DebitUsername,
+				DepositId: d.ID,
+				Assets:    assets,
+			})
+		}
+
+		tmplData := templates.DataLayoutApp{
+			PageData: templates.DataPageWarehouseDepositWithdraw{
+				OnlyRenderPage:  true,
+				WalletAddr:      wData.Address,
+				DepositRequests: dpstReqs,
+			},
+		}
+
+		sse := datastar.NewSSE(w, r)
+
+		buff := new(bytes.Buffer)
+		err = tmpls.ExecuteTemplate(buff, "pages/warehouse-deposit-withdraw", tmplData)
+		if err != nil {
+			panic(err)
+		}
+
+		sse.MergeFragments(string(buff.Bytes()))
 	}
 }
 
