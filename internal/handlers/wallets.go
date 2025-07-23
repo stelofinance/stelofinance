@@ -260,7 +260,7 @@ func WalletAssetsUpdates(tmpls *templates.Tmpls, db *database.Database, nc *nats
 				if err != nil {
 					panic(err)
 				}
-				sse.MergeFragments(string(buff.Bytes()))
+				sse.MergeFragments(buff.String())
 			case <-r.Context().Done():
 				sub.Unsubscribe()
 				break loop
