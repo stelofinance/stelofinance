@@ -81,6 +81,7 @@ func AddRoutes(mux *chi.Mux, logger *slog.Logger, tmpls *templates.Tmpls, db *da
 
 				mux.Handle("GET /deposit-withdraw", handlers.WarehouseDepositWithdraw(tmpls, db))
 				mux.Handle("POST /deposits/{deposit_tx_id}/approve", handlers.ApproveDeposit(tmpls, db))
+				mux.Handle("POST /deposit-withdraw", handlers.CreateWithdraw(tmpls, db, nc))
 			})
 		})
 

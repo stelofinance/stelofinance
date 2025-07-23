@@ -164,9 +164,19 @@ type DataPageWarehouseHome struct {
 
 // pages/warehouse-deposit-withdraw
 type DataPageWarehouseDepositWithdraw struct {
-	OnlyRenderPage  bool
-	WalletAddr      string
-	DepositRequests []DataDepositRequest
+	OnlyRenderPage       bool
+	WalletAddr           string
+	WithdrawRecipient    string
+	RecipientSuggestions []DataRecipientSuggestion
+	DepositRequests      []DataDepositRequest
+
+	Assets         []DataAsset
+	AssetsSelected []DataAsset
+}
+type DataAsset struct {
+	LedgerId int64
+	Name     string
+	Qty      int
 }
 type DataDepositRequest struct {
 	Depositor string

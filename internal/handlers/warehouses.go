@@ -12,6 +12,7 @@ import (
 	"github.com/cridenour/go-postgis"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/nats-io/nats.go"
 	datastar "github.com/starfederation/datastar/sdk/go"
 	"github.com/stelofinance/stelofinance/database"
 	"github.com/stelofinance/stelofinance/database/gensql"
@@ -195,6 +196,102 @@ func WarehouseDepositWithdraw(tmpls *templates.Tmpls, db *database.Database) htt
 			})
 		}
 
+		allAssetsResult, err := db.Q.GetLedgersByCode(r.Context(), int32(accounts.Item))
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		allAssets := make([]templates.DataAsset, 0, len(allAssetsResult))
+		for _, a := range allAssetsResult {
+			allAssets = append(allAssets, templates.DataAsset{
+				LedgerId: a.ID,
+				Name:     a.Name,
+				// Qty:      0,
+			})
+		}
+
+		data := templates.DataPageWarehouseDepositWithdraw{
+			WalletAddr:      wData.Address,
+			DepositRequests: dpstReqs,
+
+			Assets: allAssets,
+		}
+
+		if r.URL.Query().Has("datastar") {
+			data.OnlyRenderPage = true
+			type input struct {
+				Search            string `json:"withdrawSearch"`
+				WithdrawRecipient string `json:"withdrawRecipient"`
+				Assets            map[string]struct {
+					Id  string `json:"id"`
+					Qty int    `json:"qty"`
+				} `json:"assets"`
+			}
+			var ds input
+			err = json.Unmarshal([]byte(r.URL.Query().Get("datastar")), &ds)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+
+			fmt.Println(ds.Assets)
+
+			data.WithdrawRecipient = ds.WithdrawRecipient
+
+			if ds.WithdrawRecipient == "" && ds.Search != "" {
+				usrWallets, err := db.Q.SearchWalletAddrByDiscord(r.Context(), gensql.SearchWalletAddrByDiscordParams{
+					DiscordUsername: "%" + ds.Search + "%",
+					Limit:           5,
+				})
+				if err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				suggestions := make([]templates.DataRecipientSuggestion, 0, len(usrWallets))
+				for _, w := range usrWallets {
+					suggestions = append(suggestions, templates.DataRecipientSuggestion{
+						Value:      w.DiscordUsername,
+						WalletAddr: w.Address,
+					})
+				}
+				data.RecipientSuggestions = suggestions
+			}
+
+			for _, v := range ds.Assets {
+				name := "N/A"
+				vId, err := strconv.Atoi(v.Id)
+				if err != nil {
+					continue
+				}
+				for _, a := range allAssets {
+					if a.LedgerId == int64(vId) {
+						name = a.Name
+						break
+					}
+				}
+
+				data.AssetsSelected = append(data.AssetsSelected, templates.DataAsset{
+					LedgerId: int64(vId),
+					Name:     name,
+					Qty:      v.Qty,
+				})
+			}
+
+			sse := datastar.NewSSE(w, r)
+
+			tmplData := templates.DataLayoutApp{
+				PageData: data,
+			}
+			buff := new(bytes.Buffer)
+			err = tmpls.ExecuteTemplate(buff, "pages/warehouse-deposit-withdraw", tmplData)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			sse.MergeFragments(buff.String())
+			return
+		}
+
 		tmplData := templates.DataLayoutApp{
 			Title:       "Deposit/Withdraw",
 			Description: "Manage your warehouses deposit and withdraw requests.",
@@ -209,10 +306,7 @@ func WarehouseDepositWithdraw(tmpls *templates.Tmpls, db *database.Database) htt
 				ForWarehouse: true,
 				ActivePage:   "deposit-withdraw",
 			},
-			PageData: templates.DataPageWarehouseDepositWithdraw{
-				WalletAddr:      wData.Address,
-				DepositRequests: dpstReqs,
-			},
+			PageData: data,
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -220,6 +314,73 @@ func WarehouseDepositWithdraw(tmpls *templates.Tmpls, db *database.Database) htt
 		if err != nil {
 			panic(err)
 		}
+	}
+}
+
+func CreateWithdraw(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// uData := sessions.GetUser(r.Context())
+		wData := sessions.GetWallet(r.Context())
+
+		type input struct {
+			Search            string `json:"withdrawSearch"`
+			WithdrawRecipient string `json:"withdrawRecipient"`
+			Assets            map[string]struct {
+				Id  string `json:"id"`
+				Qty int    `json:"qty"`
+			} `json:"assets"`
+		}
+		var body input
+		err := json.NewDecoder(r.Body).Decode(&body)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		assets := make([]accounts.TxAssets, 0, len(body.Assets))
+		for _, a := range body.Assets {
+			aId, err := strconv.Atoi(a.Id)
+			if err != nil {
+				continue
+			}
+
+			assets = append(assets, accounts.TxAssets{
+				LedgerId: int64(aId),
+				Amount:   int64(a.Qty),
+			})
+		}
+
+		credId, err := db.Q.GetWalletIdByAddr(r.Context(), body.WithdrawRecipient)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		tx, err := db.Pool.Begin(r.Context())
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		defer tx.Rollback(r.Context())
+		fmt.Println(assets)
+		_, err = accounts.CreateTransaction(r.Context(), gensql.New(tx), nc, accounts.TxInput{
+			DebitWalletId:  wData.Id,
+			CreditWalletId: credId,
+			Code:           accounts.TxWarehouseTransfer,
+			Memo:           nil,
+			IsPending:      true,
+			Assets:         assets,
+		})
+		if err != nil {
+			fmt.Println(err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		tx.Commit(r.Context())
+
+		sse := datastar.NewSSE(w, r)
+		sse.MergeFragments(`<button id="submit-btn" type="submit" disabled class="border border-neutral-500 text-xl w-full mt-4 py-2">CREATED!</button>`)
 	}
 }
 
