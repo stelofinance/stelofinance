@@ -120,7 +120,7 @@ func WalletHomeUpdates(tmpls *templates.Tmpls, db *database.Database, nc *nats.C
 				if err != nil {
 					panic(err)
 				}
-				sse.MergeFragments(string(buff.Bytes()))
+				sse.MergeFragments(buff.String())
 			case <-r.Context().Done():
 				sub.Unsubscribe()
 				break loop
@@ -361,6 +361,57 @@ func WalletTransact(tmpls *templates.Tmpls, db *database.Database) http.HandlerF
 						})
 					}
 				}
+			} else if ds.Tx.Type == "withdraw" {
+				withdrawRequests, err := db.Q.GetWithdrawRequests(r.Context(), wData.Id)
+				if err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				txIds := make([]int64, 0, len(withdrawRequests))
+				for _, d := range withdrawRequests {
+					txIds = append(txIds, d.ID)
+				}
+
+				assetsResult, err := db.Q.GetTransfersAssetsByTxIds(r.Context(), txIds)
+				if err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+
+				withdrawReqs := make([]templates.DataWithdrawRequest, 0, len(withdrawRequests))
+				for _, w := range withdrawRequests {
+					assets := make([]templates.DataWithdrawRequestAsset, 0)
+					for _, a := range assetsResult {
+						if a.TransactionID == w.ID {
+							assets = append(assets, templates.DataWithdrawRequestAsset{
+								Name: a.Name,
+								Qty:  float64(a.Amount) * math.Pow(10, float64(a.AssetScale)),
+							})
+						}
+					}
+
+					withdrawReqs = append(withdrawReqs, templates.DataWithdrawRequest{
+						Withdrawer: w.DebitAddress,
+						WithdrawId: w.ID,
+						Assets:     assets,
+					})
+				}
+
+				allAssetsResult, err := db.Q.GetLedgersByCode(r.Context(), int32(accounts.Item))
+				if err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				allAssets := make([]templates.DataAsset, 0, len(allAssetsResult))
+				for _, a := range allAssetsResult {
+					allAssets = append(allAssets, templates.DataAsset{
+						LedgerId: a.ID,
+						Name:     a.Name,
+						// Qty:      0,
+					})
+				}
+
+				data.WithdrawRequests = withdrawReqs
 			}
 			if ds.Tx.Recipient == "" && ds.Search != "" {
 				wallets, err := db.Q.SearchWalletAddr(r.Context(), gensql.SearchWalletAddrParams{
@@ -402,7 +453,7 @@ func WalletTransact(tmpls *templates.Tmpls, db *database.Database) http.HandlerF
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			sse.MergeFragments(string(buff.Bytes()))
+			sse.MergeFragments(buff.String())
 			return
 		} else {
 			tmplData = templates.DataLayoutApp{
@@ -430,6 +481,110 @@ func WalletTransact(tmpls *templates.Tmpls, db *database.Database) http.HandlerF
 		if err != nil {
 			panic(err)
 		}
+	}
+}
+
+func WalletApproveWithdraw(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		wData := sessions.GetWallet(r.Context())
+
+		// Verify TX belongs to wallet
+		depoTxId, err := strconv.Atoi(chi.URLParam(r, "withdraw_tx_id"))
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		res, err := db.Q.GetTransaction(r.Context(), int64(depoTxId))
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if res.CreditWalletID != wData.Id {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+
+		tx, err := db.Pool.Begin(r.Context())
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		defer tx.Rollback(r.Context())
+
+		// Finalize the TX
+		accounts.FinalizeTransaction(r.Context(), gensql.New(tx), accounts.FinalizeInput{
+			TxId:   int64(depoTxId),
+			Status: accounts.TxPostPending,
+		})
+
+		err = tx.Commit(r.Context())
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		// Render new page and serve
+		withdrawRequests, err := db.Q.GetWithdrawRequests(r.Context(), wData.Id)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		txIds := make([]int64, 0, len(withdrawRequests))
+		for _, d := range withdrawRequests {
+			txIds = append(txIds, d.ID)
+		}
+
+		assetsResult, err := db.Q.GetTransfersAssetsByTxIds(r.Context(), txIds)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		withdrawReqs := make([]templates.DataWithdrawRequest, 0, len(withdrawRequests))
+		for _, w := range withdrawRequests {
+			assets := make([]templates.DataWithdrawRequestAsset, 0)
+			for _, a := range assetsResult {
+				if a.TransactionID == w.ID {
+					assets = append(assets, templates.DataWithdrawRequestAsset{
+						Name: a.Name,
+						Qty:  float64(a.Amount) * math.Pow(10, float64(a.AssetScale)),
+					})
+				}
+			}
+
+			withdrawReqs = append(withdrawReqs, templates.DataWithdrawRequest{
+				Withdrawer: w.DebitAddress,
+				WithdrawId: w.ID,
+				Assets:     assets,
+			})
+		}
+
+		allAssetsResult, err := db.Q.GetLedgersByCode(r.Context(), int32(accounts.Item))
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		allAssets := make([]templates.DataAsset, 0, len(allAssetsResult))
+		for _, a := range allAssetsResult {
+			allAssets = append(allAssets, templates.DataAsset{
+				LedgerId: a.ID,
+				Name:     a.Name,
+				// Qty:      0,
+			})
+		}
+
+		sse := datastar.NewSSE(w, r)
+
+		buff := new(bytes.Buffer)
+		err = tmpls.ExecuteTemplate(buff, "components/withdraw-requests", templates.DataPageWalletTransact{
+			WalletAddr:       wData.Address,
+			WithdrawRequests: withdrawReqs,
+		})
+		if err != nil {
+			panic(err)
+		}
+
+		sse.MergeFragments(buff.String())
 	}
 }
 
@@ -662,7 +817,7 @@ func WalletTransactionsUpdates(tmpls *templates.Tmpls, db *database.Database, nc
 				if err != nil {
 					panic(err)
 				}
-				sse.MergeFragments(string(buff.Bytes()))
+				sse.MergeFragments(buff.String())
 			case <-r.Context().Done():
 				sub.Unsubscribe()
 				break loop
@@ -870,7 +1025,7 @@ func WalletAddUser(tmpls *templates.Tmpls, db *database.Database) http.HandlerFu
 		if err != nil {
 			panic(err)
 		}
-		sse.MergeFragments(string(buff.Bytes()))
+		sse.MergeFragments(buff.String())
 	}
 }
 
@@ -930,7 +1085,7 @@ func WalletRemoveUser(tmpls *templates.Tmpls, db *database.Database) http.Handle
 		if err != nil {
 			panic(err)
 		}
-		sse.MergeFragments(string(buff.Bytes()))
+		sse.MergeFragments(buff.String())
 	}
 }
 
@@ -1079,7 +1234,7 @@ func UpdateWalletUserSettings(tmpls *templates.Tmpls, db *database.Database) htt
 		if err != nil {
 			panic(err)
 		}
-		sse.MergeFragments(string(buff.Bytes()))
+		sse.MergeFragments(buff.String())
 	}
 }
 

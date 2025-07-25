@@ -98,6 +98,7 @@ type DataPageWalletTransact struct {
 	WarehouseSuggestions []DataWarehouseSuggestion
 	Assets               []DataTransactAsset
 	AllAssets            []DataTransactAsset
+	WithdrawRequests     []DataWithdrawRequest
 }
 type DataTransactAsset struct {
 	LedgerId int64
@@ -111,6 +112,15 @@ type DataRecipientSuggestion struct {
 type DataWarehouseSuggestion struct {
 	Label      string
 	WalletAddr string
+}
+type DataWithdrawRequest struct {
+	Withdrawer string
+	WithdrawId int64
+	Assets     []DataWithdrawRequestAsset
+}
+type DataWithdrawRequestAsset struct {
+	Name string
+	Qty  float64
 }
 
 // pages/wallet-transactions

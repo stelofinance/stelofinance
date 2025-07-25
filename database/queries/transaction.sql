@@ -43,3 +43,15 @@ JOIN wallet_permission cwp ON cwp.wallet_id = cw.id
 JOIN "user" du ON du.id = dwp.user_id
 JOIN "user" cu ON cu.id = cwp.user_id
 WHERE tx.code = 2 AND tx.status = 1 AND credit_wallet_id = sqlc.arg(warehouse_wallet_id);
+
+-- name: GetWithdrawRequests :many
+SELECT
+    tx.id,
+    tx.debit_wallet_id,
+    tx.credit_wallet_id,
+    dw.address AS debit_address,
+    tx.status
+FROM transaction tx
+JOIN wallet dw ON dw.id = tx.debit_wallet_id
+JOIN wallet cw ON cw.id = tx.credit_wallet_id
+WHERE tx.code = 2 AND tx.status = 1 AND credit_wallet_id = sqlc.arg(user_wallet_id);

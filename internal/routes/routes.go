@@ -57,6 +57,7 @@ func AddRoutes(mux *chi.Mux, logger *slog.Logger, tmpls *templates.Tmpls, db *da
 
 				mux.Handle("GET /transact", handlers.WalletTransact(tmpls, db))
 				mux.Handle("POST /transact", handlers.WalletCreateTransaction(tmpls, db, nc))
+				mux.Handle("POST /withdraws/{withdraw_tx_id}/approve", handlers.WalletApproveWithdraw(tmpls, db, nc))
 
 				mux.Handle("GET /settings", handlers.WalletSettings(tmpls, db))
 				mux.Handle("POST /users", handlers.WalletAddUser(tmpls, db))

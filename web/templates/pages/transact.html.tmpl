@@ -16,7 +16,7 @@
   >
     <fieldset>
       <legend class="text-sm text-neutral-300">Select transaction type</legend>
-      <div class="grid grid-cols-2 border-white border text-xl">
+      <div class="grid grid-cols-3 border-white border text-xl">
         <label class="flex">
           <input type="radio" data-bind-tx.type value="transfer" class="peer hidden">
           <span class="w-full text-center py-1 peer-checked:bg-anakiwa-900">Transfer</span>
@@ -24,6 +24,10 @@
         <label class="flex">
           <input type="radio" data-bind-tx.type value="deposit" class="peer hidden">
           <span class="w-full text-center py-1 peer-checked:bg-anakiwa-900">Deposit</span>
+        </label>
+        <label class="flex">
+          <input type="radio" data-bind-tx.type value="withdraw" class="peer hidden">
+          <span class="w-full text-center py-1 peer-checked:bg-anakiwa-900">Withdraw</span>
         </label>
       </div>
     </fieldset>
@@ -77,7 +81,7 @@
     </fieldset>
     <input type="text" name="memo" maxlength="100" placeholder="Memo (optional)..." class="border border-white pl-1 mt-4">
     <button id="submit-btn" type="submit" class="bg-anakiwa-900 text-xl w-full mt-4 py-2">SEND</button>
-    {{else}}
+    {{else if eq .TxType `deposit`}}
     <fieldset class="mt-4 relative" data-signals="{tx: {warehouseAddr: '{{.TxWarehouse}}'}}">
       <legend class="text-sm text-neutral-300">Select warehouse</legend>
       <div class="grid grid-cols-2 gap-2">
@@ -143,6 +147,8 @@
       </div>
     </fieldset>
     <button id="submit-btn" type="submit" class="bg-anakiwa-900 text-xl w-full mt-4 py-2">CREATE DEPOSIT REQUEST</button>
+    {{else}}
+    {{template "components/withdraw-requests" .}}
     {{end}}
   </form>
 </main>
