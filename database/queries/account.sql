@@ -101,6 +101,7 @@ LIMIT 1;
 
 -- name: GetAccountBalancesByWalletAddr :many
 SELECT
+    w.id AS wallet_id,
     l.id AS ledger_id,
     l.name AS asset_name,
     (a.debits_posted - a.credits_posted - a.credits_pending)::BIGINT AS debit_balance,

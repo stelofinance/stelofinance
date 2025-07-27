@@ -27,7 +27,7 @@ WHERE u.discord_username ILIKE $1
 LIMIT $2;
 
 -- name: GetWalletIdsByAddr :many
-SELECT id, address FROM wallet WHERE address = ANY($1::TEXT[]);
+SELECT id, address, code FROM wallet WHERE address = ANY($1::TEXT[]);
 
 -- name: GetWalletsByLocation :many
 SELECT

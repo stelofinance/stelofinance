@@ -46,7 +46,7 @@ type DataPageWalletHomepage struct {
 }
 type DataComponentSteloSummary struct {
 	FeaturedAsset    string
-	FeaturedAssetQty float64
+	FeaturedAssetQty string
 }
 
 // pages/wallet-settings
@@ -143,6 +143,14 @@ type DataTransaction struct {
 // pages/wallet-market
 type DataPageWalletMarket struct {
 	OnlyRenderPage bool
+	CoinSwap       DataComponentCoinSwap
+}
+type DataComponentCoinSwap struct {
+	WalletAddr     string
+	ActiveCoin     string
+	ExpectedReturn string
+	Rate           string
+	Qty            int
 }
 
 // pages/wallets

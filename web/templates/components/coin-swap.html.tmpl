@@ -1,0 +1,22 @@
+<div data-signals-active-coin="'{{.ActiveCoin}}'" class="border mt-6 flex flex-col py-1 px-2">
+  {{if eq .ActiveCoin `hexcoin`}}
+  <h2 class="text-lg">Hexcoin
+    <button class="underline" data-on-click="$activeCoin = 'stelo'; @get('/app/wallets/{{.WalletAddr}}/market')">&lt;-&gt;</button>
+    Stelo Swap</h2>
+  {{else}}
+  <h2 class="text-lg">Stelo
+    <button class="underline" data-on-click="$activeCoin = 'hexcoin'; @get('/app/wallets/{{.WalletAddr}}/market')">&lt;-&gt;</button>
+    Hexcoin Swap</h2>
+  {{end}}
+  <p class="text-sm">Rate: {{.Rate}}</p>
+  <label class="flex gap-2 mt-2">
+    <span>{{.ActiveCoin}}:</span>
+    {{if eq .ActiveCoin `hexcoin`}}
+    <input data-bind-qty data-on-input__debounce.300ms="@get('/app/wallets/{{.WalletAddr}}/market')" type="number" step="1" min="1" name="qty" placeholder="Qty..." class="border border-white pl-1 w-60">
+    {{else}}
+    <input data-bind-qty data-on-input__debounce.300ms="@get('/app/wallets/{{.WalletAddr}}/market')" type="number" step="any" min="0" name="qty" placeholder="Qty..." class="border border-white pl-1 w-60">
+    {{end}}
+  </label>
+  <p class="mt-2 text-xs">expected {{if eq .ActiveCoin `hexcoin`}}stl{{else}}hex{{end}}: {{.ExpectedReturn}}</p>
+  <button id="swap-btn" data-on-click="@post('/app/wallets/{{.WalletAddr}}/market/coinswap')" class="bg-white text-black mt-4 text-lg w-full">SWAP</button>
+</div>

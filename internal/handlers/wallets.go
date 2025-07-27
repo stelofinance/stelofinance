@@ -68,7 +68,7 @@ func WalletHome(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc 
 				WalletAddr: wData.Address,
 				SteloSummary: templates.DataComponentSteloSummary{
 					FeaturedAsset:    "Stelo",
-					FeaturedAssetQty: float64(qty) / math.Pow(10, float64(stelo.AssetScale)),
+					FeaturedAssetQty: humanize.Commaf(float64(qty) / math.Pow(10, float64(stelo.AssetScale))),
 				},
 			},
 		}
@@ -115,7 +115,7 @@ func WalletHomeUpdates(tmpls *templates.Tmpls, db *database.Database, nc *nats.C
 				buff := new(bytes.Buffer)
 				err = tmpls.ExecuteTemplate(buff, "components/stelo-summary", templates.DataComponentSteloSummary{
 					FeaturedAsset:    "Stelo",
-					FeaturedAssetQty: float64(qty) / math.Pow(10, float64(stelo.AssetScale)),
+					FeaturedAssetQty: humanize.Commaf(float64(qty) / math.Pow(10, float64(stelo.AssetScale))),
 				})
 				if err != nil {
 					panic(err)
@@ -186,7 +186,7 @@ func WalletAssets(tmpls *templates.Tmpls, db *database.Database) http.HandlerFun
 				WalletAddr: wData.Address,
 				SteloSummary: templates.DataComponentSteloSummary{
 					FeaturedAsset:    "Stelo",
-					FeaturedAssetQty: steloBal,
+					FeaturedAssetQty: humanize.Commaf(steloBal),
 				},
 				Assets: templates.DataComponentAssets{
 					Assets: assets,
@@ -252,7 +252,7 @@ func WalletAssetsUpdates(tmpls *templates.Tmpls, db *database.Database, nc *nats
 				buff := new(bytes.Buffer)
 				err = tmpls.ExecuteTemplate(buff, "components/stelo-summary", templates.DataComponentSteloSummary{
 					FeaturedAsset:    "Stelo",
-					FeaturedAssetQty: steloBal,
+					FeaturedAssetQty: humanize.Commaf(steloBal),
 				})
 				err = tmpls.ExecuteTemplate(buff, "components/assets", templates.DataComponentAssets{
 					Assets: assets,
@@ -652,6 +652,9 @@ func WalletCreateTransaction(tmpls *templates.Tmpls, db *database.Database, nc *
 		pending := false
 		creditId := idRows[creditIndx].ID
 		debitId := idRows[debitIndx].ID
+		if idRows[creditIndx].Code == int32(accounts.DAL) {
+			code = accounts.TxSysUser
+		}
 		if txType == "deposit" {
 			code = accounts.TxWarehouseTransfer
 			pending = true
@@ -1253,6 +1256,89 @@ func WalletMarket(tmpls *templates.Tmpls, db *database.Database) http.HandlerFun
 			pfp = *user.DiscordPfp
 		}
 
+		coinSwap := templates.DataComponentCoinSwap{
+			WalletAddr:     wData.Address,
+			ActiveCoin:     "hexcoin",
+			ExpectedReturn: "0",
+			Rate:           "",
+			Qty:            0,
+		}
+		if r.URL.Query().Has("datastar") {
+			type input struct {
+				Qty        int    `json:"qty"`
+				ActiveCoin string `json:"activeCoin"`
+			}
+			var ds input
+			err = json.Unmarshal([]byte(r.URL.Query().Get("datastar")), &ds)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			coinSwap.Qty = ds.Qty
+			coinSwap.ActiveCoin = ds.ActiveCoin
+		}
+		bals, err := db.Q.GetAccountBalancesByWalletAddr(r.Context(), "COINSWAP")
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			foundNum := 0
+			stelo := bals[0]
+			hexcoin := bals[0]
+			for _, b := range bals {
+				if b.AssetName == "stelo" {
+					stelo = b
+					foundNum++
+					continue
+				}
+				if b.AssetName == "hexcoin" {
+					hexcoin = b
+					foundNum++
+					continue
+				}
+			}
+			if foundNum != 2 {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			// TODO: This needs to be updated with the real start time
+			sinceMins := math.Floor(time.Since(time.Unix(1753573907, 0)).Minutes())
+			availSTL := math.Min(10_000_000*sinceMins, float64(stelo.DebitBalance))
+			stlFmtd := float64(availSTL) / math.Pow(10, float64(stelo.AssetScale))
+			coinSwap.Rate = fmt.Sprintf("%v stl / 1 hex", humanize.FormatFloat("", stlFmtd/float64(hexcoin.DebitBalance)))
+
+			if coinSwap.Qty != 0 {
+				volNum := availSTL * float64(hexcoin.DebitBalance)
+				if coinSwap.ActiveCoin == "hexcoin" {
+					stlRemaining := volNum / (float64(hexcoin.DebitBalance) + float64(coinSwap.Qty))
+					stlToPay := int64(availSTL - stlRemaining)
+					coinSwap.ExpectedReturn = humanize.FormatFloat("", float64(stlToPay)/math.Pow(10, float64(stelo.AssetScale)))
+				} else {
+					qtyScaled := math.Pow(10, float64(stelo.AssetScale)) * float64(coinSwap.Qty)
+					hexRemaining := math.Ceil(volNum / (availSTL + qtyScaled))
+					hexToPay := int64(hexcoin.DebitBalance - int64(hexRemaining))
+					coinSwap.ExpectedReturn = humanize.Comma(hexToPay)
+				}
+			}
+		}
+
+		if r.URL.Query().Has("datastar") {
+			sse := datastar.NewSSE(w, r)
+			buff := new(bytes.Buffer)
+			err = tmpls.ExecuteTemplate(buff, "pages/wallet-market", templates.DataLayoutApp{
+				PageData: templates.DataPageWalletMarket{
+					OnlyRenderPage: true,
+					CoinSwap:       coinSwap,
+				},
+			})
+			if err != nil {
+				panic(err)
+			}
+			sse.MergeFragments(buff.String())
+			return
+		}
+
 		tmplData := templates.DataLayoutApp{
 			Title:       "Market",
 			Description: "Marketplace for buying, selling, and trading items",
@@ -1265,7 +1351,10 @@ func WalletMarket(tmpls *templates.Tmpls, db *database.Database) http.HandlerFun
 				ActivePage: "market",
 				WalletAddr: wData.Address,
 			},
-			PageData: templates.DataPageWalletMarket{},
+			PageData: templates.DataPageWalletMarket{
+				// OnlyRenderPage: false,
+				CoinSwap: coinSwap,
+			},
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -1273,5 +1362,142 @@ func WalletMarket(tmpls *templates.Tmpls, db *database.Database) http.HandlerFun
 		if err != nil {
 			panic(err)
 		}
+	}
+}
+
+func ExecuteCoinSwap(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		wData := sessions.GetWallet(r.Context())
+
+		type input struct {
+			Qty        int    `json:"qty"`
+			ActiveCoin string `json:"activeCoin"`
+		}
+		var body input
+		err := json.NewDecoder(r.Body).Decode(&body)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		bals, err := db.Q.GetAccountBalancesByWalletAddr(r.Context(), "COINSWAP")
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		foundNum := 0
+		stelo := bals[0]
+		hexcoin := bals[0]
+		for _, b := range bals {
+			if b.AssetName == "stelo" {
+				stelo = b
+				foundNum++
+				continue
+			}
+			if b.AssetName == "hexcoin" {
+				hexcoin = b
+				foundNum++
+				continue
+			}
+		}
+		if foundNum != 2 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		// TODO: This needs to be updated with the real start time
+		sinceMins := math.Floor(time.Since(time.Unix(1753573907, 0)).Minutes())
+		availSTL := math.Min(10_000_000*sinceMins, float64(stelo.DebitBalance))
+		// stlFmtd := float64(availSTL) / math.Pow(10, float64(stelo.AssetScale))
+		volNum := availSTL * float64(hexcoin.DebitBalance)
+
+		tx, err := db.Pool.Begin(r.Context())
+		defer tx.Rollback(r.Context())
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		memo := "coin swap"
+		if body.ActiveCoin == "hexcoin" {
+			stlRemaining := volNum / (float64(hexcoin.DebitBalance) + float64(body.Qty))
+			stlToPay := int64(availSTL - stlRemaining)
+
+			// send hex
+			_, err = accounts.CreateTransaction(r.Context(), gensql.New(tx), nc, accounts.TxInput{
+				DebitWalletId:  stelo.WalletID,
+				CreditWalletId: wData.Id,
+				Code:           accounts.TxUserToUser,
+				Memo:           &memo,
+				IsPending:      false,
+				Assets: []accounts.TxAssets{{
+					LedgerId: hexcoin.LedgerID,
+					Amount:   int64(body.Qty),
+				}},
+			})
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			// receive stelo
+			_, err = accounts.CreateTransaction(r.Context(), gensql.New(tx), nc, accounts.TxInput{
+				DebitWalletId:  wData.Id,
+				CreditWalletId: stelo.WalletID,
+				Code:           accounts.TxUserToUser,
+				Memo:           &memo,
+				IsPending:      false,
+				Assets: []accounts.TxAssets{{
+					LedgerId: stelo.LedgerID,
+					Amount:   stlToPay,
+				}},
+			})
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+		} else {
+			qtyScaled := math.Pow(10, float64(stelo.AssetScale)) * float64(body.Qty)
+			hexRemaining := volNum / (float64(stelo.DebitBalance) + qtyScaled)
+			hexToPay := int64(float64(hexcoin.DebitBalance) - hexRemaining)
+
+			// send stelo
+			_, err = accounts.CreateTransaction(r.Context(), gensql.New(tx), nc, accounts.TxInput{
+				DebitWalletId:  stelo.WalletID,
+				CreditWalletId: wData.Id,
+				Code:           accounts.TxUserToUser,
+				Memo:           &memo,
+				IsPending:      false,
+				Assets: []accounts.TxAssets{{
+					LedgerId: stelo.LedgerID,
+					Amount:   int64(qtyScaled),
+				}},
+			})
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			// receive hex
+			_, err = accounts.CreateTransaction(r.Context(), gensql.New(tx), nc, accounts.TxInput{
+				DebitWalletId:  wData.Id,
+				CreditWalletId: stelo.WalletID,
+				Code:           accounts.TxUserToUser,
+				Memo:           &memo,
+				IsPending:      false,
+				Assets: []accounts.TxAssets{{
+					LedgerId: hexcoin.LedgerID,
+					Amount:   hexToPay,
+				}},
+			})
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+		}
+
+		tx.Commit(r.Context())
+
+		// Update btn
+		sse := datastar.NewSSE(w, r)
+		sse.MergeFragmentf(`<button id="swap-btn" disabled class="border text-white mt-4 text-lg w-full">SWAPPED</button>`)
 	}
 }
