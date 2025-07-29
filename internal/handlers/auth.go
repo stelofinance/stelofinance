@@ -131,6 +131,6 @@ func AuthCallback(logger *slog.Logger, db *database.Database, sessionsKV jetstre
 		sessionsKV.Create(r.Context(), "users."+strconv.FormatInt(userId, 10)+".sessions."+sid, bytes)
 
 		http.SetCookie(w, &cookie)
-		http.Redirect(w, r, "/app/wallets/"+addr, http.StatusFound)
+		http.Redirect(w, r, "/app/wallets/"+addr+"/assets", http.StatusFound)
 	}
 }

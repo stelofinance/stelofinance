@@ -362,8 +362,9 @@ func CreateWithdraw(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn
 			return
 		}
 		defer tx.Rollback(r.Context())
+		qtx := db.Q.WithTx(tx)
 		fmt.Println(assets)
-		_, err = accounts.CreateTransaction(r.Context(), gensql.New(tx), nc, accounts.TxInput{
+		_, err = accounts.CreateTransaction(r.Context(), qtx, nc, accounts.TxInput{
 			DebitWalletId:  wData.Id,
 			CreditWalletId: credId,
 			Code:           accounts.TxWarehouseTransfer,
@@ -410,9 +411,10 @@ func ApproveDeposit(tmpls *templates.Tmpls, db *database.Database) http.HandlerF
 			return
 		}
 		defer tx.Rollback(r.Context())
+		qtx := db.Q.WithTx(tx)
 
 		// Finalize the TX
-		accounts.FinalizeTransaction(r.Context(), gensql.New(tx), accounts.FinalizeInput{
+		accounts.FinalizeTransaction(r.Context(), qtx, accounts.FinalizeInput{
 			TxId:   int64(depoTxId),
 			Status: accounts.TxPostPending,
 		})
@@ -475,7 +477,7 @@ func ApproveDeposit(tmpls *templates.Tmpls, db *database.Database) http.HandlerF
 			panic(err)
 		}
 
-		sse.MergeFragments(string(buff.Bytes()))
+		sse.MergeFragments(buff.String())
 	}
 }
 
@@ -502,8 +504,9 @@ func CreateWarehouse(tmpls *templates.Tmpls, db *database.Database) http.Handler
 			return
 		}
 		defer tx.Rollback(r.Context())
+		qtx := db.Q.WithTx(tx)
 
-		_, err = accounts.CreateWarehouseWallet(r.Context(), gensql.New(tx), accounts.CreateWarehouseInput{
+		_, err = accounts.CreateWarehouseWallet(r.Context(), qtx, accounts.CreateWarehouseInput{
 			Addr:   body.Form.Addr,
 			UserId: uData.Id,
 			Location: postgis.Point{
@@ -566,6 +569,6 @@ func CreateWarehouse(tmpls *templates.Tmpls, db *database.Database) http.Handler
 			panic(err)
 		}
 
-		sse.MergeFragments(string(buff.Bytes()))
+		sse.MergeFragments(buff.String())
 	}
 }

@@ -510,9 +510,10 @@ func WalletApproveWithdraw(tmpls *templates.Tmpls, db *database.Database, nc *na
 			return
 		}
 		defer tx.Rollback(r.Context())
+		qtx := db.Q.WithTx(tx)
 
 		// Finalize the TX
-		accounts.FinalizeTransaction(r.Context(), gensql.New(tx), accounts.FinalizeInput{
+		accounts.FinalizeTransaction(r.Context(), qtx, accounts.FinalizeInput{
 			TxId:   int64(depoTxId),
 			Status: accounts.TxPostPending,
 		})
@@ -648,6 +649,8 @@ func WalletCreateTransaction(tmpls *templates.Tmpls, db *database.Database, nc *
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
+		qtx := db.Q.WithTx(tx)
+
 		code := accounts.TxUserToUser
 		pending := false
 		creditId := idRows[creditIndx].ID
@@ -661,7 +664,7 @@ func WalletCreateTransaction(tmpls *templates.Tmpls, db *database.Database, nc *
 			creditId = debitId
 			debitId = idRows[creditIndx].ID
 		}
-		_, err = accounts.CreateTransaction(r.Context(), gensql.New(tx), nc, accounts.TxInput{
+		_, err = accounts.CreateTransaction(r.Context(), qtx, nc, accounts.TxInput{
 			DebitWalletId:  debitId,
 			CreditWalletId: creditId,
 			Code:           code,
@@ -1102,7 +1105,8 @@ func WalletsCreate(db *database.Database) http.HandlerFunc {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		_, addr, err := accounts.CreateGeneralWallet(r.Context(), gensql.New(tx), uData.Id)
+		qtx := db.Q.WithTx(tx)
+		_, addr, err := accounts.CreateGeneralWallet(r.Context(), qtx, uData.Id)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -1302,21 +1306,18 @@ func WalletMarket(tmpls *templates.Tmpls, db *database.Database) http.HandlerFun
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
-			// TODO: This needs to be updated with the real start time
-			sinceMins := math.Floor(time.Since(time.Unix(1753573907, 0)).Minutes())
-			availSTL := math.Min(10_000_000*sinceMins, float64(stelo.DebitBalance))
-			stlFmtd := float64(availSTL) / math.Pow(10, float64(stelo.AssetScale))
+			stlFmtd := float64(stelo.DebitBalance) / math.Pow(10, float64(stelo.AssetScale))
 			coinSwap.Rate = fmt.Sprintf("%v stl / 1 hex", humanize.FormatFloat("", stlFmtd/float64(hexcoin.DebitBalance)))
 
 			if coinSwap.Qty != 0 {
-				volNum := availSTL * float64(hexcoin.DebitBalance)
+				volNum := float64(stelo.DebitBalance) * float64(hexcoin.DebitBalance)
 				if coinSwap.ActiveCoin == "hexcoin" {
 					stlRemaining := volNum / (float64(hexcoin.DebitBalance) + float64(coinSwap.Qty))
-					stlToPay := int64(availSTL - stlRemaining)
+					stlToPay := int64(float64(stelo.DebitBalance) - stlRemaining)
 					coinSwap.ExpectedReturn = humanize.FormatFloat("", float64(stlToPay)/math.Pow(10, float64(stelo.AssetScale)))
 				} else {
 					qtyScaled := math.Pow(10, float64(stelo.AssetScale)) * float64(coinSwap.Qty)
-					hexRemaining := math.Ceil(volNum / (availSTL + qtyScaled))
+					hexRemaining := math.Ceil(volNum / (float64(stelo.DebitBalance) + qtyScaled))
 					hexToPay := int64(hexcoin.DebitBalance - int64(hexRemaining))
 					coinSwap.ExpectedReturn = humanize.Comma(hexToPay)
 				}
@@ -1406,10 +1407,7 @@ func ExecuteCoinSwap(tmpls *templates.Tmpls, db *database.Database, nc *nats.Con
 			return
 		}
 		// TODO: This needs to be updated with the real start time
-		sinceMins := math.Floor(time.Since(time.Unix(1753573907, 0)).Minutes())
-		availSTL := math.Min(10_000_000*sinceMins, float64(stelo.DebitBalance))
-		// stlFmtd := float64(availSTL) / math.Pow(10, float64(stelo.AssetScale))
-		volNum := availSTL * float64(hexcoin.DebitBalance)
+		volNum := float64(stelo.DebitBalance) * float64(hexcoin.DebitBalance)
 
 		tx, err := db.Pool.Begin(r.Context())
 		defer tx.Rollback(r.Context())
@@ -1417,14 +1415,15 @@ func ExecuteCoinSwap(tmpls *templates.Tmpls, db *database.Database, nc *nats.Con
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
+		qtx := db.Q.WithTx(tx)
 
 		memo := "coin swap"
 		if body.ActiveCoin == "hexcoin" {
 			stlRemaining := volNum / (float64(hexcoin.DebitBalance) + float64(body.Qty))
-			stlToPay := int64(availSTL - stlRemaining)
+			stlToPay := int64(float64(stelo.DebitBalance) - stlRemaining)
 
 			// send hex
-			_, err = accounts.CreateTransaction(r.Context(), gensql.New(tx), nc, accounts.TxInput{
+			_, err = accounts.CreateTransaction(r.Context(), qtx, nc, accounts.TxInput{
 				DebitWalletId:  stelo.WalletID,
 				CreditWalletId: wData.Id,
 				Code:           accounts.TxUserToUser,
@@ -1440,7 +1439,7 @@ func ExecuteCoinSwap(tmpls *templates.Tmpls, db *database.Database, nc *nats.Con
 				return
 			}
 			// receive stelo
-			_, err = accounts.CreateTransaction(r.Context(), gensql.New(tx), nc, accounts.TxInput{
+			_, err = accounts.CreateTransaction(r.Context(), qtx, nc, accounts.TxInput{
 				DebitWalletId:  wData.Id,
 				CreditWalletId: stelo.WalletID,
 				Code:           accounts.TxUserToUser,
@@ -1461,7 +1460,7 @@ func ExecuteCoinSwap(tmpls *templates.Tmpls, db *database.Database, nc *nats.Con
 			hexToPay := int64(float64(hexcoin.DebitBalance) - hexRemaining)
 
 			// send stelo
-			_, err = accounts.CreateTransaction(r.Context(), gensql.New(tx), nc, accounts.TxInput{
+			_, err = accounts.CreateTransaction(r.Context(), qtx, nc, accounts.TxInput{
 				DebitWalletId:  stelo.WalletID,
 				CreditWalletId: wData.Id,
 				Code:           accounts.TxUserToUser,
@@ -1477,7 +1476,7 @@ func ExecuteCoinSwap(tmpls *templates.Tmpls, db *database.Database, nc *nats.Con
 				return
 			}
 			// receive hex
-			_, err = accounts.CreateTransaction(r.Context(), gensql.New(tx), nc, accounts.TxInput{
+			_, err = accounts.CreateTransaction(r.Context(), qtx, nc, accounts.TxInput{
 				DebitWalletId:  wData.Id,
 				CreditWalletId: stelo.WalletID,
 				Code:           accounts.TxUserToUser,

@@ -2,7 +2,7 @@
 <nav
   aria-label="Menu"
   class="fixed bottom-0 left-0 w-full z-20 grid grid-cols-3 bg-neutral-900 border-t border-neutral-800
-    px-5 py-2 text-neutral-400 text-center text-lg"
+    px-5 py-2 text-neutral-400 text-center text-lg lg:text-2xl lg:px-60"
 >
   {{if .ForWarehouse}}
   <a href="/app/warehouses/{{.WalletAddr}}" class="{{if eq .ActivePage `home`}}text-white{{end}}">

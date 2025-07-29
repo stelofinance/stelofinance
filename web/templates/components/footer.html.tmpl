@@ -1,6 +1,7 @@
-<footer class="flex items-center gap-4 py-4 px-3 text-white lg:gap-10 lg:py-6 lg:px-16 2xl:gap-12">
+<footer class="relative flex items-center gap-4 pt-4 pb-8 px-3 text-white lg:gap-10 lg:pt-6 lg:pb-10 lg:px-16 2xl:gap-12">
   {{template "icons/logo-full" `w-24 h-auto mr-auto lg:w-32 2xl:w-36`}}
   {{range .Links}}
   <a class="text-sm lg:text-base 2xl:text-lg" href="{{.Href}}" rel="noopener noreferrer" target="_blank">{{.Text}}</a>
   {{end}}
+  <p class="text-xs text-neutral-300 absolute bottom-2 lg:bottom-3 left-1/2 -translate-x-1/2 text-nowrap">Not affiliated with Clockwork Labs</p>
 </footer>

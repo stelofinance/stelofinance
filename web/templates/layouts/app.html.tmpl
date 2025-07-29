@@ -19,9 +19,11 @@
   </head>
   <body class="bg-neutral-900 font-source-code-pro pb-12">
     {{template "components/app-nav" .NavData}}
-    {{block "page-content" .PageData}}
-    <p>No content</p>
-    {{end}}
+    <div class="max-w-screen-md mx-auto">
+      {{block "page-content" .PageData}}
+      <p>No content</p>
+      {{end}}
+    </div>
     {{template "components/app-menu" .MenuData}}
     {{if get_env "ENV" | eq "dev"}}
     <div data-on-load="@get('/hotreload', {retryInterval: 100, retryScaler: 1, retryMaxCount: 200})"></div>
