@@ -9,7 +9,7 @@ primary_region = "iad"
 	ENV = "prod"
 
 [deploy]
-	release_command = "/migrate"
+	release_command = "/bin/migrate"
 
 [mounts]
 	source = "nats"
