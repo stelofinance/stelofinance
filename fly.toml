@@ -7,6 +7,7 @@ primary_region = "iad"
 [env]
 	PORT = "8080"
 	ENV = "prod"
+	JS_DIR = "nats"
 
 [deploy]
 	release_command = "/bin/migrate"
