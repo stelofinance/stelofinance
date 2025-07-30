@@ -1,0 +1,138 @@
+{{template "layouts/primary" .}}
+
+{{define "page-content"}}
+<main>
+  <div class="relative flex h-screen-available flex-col items-center justify-center">
+    {{/* Hero center content */}}
+    <div class="mb-40 flex flex-col items-center gap-4 text-white lg:flex-row lg:gap-10 2xl:gap-14">
+      {{template "icons/logo-colored" `h-32 w-32 lg:h-48 lg:w-48 2xl:h-64 2xl:w-64`}}
+      <div class="flex flex-col">
+        <h1 class="text-center text-2xl font-medium lg:text-4xl 2xl:text-5xl 2xl:leading-tight">
+          <a
+            class="underline"
+            rel="noopener noreferrer"
+            target="_blank"
+            href="https://bitcraftonline.com/"
+          >BitCraft</a>'s leading<br>finance platform
+        </h1>
+        <h2 class="mt-2 flex justify-center text-center text-sm text-neutral-100 lg:mt-3 lg:text-base 2xl:text-lg">
+          Innovative.&nbsp;
+          <span class="hidden lg:block">Player focused.&nbsp;</span>
+          Player driven.
+        </h2>
+        <div class="mt-3 flex gap-5 lg:mt-5 justify-center 2xl:gap-8">
+          <a
+            href="{{if .User}}/app{{else}}/login{{end}}"
+            class="flex items-center gap-2 rounded-full bg-melrose py-1 px-4 text-sm font-medium text-neutral-800
+                transition-colors duration-300 hover:bg-melrose-200 lg:px-6 lg:text-base 2xl:py-2 2xl:px-14 2xl:text-lg"
+          >
+            {{- if .User}}Dashboard{{else}}Log In{{end -}}
+          </a>
+          <a
+            href="https://discord.gg/t6gM7v7V7T"
+            rel="noopener noreferrer"
+            target="_blank"
+            class="flex items-center gap-2 rounded-full border border-white py-1 px-4 text-sm font-medium text-white lg:gap-3 lg:px-6 lg:text-base 2xl:py-2 2xl:px-14 2xl:text-lg"
+          >
+            Discord
+          {{template "icons/right-arrow" `h-3 w-3 lg:h-3.5 lg:w-3.5 2xl:h-4 2xl:w-4`}}
+          </a>
+        </div>
+      </div>
+    </div>
+    {{/* Bottom banner */}}
+    <div class="absolute bottom-0 flex w-full justify-center bg-linear-to-r from-anakiwa to-melrose py-4 2xl:py-5 2xl:text-xl">
+      <p class="tracking-wider">THE STELO FINANCE PLATFORM</p>
+    </div>
+  </div>
+  {{/* Info Cards */}}
+  <div class="bg-linear-to-b from-anakiwa-300 to-melrose py-10 px-4 lg:py-16 lg:px-10">
+    <div class="mx-auto grid max-w-sm grid-cols-1 gap-4 sm:max-w-(--breakpoint-xl) sm:grid-cols-2 md:gap-6 lg:grid-cols-3 xl:gap-10">
+      {{range .InfoCards}}
+      <div class="flex flex-col rounded-lg bg-white/20 py-5 px-3 text-center shadow-md xl:p-8">
+        <h2 class="text-lg font-medium xl:text-2xl">{{.Title}}</h2>
+        <p class="mt-2 text-sm font-light xl:mt-6 xl:text-lg xl:leading-tight">{{.Body}}</p>
+      </div>
+      {{end}}
+    </div>
+  </div>
+  {{/* Walkthrough */}}
+  <div class="mx-auto flex max-w-(--breakpoint-md) flex-col py-10 px-6 text-white md:py-20 xl:max-w-(--breakpoint-lg) xl:py-28">
+    <h2 class="mx-auto text-lg uppercase tracking-wider text-anakiwa sm:text-2xl md:mb-4 lg:text-3xl xl:mb-12 xl:text-4xl">Getting started on Stelo</h2>
+    {{/* TODO: Could probably make this just a range statement */}}
+    <div class="group relative flex h-fit justify-between rounded-lg p-8 transition-colors xl:px-9 xl:pb-16 xl:hover:bg-neutral-950">
+      <div class="absolute top-10 left-0 h-full w-2 bg-neutral-800"></div>
+      <div class="absolute top-10 -left-1.5 h-5 w-5 rounded-full bg-neutral-800 transition-colors group-hover:bg-anakiwa"></div>
+      <div class="xl:w-1/2">
+        <h3 class="text-xl font-medium lg:text-2xl">Create an account</h3>
+        <p class="mt-5 text-sm text-neutral-100 lg:text-base xl:text-lg">
+          To use the Stelo platform, you'll first need to create an account. With your account you get a personal wallet, think of it like a bank account for any items you want to deposit. You can then send these items to anyone else on
+        Stelo.
+        </p>
+      </div>
+      <div class="hidden w-52 xl:block">
+        {{template "illustrations/account" `grayscale group-hover:grayscale-0`}}
+      </div>
+    </div>
+    <div class="group relative flex h-fit justify-between rounded-lg p-8 transition-colors xl:px-9 xl:pb-16 xl:hover:bg-neutral-950">
+      <div class="absolute top-0 left-0 h-full w-2 bg-neutral-800"></div>
+      <div class="absolute top-9 -left-1.5 h-5 w-5 rounded-full bg-neutral-800 transition-colors group-hover:bg-anakiwa"></div>
+      <div class="xl:w-1/2">
+        <h3 class="text-xl font-medium lg:text-2xl">Deposit items</h3>
+        <p class="mt-5 text-sm text-neutral-100 lg:text-base xl:text-lg">
+          Now that you have an account, you'll need to put items in it to trade with. Head to your nearest Stelo partnered warehouse in BitCraft, and deposit your goods with them that you'd like on your stelo account.
+        </p>
+      </div>
+      <div class="hidden w-52 xl:block">
+        {{template "illustrations/deposit" `grayscale group-hover:grayscale-0`}}
+      </div>
+    </div>
+    <div class="group relative flex h-fit justify-between rounded-lg p-8 transition-colors xl:px-9 xl:pb-16 xl:hover:bg-neutral-950">
+      <div class="absolute top-0 left-0 h-full w-2 bg-neutral-800"></div>
+      <div class="absolute top-9 -left-1.5 h-5 w-5 rounded-full bg-neutral-800 transition-colors group-hover:bg-anakiwa"></div>
+      <div class="xl:w-1/2">
+        <h3 class="text-xl font-medium lg:text-2xl">Trade your items</h3>
+        <p class="mt-5 text-sm text-neutral-100 lg:text-base xl:text-lg">
+          With items in your wallet, you can now do whatever you'd like with them on the Stelo platform! You can send them to a friend, sell them on an exchange, donate them to a cause, and much more!
+        </p>
+      </div>
+      <div class="hidden w-52 xl:block">
+        {{template "illustrations/trade" `grayscale group-hover:grayscale-0`}}
+      </div>
+    </div>
+    <div class="group relative flex h-fit justify-between rounded-lg p-8 transition-colors xl:px-9 xl:pb-16 xl:hover:bg-neutral-950">
+      <div class="absolute top-0 left-0 h-10 w-2 bg-neutral-800"></div>
+      <div class="absolute top-9 -left-1.5 h-5 w-5 rounded-full bg-neutral-800 transition-colors group-hover:bg-anakiwa"></div>
+      <div class="xl:w-1/2">
+        <h3 class="text-xl font-medium lg:text-2xl">Withdraw items</h3>
+        <p class="mt-5 text-sm text-neutral-100 lg:text-base xl:text-lg">
+          Have some items that you want to withdraw back into the world of BitCraft? Go to your local Stelo partnered warehouse and request from them what items you'd like to withdraw from your account!
+        </p>
+      </div>
+      <div class="hidden w-60 items-center xl:flex">
+        {{template "illustrations/withdraw" `grayscale group-hover:grayscale-0`}}
+      </div>
+    </div>
+  </div>
+  {{/* Contribute */}}
+  <div class="my-10 mx-6 flex max-w-(--breakpoint-xl) gap-36 rounded-lg bg-linear-to-r from-melrose to-anakiwa p-4 lg:mx-16 lg:py-6 lg:px-10 xl:mx-auto">
+    <div class="flex flex-col">
+      <h2 class="text-2xl font-medium lg:text-3xl">Contribute to the Stelo Ecosystem</h2>
+      <p class="mt-3 text-neutral-800 lg:mt-5 lg:text-xl lg:leading-tight">
+        Have a great idea for an app on our platform? Or maybe you're looking to directly contribe to Stelo's core functionality? Either way, Stelo thrives on community involvement in it's ecosystem, and we'd love your help!
+      </p>
+      <div class="mt-6 flex gap-4 text-sm lg:gap-5 lg:text-base xl:mt-auto">
+        <a class="flex items-center gap-2 rounded-md bg-neutral-900 py-1 px-2 text-white hover:shadow-md lg:py-2 lg:px-3" href="https://github.com/stelofinance" rel="noopener noreferrer" target="_blank">
+          GitHub
+          {{template "icons/github" `size-5 lg:size-6`}}
+        </a>
+        <a class="flex items-center gap-2 rounded-md bg-neutral-900 py-1 px-2 text-white hover:shadow-md lg:py-2 lg:px-3" href="https://github.com/stelofinance" rel="noopener noreferrer" target="_blank">
+          Join the Discord
+          {{template "icons/discord" `size-5 lg:size-6`}}
+        </a>
+      </div>
+    </div>
+    {{template "illustrations/nintron" `hidden xl:block`}}
+  </div>
+</main>
+{{end}}

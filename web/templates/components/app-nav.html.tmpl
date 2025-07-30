@@ -1,0 +1,66 @@
+<nav data-signals-nav-open="false" class="sticky top-0 z-30 grid grid-cols-3 bg-neutral-900 border-b border-neutral-800 px-3 py-2  text-white" aria-label="Header navigation">
+  <button data-on-click="$navOpen = true" class="justify-self-start">
+    {{template "icons/hamburger" `size-7`}}
+  </button>
+  {{if .ForWarehouse}}
+  <a href="/app/warehouses" aria-label="Go to warehouses page" class="flex justify-center">
+    {{template "icons/logo-full" `w-28 h-auto 2xl:w-32`}}
+  </a>
+  {{else}}
+  <a href="/app/wallets" aria-label="Go to wallets" class="flex justify-center">
+    {{template "icons/logo-full" `w-28 h-auto 2xl:w-32`}}
+  </a>
+  {{end}}
+  {{if .WalletAddr}}
+  <div class="justify-self-end flex items-center">
+    <p class="text-sm text-gray-400">#{{.WalletAddr}}</p>
+  </div>
+  {{end}}
+  <style>
+    * {
+    --header-offset: 62.3px;
+   }
+
+   /* @media (min-width: 1024px) {
+    * {
+     --header-offset: 77.3px;
+    }
+   }
+
+   @media (min-width: 1536px) {
+    * {
+     --header-offset: 83.76px;
+    }
+   }*/
+  </style>
+  <div data-on-click="$navOpen = false" data-show="$navOpen" aria-hidden="true" class="fixed left-0 top-0 size-full bg-black/60" style="display: none;"></div>
+  <nav
+    data-on-click="$navOpen = false"
+    data-show="$navOpen"
+    class="fixed left-0 top-0 flex flex-col size-full max-w-xs bg-neutral-900 px-3 py-6 text-white"
+    style="display: none;"
+  >
+    {{template "icons/close" `absolute top-4 right-4 size-6`}}
+    {{if .ProfileImage}}
+    <img
+      src="{{.ProfileImage}}"
+      alt="Your discord profile picture"
+      loading="lazy"
+      class="size-14 rounded-full border-2 border-neutral-600"
+    >
+    {{end}}
+    <p class="text-xl mt-2">{{.Username}}</p>
+    <hr class="mt-2 border-neutral-700 w-full">
+    {{if .ForWarehouse}}
+    <a href="/app/warehouses" class="mt-6 underline text-xl">Warehouses</a>
+    <a href="/app/wallets" class="mt-6 underline text-xl">Wallets</a>
+    {{else}}
+    {{if .WalletAddr}}
+    <a href="/app/wallets/{{.WalletAddr}}/transactions" class="mt-6 underline text-xl">History</a>
+    {{end}}
+    <a href="/app/wallets" class="mt-6 underline text-xl">Wallets</a>
+    <a href="/app/warehouses" class="mt-6 underline text-xl">Warehouses</a>
+    {{end}}
+    <a href="/app/logout" class="underline text-red-500 mt-auto mx-auto">LOGOUT</a>
+  </nav>
+</nav>

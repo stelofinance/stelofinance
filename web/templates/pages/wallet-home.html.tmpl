@@ -1,0 +1,7 @@
+{{template "layouts/app" .}}
+
+{{define "page-content"}}
+<main data-on-load="@get('/app/wallets/{{.WalletAddr}}/updates')" class="flex flex-col items-center justify-center text-white px-2 py-4">
+  {{template "components/stelo-summary" .SteloSummary}}
+</main>
+{{end}}

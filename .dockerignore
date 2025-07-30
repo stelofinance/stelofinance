@@ -1,7 +1,10 @@
 .direnv/
 fly.toml
+.env
+tmp/
 
 # Build outputs
+database/gensql/
 web/static/tw-output.css
 .task/
 bin/

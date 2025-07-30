@@ -1,6 +1,56 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+@theme {
+  --animate-spin-slow: spin 3s linear infinite;
+
+  --height-screen-available: calc(100dvh - var(--header-offset));
+  --height-header: var(--header-offset);
+
+  --font-source-code-pro: Source Code Pro, monospace;
+
+  --color-neutral-950: #111111;
+
+  --color-melrose-50: #edf4ff;
+  --color-melrose-100: #dfe9ff;
+  --color-melrose-200: #c5d7ff;
+  --color-melrose-400: #7d95fc;
+  --color-melrose-500: #5e70f6;
+  --color-melrose-600: #4148ea;
+  --color-melrose-700: #3336cf;
+  --color-melrose-800: #2c30a7;
+  --color-melrose-900: #2b3184;
+  --color-melrose: #a2bbff;
+
+  --color-anakiwa-50: #f0fbff;
+  --color-anakiwa-100: #dff5ff;
+  --color-anakiwa-300: #79e2ff;
+  --color-anakiwa-400: #32d5fe;
+  --color-anakiwa-500: #07c0f0;
+  --color-anakiwa-600: #009ccd;
+  --color-anakiwa-700: #007ca6;
+  --color-anakiwa-800: #036889;
+  --color-anakiwa-900: #095671;
+  --color-anakiwa: #a2e9ff;
+}
+
+/*
+  The default border color has changed to `currentColor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentColor);
+  }
+}
 
 @font-face {
   font-family: "Source Code Pro";

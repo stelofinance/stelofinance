@@ -1,0 +1,19 @@
+<div id="withdraw-requests">
+  <p class="mt-2 text-lg">Withdraw Requests</p>
+  <div class="flex flex-col gap-2 border border-white p-1">
+    {{range .WithdrawRequests}}
+    <div class="flex flex-col border border-neutral-500">
+      <div class="flex justify-between">
+        <span class="text-lg">{{.Withdrawer}}</span>
+        <button type="button" class="underline" data-on-click="@post('/app/wallets/{{$.WalletAddr}}/withdraws/{{.WithdrawId}}/approve')">approve</button>
+      </div>
+      <hr>
+      <div class="grid grid-cols-2">
+        {{range .Assets}}
+        <p>{{.Name}} x{{.Qty}}</p>
+        {{end}}
+      </div>
+    </div>
+    {{end}}
+  </div>
+</div>

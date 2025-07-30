@@ -1,0 +1,18 @@
+{{if not .PageData.OnlyRenderPage}}
+{{template "layouts/app" .}}
+{{end}}
+
+{{define "page-content"}}
+<main
+  id="page-content"
+  class="flex flex-col text-white px-2 py-4"
+>
+  <h1 class="text-2xl mr-auto pl-2">Market</h1>
+  <p class="text-lg italic">This page is still under construction</p>
+  {{template "components/coin-swap" .CoinSwap}}
+</main>
+{{end}}
+
+{{if .PageData.OnlyRenderPage}}
+  {{template "page-content" .PageData}}
+{{end}}

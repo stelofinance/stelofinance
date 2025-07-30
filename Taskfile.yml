@@ -1,60 +1,73 @@
 version: '3'
 
-interval: 50ms
+interval: 100ms
 
 env:
   STATIC_DIR: "web/static"
 
+dotenv: [".env"]
+
 tasks:
   live:
-    desc: Run live dev environment
-    cmds:
-      - task live:styles &
-      - task live:go
-
-  live:styles:
-    cmds:
-      - "tailwindcss -i web/styles/tw-input.css -o {{.STATIC_DIR}}/tw-output.css --minify --watch"
-
-  live:go:
-    deps: [live:go:run]
+    desc: Run live dev environment. (Currently startup is broken, see Taskfile issue 2202)
+    deps: [build:go:app]
     watch: true
-    # Copies build:go so that it gets rerun
-    sources:
-      - "**/*.go"
-
-  live:go:run:
-    deps: [build:go]
     cmds:
       - bin/app
-
-  build:
-    desc: Build all artifacts
-    deps: [build:go, build:styles]
-
-  build:go:
-    env:
-      GOARCH: amd64
-      GOOS: linux
-      CGO_ENABLED: 0
-    cmds: 
-      - go build -o bin/app cmd/app/main.go
-    sources:
-      - "**/*.go"
-    generates:
-      - bin/app
-
-  build:styles:
-    cmds:
-      - "tailwindcss -i web/styles/tw-input.css -o {{.STATIC_DIR}}/tw-output.css --minify"
-    sources:
-      - "web/**/*.{html,go}"
-      - tailwind.config.js
-    generates:
-      - web/static/tw-output.css
 
   run:
     desc: Run Stelo Finance
     cmds:
       - bin/app
-    deps: [build]
+    deps: [build:go:app]
+
+  build:
+    desc: Build all artifacts
+    deps: [build:go:app, build:go:migrate]
+
+  build:go:app:
+    deps: [build:go:sqlc, build:styles]
+    env:
+      GOARCH: amd64
+      GOOS: linux
+      CGO_ENABLED: 0
+    cmds:
+      - "go build -o bin/app cmd/app/main.go"
+    sources:
+      - "**/*.go"
+      - "**/*.html.tmpl"
+    generates:
+      - bin/app
+
+  build:go:migrate:
+    env:
+      GOARCH: amd64
+      GOOS: linux
+      CGO_ENABLED: 0
+    cmds:
+      - go build -o bin/migrate cmd/migrate/main.go
+    sources:
+      - "cmd/migrate/**/*.go"
+      - "database/database.go"
+      - "database/migrations/**/*.sql"
+    generates:
+      - bin/migrate
+
+  build:go:sqlc:
+    cmds:
+      - sqlc generate
+    sources:
+      - "sqlc.yaml"
+      - "database/queries/**/*.sql"
+      - "database/migrations/**/*.sql"
+    generates:
+      - "database/gensql/**/*"
+
+  build:styles:
+    cmds:
+      - "tailwindcss -i web/styles/tw-input.css -o {{.STATIC_DIR}}/tw-output.css --minify"
+    sources:
+      - "web/**/*.{html.tmpl,go}"
+      - web/styles/tw-input.css
+    generates:
+      - web/static/tw-output.css

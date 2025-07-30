@@ -1,0 +1,14 @@
+{{if .Assets}}
+<div id="assets-summary" class="w-full grid grid-cols-2 mt-4 gap-4">
+  {{range .Assets}}
+  <div class="flex flex-col p-2 bg-neutral-800 rounded">
+    <p class="text-lg">{{.Name}}</p>
+    <p class="ml-auto">{{.Qty}}</p>
+  </div>
+  {{end}}
+</div>
+{{else}}
+<p id="assets-summary" class="mt-4 text-center">
+  You have no assets :(
+</p>
+{{end}}

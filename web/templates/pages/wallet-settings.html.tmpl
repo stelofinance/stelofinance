@@ -1,0 +1,54 @@
+{{if not .PageData.OnlyRenderPage}}
+{{template "layouts/app" .}}
+{{end}}
+
+{{define "page-content"}}
+<main
+  id="page-content"
+  class="flex flex-col text-white px-2 py-4"
+>
+  <h1 class="text-2xl mr-auto pl-2">Wallet Settings</h1>
+  <h2 class="text-lg mt-6">Users</h2>
+  {{range .Users}}
+  <div class="flex mt-2 px-3 pt-0.5 pb-1 justify-end items-center bg-neutral-800 rounded">
+    <div class="flex flex-col mr-auto">
+      <span class="text-xl">{{.Name}}</span>
+      <span class="text-neutral-400 text-sm">
+        perms: {{range $i, $e := .Permissions}}{{if $i}}, {{end}}{{.}}{{end}}
+      </span>
+    </div>
+    {{if not .IsUser}}
+    <a href="/app/wallets/{{$.WalletAddr}}/users/{{.Name}}" class="underline text-anakiwa-500 mr-4">Edit perms</a>
+    <button
+      data-on-click="@delete('/app/wallets/{{$.WalletAddr}}/users/{{.Name}}')"
+      class="underline text-red-600"
+    >Remove</button>
+    {{end}}
+  </div>
+  {{end}}
+  <div class="mt-6 flex gap-2 relative" data-signals="{addUserOpen: false}">
+    <button
+      data-show="!$addUserOpen"
+      class="bg-neutral-800 w-full py-1 px-3 rounded"
+      data-on-click="$addUserOpen = true"
+    >Add User</button>
+    <input
+      data-show="$addUserOpen"
+      data-bind-username
+      type="text"
+      placeholder="Username..."
+      class="pl-1 border border-neutral-700 rounded w-full"
+    >
+    <button
+      data-show="$addUserOpen"
+      class="bg-neutral-800 py-1 px-3 rounded"
+      data-on-click="@post('/app/wallets/{{$.WalletAddr}}/users')"
+    >Add</button>
+    <button data-show="$addUserOpen" data-on-click="$addUserOpen = false" class="text-xs underline absolute top-full left-0">cancel</button>
+  </div>
+</main>
+{{end}}
+
+{{if .PageData.OnlyRenderPage}}
+{{template "page-content" .PageData}}
+{{end}}

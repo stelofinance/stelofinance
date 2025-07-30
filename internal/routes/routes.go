@@ -1,44 +1,93 @@
 package routes
 
 import (
-	"io"
-	"net/http"
+	"log/slog"
 
-	"github.com/andybalholm/brotli"
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/go-chi/cors"
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
+	"github.com/stelofinance/stelofinance/database"
+	"github.com/stelofinance/stelofinance/internal/accounts"
 	"github.com/stelofinance/stelofinance/internal/assets"
-	"github.com/stelofinance/stelofinance/web/pages"
+	"github.com/stelofinance/stelofinance/internal/handlers"
+	midware "github.com/stelofinance/stelofinance/internal/middlewares"
+	"github.com/stelofinance/stelofinance/web/templates"
 )
 
-func NewRouter() http.Handler {
-	r := chi.NewRouter()
+func AddRoutes(mux *chi.Mux, logger *slog.Logger, tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstream.KeyValue, nc *nats.Conn) {
+	assets.HttpHandler(mux)
 
-	// Global middleware
-	r.Use(middleware.Logger)
-	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"*"},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowCredentials: true,
-		MaxAge:           300,
-	}))
-	r.Use(middleware.Heartbeat("/heartbeat"))
-	// r.Use(middleware.AllowContentType("application/json"))
+	mux.Handle("GET /hotreload", handlers.HotReload())
 
-	// Setup compressor middleware, add brotli encoding
-	compressor := middleware.NewCompressor(2)
-	compressor.SetEncoder("br", func(w io.Writer, level int) io.Writer {
-		return brotli.NewWriterV2(w, level)
-	})
-	r.Use(compressor.Handler)
+	mux.With(midware.AuthSession(logger, sessionsKV, false)).Handle("GET /", handlers.Index(tmpls))
+	mux.Handle("GET /login", handlers.Login(tmpls))
 
-	assets.HttpHandler(r)
+	// Login routes
+	mux.Route("/auth/{provider}", func(mux chi.Router) {
+		mux.Use(midware.GothicChiAdapter)
 
-	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		pages.Homepage().Render(w)
+		mux.Handle("GET /", handlers.AuthStart())
+		mux.Handle("GET /callback", handlers.AuthCallback(logger, db, sessionsKV))
 	})
 
-	return r
+	// App related routes
+	mux.Route("/app", func(mux chi.Router) {
+		mux.Use(midware.AuthSession(logger, sessionsKV, true))
+
+		mux.Handle("GET /wallets", handlers.Wallets(tmpls, db))
+		mux.Handle("POST /wallets", handlers.WalletsCreate(db))
+		mux.Route("/wallets/{wallet_addr}", func(mux chi.Router) {
+			mux.Group(func(mux chi.Router) {
+				mux.Use(midware.AuthWallet(db, accounts.PermReadBals))
+
+				mux.Handle("GET /", handlers.WalletHome(tmpls, db))
+				mux.Handle("GET /updates", handlers.WalletHomeUpdates(tmpls, db, nc))
+
+				mux.Handle("GET /assets", handlers.WalletAssets(tmpls, db))
+				mux.Handle("GET /assets/updates", handlers.WalletAssetsUpdates(tmpls, db, nc))
+
+				mux.Handle("GET /transactions", handlers.WalletTransactions(tmpls, db))
+				mux.Handle("GET /transactions/updates", handlers.WalletTransactionsUpdates(tmpls, db, nc))
+
+				mux.Handle("GET /market", handlers.WalletMarket(tmpls, db))
+			})
+
+			mux.Group(func(mux chi.Router) {
+				mux.Use(midware.AuthWallet(db, accounts.PermAdmin))
+
+				mux.Handle("GET /transact", handlers.WalletTransact(tmpls, db))
+				mux.Handle("POST /transact", handlers.WalletCreateTransaction(tmpls, db, nc))
+				mux.Handle("POST /withdraws/{withdraw_tx_id}/approve", handlers.WalletApproveWithdraw(tmpls, db, nc))
+
+				mux.Handle("POST /market/coinswap", handlers.ExecuteCoinSwap(tmpls, db, nc))
+
+				mux.Handle("GET /settings", handlers.WalletSettings(tmpls, db))
+				mux.Handle("POST /users", handlers.WalletAddUser(tmpls, db))
+
+				mux.Handle("DELETE /users/{discord_username}", handlers.WalletRemoveUser(tmpls, db))
+				mux.Handle("GET /users/{discord_username}", handlers.WalletUserSettings(tmpls, db))
+				mux.Handle("PUT /users/{discord_username}/permissions", handlers.UpdateWalletUserSettings(tmpls, db))
+			})
+		})
+
+		mux.Handle("GET /warehouses", handlers.Warehouses(tmpls, db))
+		mux.Handle("POST /warehouses", handlers.CreateWarehouse(tmpls, db))
+		mux.Route("/warehouses/{wallet_addr}", func(mux chi.Router) {
+			mux.Group(func(mux chi.Router) {
+				mux.Use(midware.AuthWallet(db, accounts.PermReadBals))
+
+				mux.Handle("GET /", handlers.WarehouseHome(tmpls, db))
+			})
+
+			mux.Group(func(mux chi.Router) {
+				mux.Use(midware.AuthWallet(db, accounts.PermAdmin))
+
+				mux.Handle("GET /deposit-withdraw", handlers.WarehouseDepositWithdraw(tmpls, db))
+				mux.Handle("POST /deposits/{deposit_tx_id}/approve", handlers.ApproveDeposit(tmpls, db))
+				mux.Handle("POST /deposit-withdraw", handlers.CreateWithdraw(tmpls, db, nc))
+			})
+		})
+
+		mux.Handle("GET /logout", handlers.Logout(sessionsKV))
+	})
 }

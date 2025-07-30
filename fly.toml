@@ -5,23 +5,37 @@ app = "stelofinance"
 primary_region = "iad"
 
 [env]
-PORT = "8080"
+	PORT = "8080"
+	ENV = "prod"
+
+[deploy]
+	release_command = "/migrate"
+
+[mounts]
+	source = "nats"
+	destination = "/nats"
+	# processes = []
+	initial_size = "1gb"
+	auto_extend_size_threshold = 90
+	auto_extend_size_limit = "50gb"
+	auto_extend_size_increment = "1gb"
 
 [http_service]
-internal_port = 8080
-force_https = true
-auto_stop_machines = "suspend"
-auto_start_machines = true
-min_machines_running = 0
-# processes = ["app"]
+	internal_port = 8080
+	force_https = true
+	auto_stop_machines = "suspend"
+	auto_start_machines = true
+	min_machines_running = 0
+	# processes = ["app"]
 
-[[http_service.checks]]
-grace_period = "10s"
-interval = "30s"
-method = "GET"
-timeout = "5s"
-path = "/heartbeat"
+	[[http_service.checks]]
+		grace_period = "10s"
+		interval = "30s"
+		method = "GET"
+		timeout = "5s"
+		path = "/heartbeat"
+
 
 [[vm]]
-size = "shared-cpu-1x"
-memory = "256mb"
+	size = "shared-cpu-1x"
+	memory = "256mb"

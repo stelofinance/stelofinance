@@ -1,0 +1,159 @@
+{{if not .PageData.OnlyRenderPage}}
+{{template "layouts/app" .}}
+{{end}}
+
+{{define "page-content"}}
+<main
+  id="page-content"
+  class="flex flex-col text-white px-2 py-4"
+>
+  <form
+    action="POST"
+    data-on-submit="@post('/app/wallets/{{.WalletAddr}}/transact', {contentType: 'form'})"
+    data-signals="{tx: {type: '{{.TxType}}', recipient: '{{.TxRecipient}}'}}"
+    data-on-signal-change-tx.type="@get('/app/wallets/{{.WalletAddr}}/transact')"
+    data-on-signal-change-tx.recipient="@get('/app/wallets/{{.WalletAddr}}/transact')"
+  >
+    <fieldset>
+      <legend class="text-sm text-neutral-300">Select transaction type</legend>
+      <div class="grid grid-cols-3 border-white border text-xl">
+        <label class="flex">
+          <input type="radio" data-bind-tx.type value="transfer" class="peer hidden">
+          <span class="w-full text-center py-1 peer-checked:bg-anakiwa-900">Transfer</span>
+        </label>
+        <label class="flex">
+          <input type="radio" data-bind-tx.type value="deposit" class="peer hidden">
+          <span class="w-full text-center py-1 peer-checked:bg-anakiwa-900">Deposit</span>
+        </label>
+        <label class="flex">
+          <input type="radio" data-bind-tx.type value="withdraw" class="peer hidden">
+          <span class="w-full text-center py-1 peer-checked:bg-anakiwa-900">Withdraw</span>
+        </label>
+      </div>
+    </fieldset>
+    <input type="hidden" name="type" value="{{.TxType}}">
+    {{if eq .TxType `transfer`}}
+    <fieldset class="mt-4 relative">
+      <legend class="text-sm text-neutral-300">Recipient</legend>
+      {{if .TxRecipient}}
+      <label class="mt-1">
+        <input
+          type="hidden"
+          name="recipientSelected"
+          value="{{.TxRecipient}}"
+        >
+        <span class="bg-neutral-800 p-1">{{.TxRecipient}}</span>
+      </label>
+      <button type="button" class="underline" data-on-click="$tx.recipient = ''">clear</button>
+      {{else}}
+      <input
+        data-bind="recipientSearch"
+        data-on-input__debounce.300ms="@get('/app/wallets/{{.WalletAddr}}/transact')"
+        type="text"
+        placeholder="Search..."
+        class="border-white border pl-1 py-1 w-full"
+      >
+      {{if len .RecipientSuggestions | lt 0}}
+      <div
+        class="flex flex-col w-full absolute top-full left-0 border-x border-white border-b gap-1 bg-neutral-800"
+      >
+        {{range .RecipientSuggestions}}
+        <label>
+          <input type="radio" data-bind-tx.recipient data-on-click="$recipientSearch = ''" value="{{.WalletAddr}}" class="hidden">
+          <span class="w-full text-center py-1">{{.Type}}: {{.Value}}</span>
+        </label>
+        {{end}}
+      </div>
+      {{end}}
+      {{end}}
+    </fieldset>
+    <fieldset class="mt-2">
+      <legend class="text-sm text-neutral-300">Asset to send</legend>
+      <div class="mt-1 grid grid-cols-2 gap-2">
+        <select name="ledgerId" class="border border-white bg-black">
+          <option disabled selected>-Select asset-</option>
+          {{range .Assets}}
+          <option value="{{.LedgerId}}">{{.Name}}</option>
+          {{end}}
+        </select>
+        <input type="number" step="any" min="0" name="qty" placeholder="Quantity..." class="border border-white pl-1">
+      </div>
+    </fieldset>
+    <input type="text" name="memo" maxlength="100" placeholder="Memo (optional)..." class="border border-white pl-1 mt-4">
+    <button id="submit-btn" type="submit" class="bg-anakiwa-900 text-xl w-full mt-4 py-2">SEND</button>
+    {{else if eq .TxType `deposit`}}
+    <fieldset class="mt-4 relative" data-signals="{tx: {warehouseAddr: '{{.TxWarehouse}}'}}">
+      <legend class="text-sm text-neutral-300">Select warehouse</legend>
+      <div class="grid grid-cols-2 gap-2">
+        {{if .TxWarehouse}}
+        <label class="mt-1">
+          <input
+            type="hidden"
+            name="recipientSelected"
+            value="{{.TxWarehouse}}"
+          >
+          <span class="bg-neutral-800 p-1">W. #{{.TxWarehouse}}</span>
+        </label>
+        <button
+          type="button"
+          class="underline"
+          data-on-click__prevent="$tx.warehouseAddr='';@get('/app/wallets/{{$.WalletAddr}}/transact')"
+        >clear</button>
+        {{else}}
+        <label class="flex gap-1">
+          <span>North:</span>
+          <input
+            type="number"
+            data-bind-tx.n-coord
+            data-on-input__debounce.300ms="@get('/app/wallets/{{.WalletAddr}}/transact')"
+            class="border border-white pl-1 w-full"
+          >
+        </label>
+        <label class="flex gap-1">
+          <span>East:</span>
+          <input
+            type="number"
+            data-bind-tx.e-coord
+            data-on-input__debounce.300ms="@get('/app/wallets/{{.WalletAddr}}/transact')"
+            class="border border-white pl-1 w-full"
+          >
+        </label>
+        {{end}}
+      </div>
+      {{if .WarehouseSuggestions}}
+      <div
+        class="flex flex-col w-full absolute top-full left-0 border-x border-white border-b gap-1 bg-neutral-800"
+      >
+        {{range .WarehouseSuggestions}}
+        <button
+          type="radio"
+          class="w-full py-0.5 pl-1 text-left"
+          data-on-click="$tx.warehouseAddr='{{.WalletAddr}}';@get('/app/wallets/{{$.WalletAddr}}/transact')"
+        >{{.Label}}</button>
+        {{end}}
+      </div>
+      {{end}}
+    </fieldset>
+    <fieldset class="mt-2">
+      <legend class="text-sm text-neutral-300">Asset to deposit</legend>
+      <div class="mt-1 flex gap-2">
+        <select name="ledgerId" class="border border-white bg-black">
+          <option disabled selected>-Select asset-</option>
+          {{range .AllAssets}}
+          <option value="{{.LedgerId}}">{{.Name}}</option>
+          {{end}}
+        </select>
+        <input type="number" step="any" min="0" name="qty" placeholder="Quantity..." class="border border-white pl-1">
+      </div>
+    </fieldset>
+    <button id="submit-btn" type="submit" class="bg-anakiwa-900 text-xl w-full mt-4 py-2">CREATE DEPOSIT REQUEST</button>
+    {{else}}
+    {{template "components/withdraw-requests" .}}
+    {{end}}
+  </form>
+</main>
+{{end}}
+
+{{if .PageData.OnlyRenderPage}}
+  {{template "page-content" .PageData}}
+{{end}}
