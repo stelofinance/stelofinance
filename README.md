@@ -24,10 +24,12 @@ The required ENV secrets are stored in `.env` at the project root, and are as fo
 
 - `ENV`: "dev" or "prod"
 - `PORT`: Port for the web server to run on, such as "8080"
+- `JS_DIR`: Directory to store JetStream data
 - `GOOSE_DRIVER`: "postgres"
 - `GOOSE_DBSTRING`: DB connection URI string
 - `GOOSE_MIGRATION_DIR`: "./database/migrations"
 - `GOTH_KEY`: Key for Goth
 - `DISCORD_CLIENT_ID`: The Discord client ID for OAuth
 - `DISCORD_CLIENT_SECRET`: The Discrod client secret for OAuth
+- `DISCORD_CALLBACK_URL`: The auth callback URL for Discord
 - `POSTGRES_URI`: Same as `GOOSE_DBSTRING`, the DB connection URI string

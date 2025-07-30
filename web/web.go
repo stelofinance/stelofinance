@@ -70,8 +70,9 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 	// GOTH stuff
 	discordClientId := getenv("DISCORD_CLIENT_ID")
 	discordClientSecret := getenv("DISCORD_CLIENT_SECRET")
-	if discordClientId == "" || discordClientSecret == "" {
-		return errors.New("missing DISCORD_CLIENT_ID and/or DISCORD_CLIENT_SECRET environment variables")
+	discordCallbackURL := getenv("DISCORD_CALLBACK_URL")
+	if discordClientId == "" || discordClientSecret == "" || discordCallbackURL == "" {
+		return errors.New("missing Discord environment variable(s)")
 	}
 
 	gothKey := getenv("GOTH_KEY")
@@ -90,14 +91,18 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 	store.Options.SameSite = http.SameSiteLaxMode
 	gothic.Store = store
 	goth.UseProviders(
-		discord.New(discordClientId, discordClientSecret, "http://localhost:8080/auth/discord/callback", discord.ScopeIdentify),
+		discord.New(discordClientId, discordClientSecret, discordCallbackURL, discord.ScopeIdentify),
 	)
 
 	// Start embedded NATS server
+	jsDir := getenv("JS_DIR")
+	if jsDir == "" {
+		return errors.New("missing JS_DIR environment variable")
+	}
 	ns, err := pillow.Run(
 		pillow.WithNATSServerOptions(&server.Options{
 			JetStream: true,
-			StoreDir:  "tmp/js",
+			StoreDir:  jsDir,
 		}),
 		pillow.WithPlatformAdapter(ctx, getenv("ENV") == "prod", &pillow.FlyioHubAndSpoke{
 			ClusterName:       "stelo_swarm",
