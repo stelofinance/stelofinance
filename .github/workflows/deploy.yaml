@@ -1,0 +1,54 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy-stelo:
+    name: Deploy Stelo to production
+    runs-on: ubuntu-latest
+    environment: 'production'
+    concurrency:
+      group: deploy-production-stelo
+      cancel-in-progress: true
+
+    steps:
+    - name: Clone repository
+      uses: actions/checkout@v4
+
+    - name: Use nix
+      uses: nixbuild/nix-quick-install-action@v31
+      with:
+        nix_version: "2.28.3"
+
+    - name: Restore and save Nix store
+      uses: nix-community/cache-nix-action@v6
+      with:
+        # restore and save a cache using this key
+        primary-key: nix-${{ runner.os }}-stelo-${{ hashFiles('**/*.nix', '**/flake.lock') }}
+        # if there's no cache hit, restore a cache by this prefix
+        restore-prefixes-first-match: nix-${{ runner.os }}-stelo-
+        # collect garbage until Nix store size (in bytes) is at most this number
+        # before trying to save a new cache
+        # 1G = 1073741824
+        gc-max-store-size-linux: 3G
+
+    - name: Build container
+      run: nix build .#container
+
+    - name: Load image
+      run: ./result | podman load
+
+    - name: Push image
+      run: podman push --creds "x:${{ secrets.FLY_STELO }}" localhost/stelo docker://registry.fly.io/${{ vars.FLY_STELO_APP_NAME }}:latest
+
+    - name: Use Fly
+      uses: superfly/flyctl-actions/setup-flyctl@master
+
+    - name: Deploy to Fly
+      run: flyctl deploy -i registry.fly.io/${{ vars.FLY_STELO_APP_NAME }}:latest -c fly.toml
+      env:
+        FLY_API_TOKEN: ${{ secrets.FLY_STELO }}
