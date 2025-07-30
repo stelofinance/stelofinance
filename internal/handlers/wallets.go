@@ -1406,7 +1406,6 @@ func ExecuteCoinSwap(tmpls *templates.Tmpls, db *database.Database, nc *nats.Con
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		// TODO: This needs to be updated with the real start time
 		volNum := float64(stelo.DebitBalance) * float64(hexcoin.DebitBalance)
 
 		tx, err := db.Pool.Begin(r.Context())
