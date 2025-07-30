@@ -40,7 +40,7 @@
           sqlc generate
         '';
       };
-      container = pkgs.dockerTools.buildLayeredImage {
+      container = pkgs.dockerTools.streamLayeredImage {
         name = "stelo";
         tag = "latest";
         contents = [ migrate app ];
