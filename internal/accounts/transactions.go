@@ -52,6 +52,7 @@ type TxAssets struct {
 	Amount   int64
 }
 
+var ErrInvalidQuantity = errors.New("transaction: invalid quantity")
 var ErrInvalidBalance = errors.New("transaction: invalid balance")
 var ErrInvalidCollatTx = errors.New("transaction: invalid collateral transaction")
 var ErrInvalidWarehouseAsset = errors.New("transaction: invalid warehouse asset")
@@ -59,6 +60,12 @@ var ErrInvalidWarehouseTransfer = errors.New("transaction: invalid warehouse tra
 var ErrInvalidUserToUser = errors.New("transaction: invalid user to user transaction")
 
 func CreateTransaction(ctx context.Context, q *gensql.Queries, nc *nats.Conn, input TxInput) (int64, error) {
+	// Validate asset amounts are all positive
+	for _, a := range input.Assets {
+		if a.Amount < 1 {
+			return 0, ErrInvalidQuantity
+		}
+	}
 	txStatus := TxPosted
 	if input.IsPending {
 		txStatus = TxPending
