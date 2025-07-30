@@ -1303,8 +1303,7 @@ func WalletMarket(tmpls *templates.Tmpls, db *database.Database) http.HandlerFun
 				}
 			}
 			if foundNum != 2 {
-				w.WriteHeader(http.StatusInternalServerError)
-				return
+				goto skipSwap
 			}
 			stlFmtd := float64(stelo.DebitBalance) / math.Pow(10, float64(stelo.AssetScale))
 			coinSwap.Rate = fmt.Sprintf("%v stl / 1 hex", humanize.FormatFloat("", stlFmtd/float64(hexcoin.DebitBalance)))
@@ -1323,6 +1322,7 @@ func WalletMarket(tmpls *templates.Tmpls, db *database.Database) http.HandlerFun
 				}
 			}
 		}
+	skipSwap:
 
 		if r.URL.Query().Has("datastar") {
 			sse := datastar.NewSSE(w, r)
