@@ -1286,7 +1286,7 @@ func WalletMarket(tmpls *templates.Tmpls, db *database.Database) http.HandlerFun
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		if !errors.Is(err, pgx.ErrNoRows) {
+		if !errors.Is(err, pgx.ErrNoRows) && len(bals) >= 2 {
 			foundNum := 0
 			stelo := bals[0]
 			hexcoin := bals[0]
