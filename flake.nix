@@ -43,7 +43,7 @@
       container = pkgs.dockerTools.streamLayeredImage {
         name = "stelo";
         tag = "latest";
-        contents = [ migrate app ];
+        contents = [ migrate app pkgs.cacert ];
         config = {
           Cmd = [ "${app}/bin/app" ];
         };
