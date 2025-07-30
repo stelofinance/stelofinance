@@ -86,7 +86,7 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 	store := sessions.NewCookieStore(key)
 	store.Options.Path = "/"
 	store.Options.HttpOnly = true
-	store.Options.MaxAge = int(time.Hour) * 24
+	store.Options.MaxAge = 86400
 	store.Options.Secure = getenv("ENV") == "prod"
 	store.Options.SameSite = http.SameSiteLaxMode
 	gothic.Store = store
