@@ -234,8 +234,6 @@ func WarehouseDepositWithdraw(tmpls *templates.Tmpls, db *database.Database) htt
 				return
 			}
 
-			fmt.Println(ds.Assets)
-
 			data.WithdrawRecipient = ds.WithdrawRecipient
 
 			if ds.WithdrawRecipient == "" && ds.Search != "" {
@@ -363,7 +361,6 @@ func CreateWithdraw(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn
 		}
 		defer tx.Rollback(r.Context())
 		qtx := db.Q.WithTx(tx)
-		fmt.Println(assets)
 		_, err = accounts.CreateTransaction(r.Context(), qtx, nc, accounts.TxInput{
 			DebitWalletId:  wData.Id,
 			CreditWalletId: credId,
@@ -373,7 +370,6 @@ func CreateWithdraw(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn
 			Assets:         assets,
 		})
 		if err != nil {
-			fmt.Println(err)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}

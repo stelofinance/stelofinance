@@ -1201,8 +1201,6 @@ func UpdateWalletUserSettings(tmpls *templates.Tmpls, db *database.Database) htt
 			return
 		}
 
-		fmt.Println(body.Perms)
-
 		// convert body perms to number
 		perms := []string{"admin", "read"}
 		permsEnabled := make([]string, 0)
