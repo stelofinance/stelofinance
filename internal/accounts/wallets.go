@@ -19,7 +19,7 @@ type AccountCode int32
 const (
 	// 0-99 System accounts
 
-	// Digital Asset Liability account
+	// Digital Asset Liability account (credit)
 	DAL AccountCode = 0
 
 	// 100-199 User accounts
@@ -29,7 +29,6 @@ const (
 	PersonalAcc AccountCode = 101
 
 	// 200-299 Warehousing related accounts
-	// liability (credit accounts)
 
 	WarehouseAcc          AccountCode = 200 // liability (credit account)
 	WarehouseCollatAcc    AccountCode = 201 // asset (debit account)
@@ -62,7 +61,7 @@ func (a AccountCode) IsUserCode() bool {
 // func CreatePersonalWallet(address string)
 
 var ErrInvalidAccountConfiguration = errors.New("accounts: invalid account configuration")
-var ErrAddressExceedsLength = errors.New(fmt.Sprintf("accounts: address exceeds max length (%v)", MaxAddressLength))
+var ErrAddressExceedsLength = fmt.Errorf("accounts: address exceeds max length (%v)", MaxAddressLength)
 
 const MaxAddressLength int = 16
 
