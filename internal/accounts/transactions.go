@@ -60,7 +60,7 @@ var ErrInvalidWarehouseTransfer = errors.New("transaction: invalid warehouse tra
 var ErrInvalidUserToUser = errors.New("transaction: invalid user to user transaction")
 
 func CreateTransaction(ctx context.Context, q *gensql.Queries, nc *nats.Conn, input TxInput) (int64, error) {
-	// Validate asset amounts are all positive
+	// Validate asset amounts are all >= 1
 	for _, a := range input.Assets {
 		if a.Amount < 1 {
 			return 0, ErrInvalidQuantity
@@ -125,7 +125,7 @@ func CreateTransaction(ctx context.Context, q *gensql.Queries, nc *nats.Conn, in
 			return 0, ErrInvalidCollatTx
 		}
 
-		err := CreateTransfer(ctx, q, TransferInput{
+		err := createTransfer(ctx, q, TransferInput{
 			TxId:           txId,
 			DebitWalletId:  input.DebitWalletId,
 			DebitAccCode:   debitAccCode,
@@ -186,7 +186,7 @@ func CreateTransaction(ctx context.Context, q *gensql.Queries, nc *nats.Conn, in
 			}
 
 			if collatNeeded >= 1 {
-				err = CreateTransfer(ctx, q, TransferInput{
+				err = createTransfer(ctx, q, TransferInput{
 					TxId:           txId,
 					DebitWalletId:  creditWallet.ID,
 					DebitAccCode:   WarehouseCollatLkdAcc,
@@ -219,7 +219,7 @@ func CreateTransaction(ctx context.Context, q *gensql.Queries, nc *nats.Conn, in
 
 	// Handle normal transactions here
 	for _, a := range input.Assets {
-		err := CreateTransfer(ctx, q, TransferInput{
+		err := createTransfer(ctx, q, TransferInput{
 			TxId:           txId,
 			DebitWalletId:  input.DebitWalletId,
 			DebitAccCode:   AccountCode(debitWallet.Code),
@@ -286,7 +286,7 @@ type TransferInput struct {
 	Code     TxCode // Code for transfer
 }
 
-func CreateTransfer(ctx context.Context, q *gensql.Queries, input TransferInput) error {
+func createTransfer(ctx context.Context, q *gensql.Queries, input TransferInput) error {
 	var debitAccId int64
 	var creditAccId int64
 
@@ -294,172 +294,77 @@ func CreateTransfer(ctx context.Context, q *gensql.Queries, input TransferInput)
 	if TrFlagPending&input.Flags == TrFlagPending {
 		isPending = true
 	}
+	suffix := "_posted"
+	if isPending {
+		suffix = "_pending"
+	}
+
+	now := time.Now()
 
 	// Debit the debit wallet's accounts. If an account doesn't exist and the debit wallet is
 	// a credit type account, return balance error.
-	if input.DebitAccCode.IsCredit() {
-		if isPending {
-			id, err := q.UpdateCreditAccountDebitsPending(ctx, gensql.UpdateCreditAccountDebitsPendingParams{
-				DebitsPending: input.Amount,
-				WalletID:      input.DebitWalletId,
-				Code:          int32(input.DebitAccCode),
-				LedgerID:      input.LedgerId,
-			})
-			if errors.Is(err, pgx.ErrNoRows) {
-				return ErrInvalidBalance
-			}
-			debitAccId = id
+	id, err := q.UpdateAccountBalance(ctx, gensql.UpdateAccountBalanceParams{
+		Quantity: input.Amount,
+		WalletID: input.DebitWalletId,
+		Code:     int32(input.DebitAccCode),
+		LedgerID: input.LedgerId,
+		Field:    "debits" + suffix,
+	})
+	if err != nil && errors.Is(err, pgx.ErrNoRows) {
+		if input.DebitAccCode.IsCredit() {
+			return ErrInvalidBalance
 		} else {
-			id, err := q.UpdateCreditAccountDebitsPosted(ctx, gensql.UpdateCreditAccountDebitsPostedParams{
-				DebitsPosted: input.Amount,
-				WalletID:     input.DebitWalletId,
-				Code:         int32(input.DebitAccCode),
-				LedgerID:     input.LedgerId,
+			id, err := q.InsertAccountWithBalance(ctx, gensql.InsertAccountWithBalanceParams{
+				WalletID:  input.DebitWalletId,
+				LedgerID:  input.LedgerId,
+				Code:      int32(input.DebitAccCode),
+				Flags:     0,
+				CreatedAt: now,
+				Field:     "debits" + suffix,
+				Quantity:  input.Amount,
 			})
-			if errors.Is(err, pgx.ErrNoRows) {
-				return ErrInvalidBalance
+			if err != nil {
+				return err
 			}
 			debitAccId = id
 		}
 	} else {
-		if isPending {
-			id, err := q.UpdateDebitAccountDebitsPending(ctx, gensql.UpdateDebitAccountDebitsPendingParams{
-				DebitsPending: input.Amount,
-				WalletID:      input.DebitWalletId,
-				Code:          int32(input.DebitAccCode),
-				LedgerID:      input.LedgerId,
-			})
-			if errors.Is(err, pgx.ErrNoRows) {
-				id, err := q.InsertAccount(ctx, gensql.InsertAccountParams{
-					WalletID:       input.DebitWalletId,
-					DebitsPending:  input.Amount,
-					DebitsPosted:   0,
-					CreditsPending: 0,
-					CreditsPosted:  0,
-					LedgerID:       input.LedgerId,
-					Code:           int32(input.DebitAccCode),
-					Flags:          0,
-					CreatedAt:      time.Now(),
-				})
-				if err != nil {
-					return err
-				}
-				debitAccId = id
-			} else {
-				debitAccId = id
-			}
-		} else {
-			id, err := q.UpdateDebitAccountDebitsPosted(ctx, gensql.UpdateDebitAccountDebitsPostedParams{
-				DebitsPosted: input.Amount,
-				WalletID:     input.DebitWalletId,
-				Code:         int32(input.DebitAccCode),
-				LedgerID:     input.LedgerId,
-			})
-			if errors.Is(err, pgx.ErrNoRows) {
-				id, err := q.InsertAccount(ctx, gensql.InsertAccountParams{
-					WalletID:       input.DebitWalletId,
-					DebitsPending:  0,
-					DebitsPosted:   input.Amount,
-					CreditsPending: 0,
-					CreditsPosted:  0,
-					LedgerID:       input.LedgerId,
-					Code:           int32(input.DebitAccCode),
-					Flags:          0,
-					CreatedAt:      time.Now(),
-				})
-				if err != nil {
-					return err
-				}
-				debitAccId = id
-			} else {
-				debitAccId = id
-			}
-		}
+		debitAccId = id
 	}
+
 	// Credit the credit wallet's accounts. If an account doesn't exist and the credit wallet is
 	// a debit type account, return balance error.
-	if input.CreditAccCode.IsCredit() {
-		if isPending {
-			id, err := q.UpdateCreditAccountCreditsPending(ctx, gensql.UpdateCreditAccountCreditsPendingParams{
-				CreditsPending: input.Amount,
-				WalletID:       input.CreditWalletId,
-				Code:           int32(input.CreditAccCode),
-				LedgerID:       input.LedgerId,
-			})
-			if errors.Is(err, pgx.ErrNoRows) {
-				id, err := q.InsertAccount(ctx, gensql.InsertAccountParams{
-					WalletID:       input.CreditWalletId,
-					DebitsPending:  0,
-					DebitsPosted:   0,
-					CreditsPending: input.Amount,
-					CreditsPosted:  0,
-					LedgerID:       input.LedgerId,
-					Code:           int32(input.CreditAccCode),
-					Flags:          0,
-					CreatedAt:      time.Now(),
-				})
-				if err != nil {
-					return err
-				}
-				creditAccId = id
-			} else {
-				creditAccId = id
-			}
+	id, err = q.UpdateAccountBalance(ctx, gensql.UpdateAccountBalanceParams{
+		Quantity: input.Amount,
+		WalletID: input.CreditWalletId,
+		Code:     int32(input.CreditAccCode),
+		LedgerID: input.LedgerId,
+		Field:    "credits" + suffix,
+	})
+	if err != nil && errors.Is(err, pgx.ErrNoRows) {
+		if input.CreditAccCode.IsDebit() {
+			return ErrInvalidBalance
 		} else {
-			id, err := q.UpdateCreditAccountCreditsPosted(ctx, gensql.UpdateCreditAccountCreditsPostedParams{
-				CreditsPosted: input.Amount,
-				WalletID:      input.CreditWalletId,
-				Code:          int32(input.CreditAccCode),
-				LedgerID:      input.LedgerId,
+			id, err := q.InsertAccountWithBalance(ctx, gensql.InsertAccountWithBalanceParams{
+				WalletID:  input.CreditWalletId,
+				LedgerID:  input.LedgerId,
+				Code:      int32(input.CreditAccCode),
+				Flags:     0,
+				CreatedAt: now,
+				Field:     "credits" + suffix,
+				Quantity:  input.Amount,
 			})
-			if errors.Is(err, pgx.ErrNoRows) {
-				id, err := q.InsertAccount(ctx, gensql.InsertAccountParams{
-					WalletID:       input.CreditWalletId,
-					DebitsPending:  0,
-					DebitsPosted:   0,
-					CreditsPending: 0,
-					CreditsPosted:  input.Amount,
-					LedgerID:       input.LedgerId,
-					Code:           int32(input.CreditAccCode),
-					Flags:          0,
-					CreatedAt:      time.Now(),
-				})
-				if err != nil {
-					return err
-				}
-				creditAccId = id
-			} else {
-				creditAccId = id
+			if err != nil {
+				return err
 			}
+			creditAccId = id
 		}
 	} else {
-		if isPending {
-			id, err := q.UpdateDebitAccountCreditsPending(ctx, gensql.UpdateDebitAccountCreditsPendingParams{
-				CreditsPending: input.Amount,
-				WalletID:       input.CreditWalletId,
-				Code:           int32(input.CreditAccCode),
-				LedgerID:       input.LedgerId,
-			})
-			if errors.Is(err, pgx.ErrNoRows) {
-				return ErrInvalidBalance
-			}
-			creditAccId = id
-		} else {
-			id, err := q.UpdateDebitAccountCreditsPosted(ctx, gensql.UpdateDebitAccountCreditsPostedParams{
-				CreditsPosted: input.Amount,
-				WalletID:      input.CreditWalletId,
-				Code:          int32(input.CreditAccCode),
-				LedgerID:      input.LedgerId,
-			})
-			if errors.Is(err, pgx.ErrNoRows) {
-				return ErrInvalidBalance
-			}
-			creditAccId = id
-		}
+		creditAccId = id
 	}
 
 	// Create transfer record
-	_, err := q.InsertTransfer(ctx, gensql.InsertTransferParams{
+	_, err = q.InsertTransfer(ctx, gensql.InsertTransferParams{
 		TransactionID:   input.TxId,
 		DebitAccountID:  debitAccId,
 		CreditAccountID: creditAccId,
