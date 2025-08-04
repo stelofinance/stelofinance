@@ -652,7 +652,6 @@ func WalletCreateTransaction(tmpls *templates.Tmpls, db *database.Database, nc *
 		qtx := db.Q.WithTx(tx)
 
 		code := accounts.TxUserToUser
-		pending := false
 		creditId := idRows[creditIndx].ID
 		debitId := idRows[debitIndx].ID
 		if idRows[creditIndx].Code == int32(accounts.DAL) {
@@ -660,7 +659,6 @@ func WalletCreateTransaction(tmpls *templates.Tmpls, db *database.Database, nc *
 		}
 		if txType == "deposit" {
 			code = accounts.TxWarehouseTransfer
-			pending = true
 			creditId = debitId
 			debitId = idRows[creditIndx].ID
 		}
@@ -669,7 +667,6 @@ func WalletCreateTransaction(tmpls *templates.Tmpls, db *database.Database, nc *
 			CreditWalletId: creditId,
 			Code:           code,
 			Memo:           memo,
-			IsPending:      pending,
 			Assets: []accounts.TxAssets{{
 				LedgerId: int64(ledgerId),
 				Amount:   int64(qty * math.Pow(10, float64(ledger.AssetScale))),
@@ -1425,7 +1422,6 @@ func ExecuteCoinSwap(tmpls *templates.Tmpls, db *database.Database, nc *nats.Con
 				CreditWalletId: wData.Id,
 				Code:           accounts.TxUserToUser,
 				Memo:           &memo,
-				IsPending:      false,
 				Assets: []accounts.TxAssets{{
 					LedgerId: hexcoin.LedgerID,
 					Amount:   int64(body.Qty),
@@ -1441,7 +1437,6 @@ func ExecuteCoinSwap(tmpls *templates.Tmpls, db *database.Database, nc *nats.Con
 				CreditWalletId: stelo.WalletID,
 				Code:           accounts.TxUserToUser,
 				Memo:           &memo,
-				IsPending:      false,
 				Assets: []accounts.TxAssets{{
 					LedgerId: stelo.LedgerID,
 					Amount:   stlToPay,
@@ -1462,7 +1457,6 @@ func ExecuteCoinSwap(tmpls *templates.Tmpls, db *database.Database, nc *nats.Con
 				CreditWalletId: wData.Id,
 				Code:           accounts.TxUserToUser,
 				Memo:           &memo,
-				IsPending:      false,
 				Assets: []accounts.TxAssets{{
 					LedgerId: stelo.LedgerID,
 					Amount:   int64(qtyScaled),
@@ -1478,7 +1472,6 @@ func ExecuteCoinSwap(tmpls *templates.Tmpls, db *database.Database, nc *nats.Con
 				CreditWalletId: stelo.WalletID,
 				Code:           accounts.TxUserToUser,
 				Memo:           &memo,
-				IsPending:      false,
 				Assets: []accounts.TxAssets{{
 					LedgerId: hexcoin.LedgerID,
 					Amount:   hexToPay,

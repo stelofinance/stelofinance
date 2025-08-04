@@ -43,7 +43,6 @@ type TxInput struct {
 	CreditWalletId int64
 	Code           TxCode
 	Memo           *string
-	IsPending      bool
 	Assets         []TxAssets
 }
 
@@ -66,10 +65,25 @@ func CreateTransaction(ctx context.Context, q *gensql.Queries, nc *nats.Conn, in
 			return 0, ErrInvalidQuantity
 		}
 	}
+
+	// Query both wallets for types
+	debitWallet, err := q.GetWallet(ctx, input.DebitWalletId)
+	if err != nil {
+		return 0, err
+	}
+	creditWallet, err := q.GetWallet(ctx, input.CreditWalletId)
+	if err != nil {
+		return 0, err
+	}
+
+	// Determine txStatus
 	txStatus := TxPosted
-	if input.IsPending {
+	// It's only pending when it's a warehouse deposit or withdrawal
+	if AccountCode(debitWallet.Code) == WarehouseAcc && AccountCode(creditWallet.Code) == PersonalAcc ||
+		AccountCode(debitWallet.Code) == PersonalAcc && AccountCode(creditWallet.Code) == WarehouseAcc {
 		txStatus = TxPending
 	}
+
 	// Create transaction record
 	txId, err := q.InsertTransaction(ctx, gensql.InsertTransactionParams{
 		DebitWalletID:  input.DebitWalletId,
@@ -79,16 +93,6 @@ func CreateTransaction(ctx context.Context, q *gensql.Queries, nc *nats.Conn, in
 		Status:         int32(txStatus),
 		CreatedAt:      time.Now(),
 	})
-	if err != nil {
-		return 0, err
-	}
-
-	// Query both wallets for types
-	debitWallet, err := q.GetWallet(ctx, input.DebitWalletId)
-	if err != nil {
-		return 0, err
-	}
-	creditWallet, err := q.GetWallet(ctx, input.CreditWalletId)
 	if err != nil {
 		return 0, err
 	}
@@ -125,7 +129,7 @@ func CreateTransaction(ctx context.Context, q *gensql.Queries, nc *nats.Conn, in
 			return 0, ErrInvalidCollatTx
 		}
 
-		err := createTransfer(ctx, q, TransferInput{
+		err := createTransfer(ctx, q, transferInput{
 			TxId:           txId,
 			DebitWalletId:  input.DebitWalletId,
 			DebitAccCode:   debitAccCode,
@@ -150,12 +154,13 @@ func CreateTransaction(ctx context.Context, q *gensql.Queries, nc *nats.Conn, in
 			return 0, ErrInvalidWarehouseTransfer
 		}
 
-		// Must be a pending tx
-		if !input.IsPending {
+		// Must be a pending tx.
+		// Don't think we need this anymore since txStatus is calculated in func
+		if txStatus != TxPending {
 			return 0, ErrInvalidWarehouseTransfer
 		}
 
-		// Create arr and map of ledger IDs
+		// Create arrary and map of ledger IDs
 		ledgerIds := make([]int64, 0, len(input.Assets))
 		for _, a := range input.Assets {
 			ledgerIds = append(ledgerIds, a.LedgerId)
@@ -186,7 +191,7 @@ func CreateTransaction(ctx context.Context, q *gensql.Queries, nc *nats.Conn, in
 			}
 
 			if collatNeeded >= 1 {
-				err = createTransfer(ctx, q, TransferInput{
+				err = createTransfer(ctx, q, transferInput{
 					TxId:           txId,
 					DebitWalletId:  creditWallet.ID,
 					DebitAccCode:   WarehouseCollatLkdAcc,
@@ -213,13 +218,13 @@ func CreateTransaction(ctx context.Context, q *gensql.Queries, nc *nats.Conn, in
 
 	// Set flags
 	flags := TrFlagNone
-	if input.IsPending {
+	if txStatus == TxPending {
 		flags = TrFlagPending
 	}
 
 	// Handle normal transactions here
 	for _, a := range input.Assets {
-		err := createTransfer(ctx, q, TransferInput{
+		err := createTransfer(ctx, q, transferInput{
 			TxId:           txId,
 			DebitWalletId:  input.DebitWalletId,
 			DebitAccCode:   AccountCode(debitWallet.Code),
@@ -267,7 +272,7 @@ const (
 
 // TODO: Maybe make a function that validates and converts TransferFlags to a uint16
 
-type TransferInput struct {
+type transferInput struct {
 	TxId int64
 
 	// DebitAccId    int64 // Supply AccId or WalletId
@@ -286,7 +291,7 @@ type TransferInput struct {
 	Code     TxCode // Code for transfer
 }
 
-func createTransfer(ctx context.Context, q *gensql.Queries, input TransferInput) error {
+func createTransfer(ctx context.Context, q *gensql.Queries, input transferInput) error {
 	var debitAccId int64
 	var creditAccId int64
 
@@ -454,11 +459,11 @@ func FinalizeTransaction(ctx context.Context, q *gensql.Queries, input FinalizeI
 				DebitsPending: -tr.Amount,
 				ID:            tr.DebitAccountID,
 			})
-
 		}
 	}
 
 	_, err = q.InsertTransfers(ctx, insertTransfers)
+	// TODO: Speed this up, don't waterfall this
 	for _, update := range accountUpdates {
 		err := q.UpdateAccountBalances(ctx, update)
 		if err != nil {
