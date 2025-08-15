@@ -3,6 +3,20 @@ INSERT INTO transaction (debit_wallet_id, credit_wallet_id, code, memo, status, 
     VALUES ($1, $2, $3, $4, $5, $6)
     RETURNING id;
 
+-- name: GetTransactionAndAddresses :one
+SELECT
+    t.id,
+    t.code,
+    t.memo,
+    t.created_at,
+    t.status,
+    dw.address AS debit_address,
+    cw.address AS credit_address
+FROM transaction AS t
+JOIN wallet AS dw ON dw.id = t.debit_wallet_id
+JOIN wallet AS cw ON cw.id = t.credit_wallet_id
+WHERE t.id = sqlc.arg(transaction_id) AND (t.debit_wallet_id = sqlc.arg(wallet_id) OR t.credit_wallet_id = sqlc.arg(wallet_id));
+
 -- name: GetTransaction :one
 SELECT * FROM transaction WHERE id = $1;
 

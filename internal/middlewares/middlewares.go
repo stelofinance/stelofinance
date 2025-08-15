@@ -26,7 +26,7 @@ func GothicChiAdapter(next http.Handler) http.Handler {
 	})
 }
 
-func AuthSession(logger *slog.Logger, sessionsKV jetstream.KeyValue, authRequired bool) func(http.Handler) http.Handler {
+func AuthUser(logger *slog.Logger, sessionsKV jetstream.KeyValue, authRequired bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cookie, err := r.Cookie("sid")
@@ -70,9 +70,9 @@ func AuthSession(logger *slog.Logger, sessionsKV jetstream.KeyValue, authRequire
 	}
 }
 
-// AuthSession must be before AuthWallet on the middleware chain
-// TODO: Maybe support repeated calls to AuthWallet? Save perms in Context?
-func AuthWallet(db *database.Database, perms ...accounts.Permission) func(http.Handler) http.Handler {
+// AuthUser must be before AuthUserWallet on the middleware chain
+// TODO: Maybe support repeated calls to AuthUserWallet? Save perms in Context?
+func AuthUserWallet(db *database.Database, perms ...accounts.Permission) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			wAddr := chi.URLParam(r, "wallet_addr")
@@ -117,9 +117,67 @@ func AuthWallet(db *database.Database, perms ...accounts.Permission) func(http.H
 	}
 }
 
+func AuthWalletToken(sessionsKV jetstream.KeyValue) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			AuthHdr := r.Header.Get("Authorization")
+			if AuthHdr == "" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+
+			split := strings.Split(AuthHdr, "_")
+			if len(split) != 2 {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			tType := split[0]
+			tVal := split[1]
+
+			if tType != "stlw" {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+
+			// Get the wallet session token
+			val, err := getKeyValueWithPattern(r.Context(), sessionsKV, "wallets.*.sessions."+tVal)
+			if err != nil {
+				if errors.Is(err, ErrKeyNotFound) {
+					w.WriteHeader(http.StatusForbidden)
+					return
+				}
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+
+			// Unmarhsal key value
+			var wltData sessions.WalletData
+			if err := json.Unmarshal(val, &wltData); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+
+			// Ensure key matches wallet addr in request
+			wAddr := chi.URLParam(r, "wallet_addr")
+			if wAddr != wltData.Address {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+
+			// Add wallet data to session
+			r = r.WithContext(sessions.WithWallet(r.Context(), &sessions.WalletData{
+				Id:      wltData.Id,
+				Address: wltData.Address,
+			}))
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 var ErrKeyNotFound = errors.New("middlewares: key not found")
 
-// TODO: replace with ListKeysFiltered
+// TODO: replace with ListKeysFiltered maybe?
 // getKeyValueWithPattern will search a jetstream kv bucket for the first key that matches a pattern
 func getKeyValueWithPattern(ctx context.Context, sessionsKV jetstream.KeyValue, pattern string) ([]byte, error) {
 	watcher, err := sessionsKV.Watch(ctx, pattern, jetstream.IgnoreDeletes())

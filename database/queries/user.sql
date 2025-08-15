@@ -7,6 +7,9 @@ SELECT * FROM "user" WHERE discord_id = $1;
 -- name: GetUserById :one
 SELECT * FROM "user" WHERE id = $1;
 
+-- name: GetUserByIdForUpdate :one
+SELECT * FROM "user" WHERE id = $1 FOR UPDATE;
+
 -- name: GetUserIdByDiscordName :one
 SELECT id FROM "user" WHERE discord_username = $1;
 

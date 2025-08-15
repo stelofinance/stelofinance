@@ -366,7 +366,6 @@ func CreateWithdraw(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn
 			CreditWalletId: credId,
 			Code:           accounts.TxWarehouseTransfer,
 			Memo:           nil,
-			IsPending:      true,
 			Assets:         assets,
 		})
 		if err != nil {

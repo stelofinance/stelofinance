@@ -19,7 +19,7 @@ type AccountCode int32
 const (
 	// 0-99 System accounts
 
-	// Digital Asset Liability account
+	// Digital Asset Liability account (credit)
 	DAL AccountCode = 0
 
 	// 100-199 User accounts
@@ -29,7 +29,6 @@ const (
 	PersonalAcc AccountCode = 101
 
 	// 200-299 Warehousing related accounts
-	// liability (credit accounts)
 
 	WarehouseAcc          AccountCode = 200 // liability (credit account)
 	WarehouseCollatAcc    AccountCode = 201 // asset (debit account)
@@ -48,6 +47,60 @@ func (a AccountCode) IsCredit() bool {
 	}
 }
 
+// IdentifyTxCode will identify which TxCode the transaction is based on the
+// sending and receiving AccountCode. NOTE, if TxWarehouseTransfer is identified
+// you should check if it is actually a TxCollateral.
+func (sendingAcc AccountCode) IdentifyTxCode(receivingAcc AccountCode) TxCode {
+	// Define valid pairs for each TxCode
+	type txPair struct {
+		txCode TxCode
+		pairs  [][2]AccountCode
+	}
+
+	txPairs := []txPair{
+		{
+			txCode: TxSysUser,
+			pairs: [][2]AccountCode{
+				{DAL, GeneralAcc},
+				{DAL, PersonalAcc},
+			},
+		},
+		{
+			txCode: TxUserToUser,
+			pairs: [][2]AccountCode{
+				{GeneralAcc, GeneralAcc},
+				{GeneralAcc, PersonalAcc},
+				{PersonalAcc, PersonalAcc},
+			},
+		},
+		{
+			txCode: TxWarehouseTransfer,
+			pairs: [][2]AccountCode{
+				{PersonalAcc, WarehouseAcc},
+			},
+		},
+		{
+			txCode: TxWarehouseToWarehouseTransfer,
+			pairs: [][2]AccountCode{
+				{WarehouseAcc, WarehouseAcc},
+			},
+		},
+		// TxCollateral has no pairs, so it’s omitted
+	}
+
+	for _, txc := range txPairs {
+		for _, pair := range txc.pairs {
+			// Match if (sender, receiver) equals pair or its reverse
+			if (sendingAcc == pair[0] && receivingAcc == pair[1]) ||
+				(sendingAcc == pair[1] && receivingAcc == pair[0]) {
+				return txc.txCode
+			}
+		}
+	}
+
+	return -1
+}
+
 func (a AccountCode) IsDebit() bool {
 	return !a.IsCredit()
 }
@@ -62,159 +115,97 @@ func (a AccountCode) IsUserCode() bool {
 // func CreatePersonalWallet(address string)
 
 var ErrInvalidAccountConfiguration = errors.New("accounts: invalid account configuration")
-var ErrAddressExceedsLength = errors.New(fmt.Sprintf("accounts: address exceeds max length (%v)", MaxAddressLength))
+var ErrAddressExceedsLength = fmt.Errorf("accounts: address exceeds max length (%v)", MaxAddressLength)
+var ErrDuplicateAddress = fmt.Errorf("accounts: address already taken")
 
 const MaxAddressLength int = 16
 
-type createWalletInput struct {
-	userId int64 // Admin of the account
+type CreateWalletInput struct {
+	UserId int64 // Admin of the account
 
-	address  string
-	code     AccountCode
-	webhook  string
-	location postgis.Point
+	Address  string
+	Code     AccountCode
+	Webhook  string
+	Location postgis.Point
 
-	collateralAccountId       int   // Probably not needed, will be created
-	collateralLockedAccountId int   // Probably not needed, will be created
-	collateralPercentage      int64 // Must be between >= 0 and <= 9999 (scale of 3, so 0 to 9.999)
+	// collateralAccountId       int   // Probably not needed, will be created
+	// collateralLockedAccountId int   // Probably not needed, will be created
+	CollateralPercentage int64 // Must be between >= 0 and <= 9999 (scale of 3, so 0 to 9.999)
 }
 
-func createWallet(ctx context.Context, q *gensql.Queries, input createWalletInput) (int64, error) {
-	if len(input.address) > MaxAddressLength {
+func CreateWallet(ctx context.Context, q *gensql.Queries, input CreateWalletInput) (int64, error) {
+	// Validate the address
+	if len(input.Address) > MaxAddressLength {
 		return 0, ErrAddressExceedsLength
 	}
-	input.address = strings.ToUpper(input.address)
-	if strings.ContainsFunc(input.address, func(r rune) bool {
+	input.Address = strings.ToUpper(input.Address)
+	if strings.ContainsFunc(input.Address, func(r rune) bool {
 		return r < 'A' || r > 'Z'
 	}) {
 		return 0, ErrInvalidAccountConfiguration
 	}
 
-	switch input.code {
-	case DAL:
-		// Create wallet
-		walletId, err := q.InsertWallet(ctx, gensql.InsertWalletParams{
-			Address:   input.address,
-			Code:      int32(DAL),
-			CreatedAt: time.Now(),
-		})
-		if err != nil {
-			return 0, err
-		}
+	// Prepare wallet params
+	walletParams := gensql.InsertWalletParams{
+		Address:   input.Address,
+		Code:      int32(input.Code),
+		CreatedAt: time.Now(),
+	}
 
-		// Create wallet permissions
-		_, err = q.InsertWalletPermission(ctx, gensql.InsertWalletPermissionParams{
-			WalletID:    walletId,
-			UserID:      input.userId,
-			Permissions: int64(PermAdmin),
-			UpdatedAt:   time.Now(),
-			CreatedAt:   time.Now(),
-		})
-		if err != nil {
-			return 0, err
-		}
-		return walletId, nil
-	case GeneralAcc:
-		// Create wallet
-		walletId, err := q.InsertWallet(ctx, gensql.InsertWalletParams{
-			Address:   input.address,
-			Code:      int32(GeneralAcc),
-			CreatedAt: time.Now(),
-		})
-		if err != nil {
-			return 0, err
-		}
-
-		// Create wallet permissions
-		_, err = q.InsertWalletPermission(ctx, gensql.InsertWalletPermissionParams{
-			WalletID:    walletId,
-			UserID:      input.userId,
-			Permissions: int64(PermAdmin),
-			UpdatedAt:   time.Now(),
-			CreatedAt:   time.Now(),
-		})
-		if err != nil {
-			return 0, err
-		}
-
-		return walletId, nil
+	switch input.Code {
 	case PersonalAcc:
 		// Ensure user doesn't already have personal account
-		user, err := q.GetUserById(ctx, input.userId)
+		user, err := q.GetUserByIdForUpdate(ctx, input.UserId)
 		if err != nil {
 			return 0, err
 		}
 		if user.WalletID != nil {
 			return 0, errors.New("accounts: already have primary account")
 		}
-
-		// Create wallet
-		walletId, err := q.InsertWallet(ctx, gensql.InsertWalletParams{
-			Address:   input.address,
-			Code:      int32(PersonalAcc),
-			CreatedAt: time.Now(),
-		})
-		if err != nil {
-			return 0, err
-		}
-
-		// Create wallet permissions
-		_, err = q.InsertWalletPermission(ctx, gensql.InsertWalletPermissionParams{
-			WalletID:    walletId,
-			UserID:      input.userId,
-			Permissions: int64(PermAdmin),
-			UpdatedAt:   time.Now(),
-			CreatedAt:   time.Now(),
-		})
-		if err != nil {
-			return 0, err
-		}
-
-		// Update users personal wallet id
-		err = q.UpdateUserWalletId(ctx, gensql.UpdateUserWalletIdParams{
-			WalletID: &walletId,
-			UserID:   input.userId,
-		})
-		if err != nil {
-			return 0, err
-		}
-
-		return walletId, nil
 	case WarehouseAcc:
-		if input.collateralPercentage < 0 || input.collateralPercentage > 9999 {
+		if input.CollateralPercentage < 0 || input.CollateralPercentage > 9999 {
 			return 0, errors.New("accounts: invalid collateralPercentage")
 		}
 
-		walletId, err := q.InsertWallet(ctx, gensql.InsertWalletParams{
-			Address:        input.address,
-			Code:           int32(WarehouseAcc),
-			CreatedAt:      time.Now(),
-			StGeomfromewkb: &input.location,
-			CollateralPercentage: pgtype.Numeric{
-				Int:   big.NewInt(input.collateralPercentage),
-				Exp:   -3,
-				Valid: true,
-			},
-		})
-		if err != nil {
-			return 0, err
+		walletParams.StGeomfromewkb = &input.Location
+		walletParams.CollateralPercentage = pgtype.Numeric{
+			Int:   big.NewInt(input.CollateralPercentage),
+			Exp:   -3,
+			Valid: true,
 		}
-
-		// Create wallet permissions
-		_, err = q.InsertWalletPermission(ctx, gensql.InsertWalletPermissionParams{
-			WalletID:    walletId,
-			UserID:      input.userId,
-			Permissions: int64(PermAdmin),
-			UpdatedAt:   time.Now(),
-			CreatedAt:   time.Now(),
-		})
-		if err != nil {
-			return 0, err
-		}
-		return walletId, nil
+	case DAL, GeneralAcc:
 	default:
 		return 0, errors.New("accounts: unknown AccountCode")
 	}
+
+	walletId, err := q.InsertWallet(ctx, walletParams)
+	if err != nil {
+		// TODO: Check if duplicate address
+		return 0, err
+	}
+	_, err = q.InsertWalletPermission(ctx, gensql.InsertWalletPermissionParams{
+		WalletID:    walletId,
+		UserID:      input.UserId,
+		Permissions: int64(PermAdmin),
+		UpdatedAt:   time.Now(),
+		CreatedAt:   time.Now(),
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	if input.Code == PersonalAcc {
+		// Update users personal wallet id
+		err := q.UpdateUserWalletId(ctx, gensql.UpdateUserWalletIdParams{
+			WalletID: &walletId,
+			UserID:   input.UserId,
+		})
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	return walletId, nil
 }
 
 // Easy to read and not mistake letters (20 in total)
@@ -233,10 +224,10 @@ func CreatePersonalWallet(ctx context.Context, q *gensql.Queries, input CreatePe
 	// one that isn't
 	// TODO: Implement this ^
 
-	accId, err := createWallet(ctx, q, createWalletInput{
-		userId:  input.UserId,
-		address: addr,
-		code:    PersonalAcc,
+	accId, err := CreateWallet(ctx, q, CreateWalletInput{
+		UserId:  input.UserId,
+		Address: addr,
+		Code:    PersonalAcc,
 	})
 	if err != nil {
 		return 0, err
@@ -252,10 +243,10 @@ func CreateGeneralWallet(ctx context.Context, q *gensql.Queries, userId int64) (
 	// one that isn't
 	// TODO: Implement this ^
 
-	accId, err := createWallet(ctx, q, createWalletInput{
-		userId:  userId,
-		address: addr,
-		code:    GeneralAcc,
+	accId, err := CreateWallet(ctx, q, CreateWalletInput{
+		UserId:  userId,
+		Address: addr,
+		Code:    GeneralAcc,
 	})
 	if err != nil {
 		return 0, "", err
@@ -281,12 +272,12 @@ func CreateWarehouseWallet(ctx context.Context, q *gensql.Queries, input CreateW
 		// TODO: Implement this ^
 	}
 
-	accId, err := createWallet(ctx, q, createWalletInput{
-		userId:               input.UserId,
-		address:              addr,
-		code:                 WarehouseAcc,
-		location:             input.Location,
-		collateralPercentage: input.CollateralPercentage,
+	accId, err := CreateWallet(ctx, q, CreateWalletInput{
+		UserId:               input.UserId,
+		Address:              addr,
+		Code:                 WarehouseAcc,
+		Location:             input.Location,
+		CollateralPercentage: input.CollateralPercentage,
 	})
 	if err != nil {
 		return 0, err
@@ -303,10 +294,10 @@ func CreateDALWallet(ctx context.Context, q *gensql.Queries, adminUserId int64) 
 	// one that isn't
 	// TODO: Implement this ^
 
-	accId, err := createWallet(ctx, q, createWalletInput{
-		userId:  adminUserId,
-		address: addr,
-		code:    DAL,
+	accId, err := CreateWallet(ctx, q, CreateWalletInput{
+		UserId:  adminUserId,
+		Address: addr,
+		Code:    DAL,
 	})
 	if err != nil {
 		return 0, err
