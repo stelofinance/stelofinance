@@ -1,8 +1,11 @@
 package accounts
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -28,6 +31,29 @@ const (
 	// Warehouse to Warehouse transfer
 	TxWarehouseToWarehouseTransfer
 )
+
+var ErrTxCodeInvalid = errors.New("Invalid TxCode value")
+
+func (t *TxCode) UnmarshalJSON(data []byte) error {
+	var num int32
+	if err := json.Unmarshal(data, &num); err != nil {
+		return err
+	}
+
+	switch TxCode(num) {
+	case
+		TxCollateral,
+		TxSysUser,
+		TxUserToUser,
+		TxWarehouseToWarehouseTransfer,
+		TxWarehouseTransfer:
+		*t = TxCode(num)
+	default:
+		return ErrTxCodeInvalid
+	}
+
+	return nil
+}
 
 type TxStatus int32
 
@@ -84,6 +110,8 @@ func CreateTransaction(ctx context.Context, q *gensql.Queries, nc *nats.Conn, in
 		txStatus = TxPending
 	}
 
+	now := time.Now()
+
 	// Create transaction record
 	txId, err := q.InsertTransaction(ctx, gensql.InsertTransactionParams{
 		DebitWalletID:  input.DebitWalletId,
@@ -91,7 +119,7 @@ func CreateTransaction(ctx context.Context, q *gensql.Queries, nc *nats.Conn, in
 		Code:           int32(input.Code),
 		Memo:           input.Memo,
 		Status:         int32(txStatus),
-		CreatedAt:      time.Now(),
+		CreatedAt:      now,
 	})
 	if err != nil {
 		return 0, err
@@ -222,6 +250,24 @@ func CreateTransaction(ctx context.Context, q *gensql.Queries, nc *nats.Conn, in
 		flags = TrFlagPending
 	}
 
+	// Make types for sending to webhook
+	type Transfer struct {
+		Amount   int64 `json:"amount"`
+		LedgerID int64 `json:"ledgerId"`
+	}
+	type Tx struct {
+		ID         int64      `json:"id"`
+		DebitAddr  string     `json:"debitAddr"`
+		CreditAddr string     `json:"creditAddr"`
+		Code       int32      `json:"code"`
+		Memo       *string    `json:"memo,omitempty"`
+		CreatedAt  time.Time  `json:"createdAt"`
+		Status     int32      `json:"status"`
+		Transfers  []Transfer `json:"transfers"`
+	}
+
+	trnsfrs := make([]Transfer, 0, len(input.Assets))
+
 	// Handle normal transactions here
 	for _, a := range input.Assets {
 		err := createTransfer(ctx, q, transferInput{
@@ -238,11 +284,298 @@ func CreateTransaction(ctx context.Context, q *gensql.Queries, nc *nats.Conn, in
 		if err != nil {
 			return 0, err
 		}
+
+		trnsfrs = append(trnsfrs, Transfer{
+			Amount:   a.Amount,
+			LedgerID: a.LedgerId,
+		})
 	}
 
-	// TODO: Send actual transactions
-	nc.Publish("wallets."+debitWallet.Address+".transactions", []byte("."))
-	nc.Publish("wallets."+creditWallet.Address+".transactions", []byte("."))
+	tx := Tx{
+		ID:         txId,
+		DebitAddr:  debitWallet.Address,
+		CreditAddr: creditWallet.Address,
+		Code:       int32(input.Code),
+		Memo:       input.Memo,
+		CreatedAt:  now,
+		Status:     int32(txStatus),
+		Transfers:  trnsfrs,
+	}
+
+	// Create json of tx
+	data, err := json.Marshal(tx)
+	if err != nil {
+		return 0, err
+	}
+
+	// Send to NATS and webhook
+	go func() {
+		nc.Publish("wallets."+debitWallet.Address+".transactions", data)
+		nc.Publish("wallets."+creditWallet.Address+".transactions", data)
+
+		if debitWallet.Webhook != nil {
+			resp, _ := http.Post(*debitWallet.Webhook, "application/json", bytes.NewBuffer(data))
+			resp.Body.Close()
+		}
+		if creditWallet.Webhook != nil {
+			resp, _ := http.Post(*creditWallet.Webhook, "application/json", bytes.NewBuffer(data))
+			resp.Body.Close()
+		}
+	}()
+
+	return txId, nil
+}
+
+type TxByAddrsInput struct {
+	SendingAddr   string
+	ReceivingAddr string
+	Memo          *string
+	Assets        []TxAssets
+}
+
+var ErrIncompatibleAccCodes = errors.New("transaction: incompatible account codes")
+
+func CreateTransactionByAddrs(ctx context.Context, q *gensql.Queries, nc *nats.Conn, input TxByAddrsInput) (int64, error) {
+	// Validate asset amounts are all >= 1
+	for _, a := range input.Assets {
+		if a.Amount < 1 {
+			return 0, ErrInvalidQuantity
+		}
+	}
+
+	// Query both wallets for types
+	sendingWallet, err := q.GetWalletByAddr(ctx, input.SendingAddr)
+	if err != nil {
+		return 0, err
+	}
+	receivingWallet, err := q.GetWalletByAddr(ctx, input.ReceivingAddr)
+	if err != nil {
+		return 0, err
+	}
+
+	// Determine TxCode
+	txc := AccountCode(sendingWallet.Code).IdentifyTxCode(AccountCode(receivingWallet.Code))
+	if txc == -1 {
+		return 0, ErrIncompatibleAccCodes
+	}
+	// Check if it's a TxCollateral
+	if txc == TxWarehouseTransfer {
+		// Ensure only Stelo
+		if len(input.Assets) != 1 {
+			goto TxCollatCheckEnd
+		}
+		if input.Assets[0].LedgerId != 1 { // TODO: Dynamically match this to Stelo ledger id
+			goto TxCollatCheckEnd
+		}
+
+		txc = TxCollateral
+	}
+TxCollatCheckEnd:
+
+	// Determine txStatus and whose creditor/debitor
+	txStatus := TxPosted
+	creditWallet := sendingWallet
+	debitWallet := receivingWallet
+
+	if txc == TxWarehouseTransfer {
+		txStatus = TxPending
+
+		creditWallet = receivingWallet
+		debitWallet = sendingWallet
+	} else if txc == TxSysUser || txc == TxCollateral {
+		// Uh, do nothing, it's gucci as is :D
+		// TxSysUser is basically a "creation" of digital assets into the platform
+		// and TxCollateral needs to be stopped here, because if it
+		// fell through to the next else-if statement it would pass, since
+		// the wallet itself is a credit type, but the collateral accounts are debit,
+		// so it's a theft bug otherwise.
+	} else if AccountCode(sendingWallet.Code).IsCredit() {
+		creditWallet = receivingWallet
+		debitWallet = sendingWallet
+	}
+
+	now := time.Now()
+
+	// Create transaction record
+	txId, err := q.InsertTransaction(ctx, gensql.InsertTransactionParams{
+		DebitWalletID:  debitWallet.ID,
+		CreditWalletID: creditWallet.ID,
+		Code:           int32(txc),
+		Memo:           input.Memo,
+		Status:         int32(txStatus),
+		CreatedAt:      now,
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	// Handle a collateral deposit/withdraw here.
+	// This is because the wallets code and the account code don't match.
+	if txc == TxCollateral {
+		debitAccCode := AccountCode(debitWallet.Code)
+		creditAccCode := AccountCode(creditWallet.Code)
+
+		// Set the correct account codes
+		// (warehouse collateral acc doesn't match it's wallet)
+		//
+		// Also ensure debit or credit wallet is actually a warehouse.
+		if debitWallet.Code == int32(WarehouseAcc) {
+			debitAccCode = WarehouseCollatAcc
+		} else if creditWallet.Code == int32(WarehouseAcc) {
+			creditAccCode = WarehouseCollatAcc
+		} else {
+			return 0, ErrInvalidCollatTx
+		}
+
+		asset := input.Assets[0]
+		err := createTransfer(ctx, q, transferInput{
+			TxId:           txId,
+			DebitWalletId:  debitWallet.ID,
+			DebitAccCode:   debitAccCode,
+			CreditWalletId: creditWallet.ID,
+			CreditAccCode:  creditAccCode,
+			LedgerId:       asset.LedgerId,
+			Amount:         asset.Amount,
+			Flags:          TrFlagNone,
+			Code:           TxCollateral,
+		})
+		if err != nil {
+			return 0, err
+		}
+
+		return txId, nil
+	}
+
+	// Handle warehouse deposits/withdraws.
+	if txc == TxWarehouseTransfer {
+
+		// Create arrary and map of ledger IDs
+		ledgerIds := make([]int64, 0, len(input.Assets))
+		for _, a := range input.Assets {
+			ledgerIds = append(ledgerIds, a.LedgerId)
+		}
+
+		// query the codes
+		ledgers, err := q.GetLedgers(ctx, ledgerIds)
+		if err != nil {
+			return 0, err
+		}
+		for _, ledger := range ledgers {
+			if !LedgerCode(ledger.Code).isDepositable() {
+				return 0, ErrInvalidWarehouseAsset
+			}
+		}
+
+		// Lock collateral if needed.
+		// Auto unlocking collateral isn't handled (yet?)
+		if creditWallet.Code == int32(WarehouseAcc) {
+			float, err := creditWallet.CollateralPercentage.Float64Value()
+			if err != nil {
+				return 0, err
+			}
+			collatRatio := float.Float64
+			collatNeeded := 0.0
+			for _, ledger := range ledgers {
+				collatNeeded += float64(ledger.Value) * collatRatio
+			}
+
+			if collatNeeded >= 1 {
+				err = createTransfer(ctx, q, transferInput{
+					TxId:           txId,
+					DebitWalletId:  creditWallet.ID,
+					DebitAccCode:   WarehouseCollatLkdAcc,
+					CreditWalletId: creditWallet.ID,
+					CreditAccCode:  WarehouseCollatAcc,
+					LedgerId:       1,                   // TODO: Dynamically match this to Stelo ledger id
+					Amount:         int64(collatNeeded), // fine to truncate instead of round?
+					Flags:          TrFlagPending,
+					Code:           txc,
+				})
+				if err != nil {
+					return 0, err
+				}
+			}
+		}
+	}
+
+	// Set flags
+	flags := TrFlagNone
+	if txStatus == TxPending {
+		flags = TrFlagPending
+	}
+
+	// Make types for sending to webhook
+	type Transfer struct {
+		Amount   int64 `json:"amount"`
+		LedgerID int64 `json:"ledgerId"`
+	}
+	type Tx struct {
+		ID            int64      `json:"id"`
+		DebitAddress  string     `json:"debitAddress"`
+		CreditAddress string     `json:"creditAddress"`
+		Code          int32      `json:"code"`
+		Memo          *string    `json:"memo,omitempty"`
+		CreatedAt     time.Time  `json:"createdAt"`
+		Status        int32      `json:"status"`
+		Transfers     []Transfer `json:"transfers"`
+	}
+
+	trnsfrs := make([]Transfer, 0, len(input.Assets))
+
+	// Handle normal transactions here
+	for _, a := range input.Assets {
+		err := createTransfer(ctx, q, transferInput{
+			TxId:           txId,
+			DebitWalletId:  debitWallet.ID,
+			DebitAccCode:   AccountCode(debitWallet.Code),
+			CreditWalletId: creditWallet.ID,
+			CreditAccCode:  AccountCode(creditWallet.Code),
+			LedgerId:       a.LedgerId,
+			Amount:         a.Amount,
+			Flags:          flags,
+			Code:           txc,
+		})
+		if err != nil {
+			return 0, err
+		}
+
+		trnsfrs = append(trnsfrs, Transfer{
+			Amount:   a.Amount,
+			LedgerID: a.LedgerId,
+		})
+	}
+
+	tx := Tx{
+		ID:            txId,
+		DebitAddress:  debitWallet.Address,
+		CreditAddress: creditWallet.Address,
+		Code:          int32(txc),
+		Memo:          input.Memo,
+		CreatedAt:     now,
+		Status:        int32(txStatus),
+		Transfers:     trnsfrs,
+	}
+
+	// Create json of tx
+	data, err := json.Marshal(tx)
+	if err != nil {
+		return 0, err
+	}
+
+	// Send to NATS and webhook
+	go func() {
+		nc.Publish("wallets."+debitWallet.Address+".transactions", data)
+		nc.Publish("wallets."+creditWallet.Address+".transactions", data)
+
+		if debitWallet.Webhook != nil {
+			resp, _ := http.Post(*debitWallet.Webhook, "application/json", bytes.NewBuffer(data))
+			resp.Body.Close()
+		}
+		if creditWallet.Webhook != nil {
+			resp, _ := http.Post(*creditWallet.Webhook, "application/json", bytes.NewBuffer(data))
+			resp.Body.Close()
+		}
+	}()
 
 	return txId, nil
 }

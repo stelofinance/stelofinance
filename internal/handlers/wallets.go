@@ -12,10 +12,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dchest/uniuri"
 	"github.com/dustin/go-humanize"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 	datastar "github.com/starfederation/datastar/sdk/go"
 	"github.com/stelofinance/stelofinance/database"
 	"github.com/stelofinance/stelofinance/database/gensql"
@@ -895,7 +897,7 @@ func Wallets(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
 	}
 }
 
-func WalletSettings(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
+func WalletSettings(tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstream.KeyValue) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uData := sessions.GetUser(r.Context())
 		wData := sessions.GetWallet(r.Context())
@@ -908,6 +910,19 @@ func WalletSettings(tmpls *templates.Tmpls, db *database.Database) http.HandlerF
 		pfp := ""
 		if user.DiscordPfp != nil {
 			pfp = *user.DiscordPfp
+		}
+
+		// Get Token count
+		keyLstnr, err := sessionsKV.ListKeysFiltered(r.Context(), "wallets."+strconv.FormatInt(wData.Id, 10)+".sessions.*")
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		defer keyLstnr.Stop()
+		tknQty := 0
+
+		for range keyLstnr.Keys() {
+			tknQty++
 		}
 
 		// Get wallets and format them for the template
@@ -950,6 +965,7 @@ func WalletSettings(tmpls *templates.Tmpls, db *database.Database) http.HandlerF
 				WalletAddr:     wData.Address,
 				OnlyRenderPage: false,
 				Users:          usrs,
+				TokenQty:       tknQty,
 			},
 		}
 
@@ -1019,6 +1035,146 @@ func WalletAddUser(tmpls *templates.Tmpls, db *database.Database) http.HandlerFu
 				WalletAddr:     wData.Address,
 				OnlyRenderPage: true,
 				Users:          usrs,
+			},
+		}
+
+		sse := datastar.NewSSE(w, r)
+		buff := new(bytes.Buffer)
+		err = tmpls.ExecuteTemplate(buff, "pages/wallet-settings", tmplData)
+		if err != nil {
+			panic(err)
+		}
+		sse.MergeFragments(buff.String())
+	}
+}
+
+func WalletCreateToken(tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstream.KeyValue) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uData := sessions.GetUser(r.Context())
+		wData := sessions.GetWallet(r.Context())
+
+		// Create session
+		sid := uniuri.NewLen(27)
+		sData := sessions.WalletData{
+			Id:      wData.Id,
+			Address: wData.Address,
+		}
+		bitties, err := json.Marshal(sData)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, err = sessionsKV.Create(r.Context(), "wallets."+strconv.FormatInt(wData.Id, 10)+".sessions."+sid, bitties)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		// Render the template out now
+
+		keyLstnr, err := sessionsKV.ListKeysFiltered(r.Context(), "wallets."+strconv.FormatInt(wData.Id, 10)+".sessions.*")
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		defer keyLstnr.Stop()
+		tknQty := 0
+
+		for range keyLstnr.Keys() {
+			tknQty++
+		}
+
+		// Get wallets and format them for the template
+		usrsOnWallet, err := db.Q.GetUsersOnWallet(r.Context(), wData.Address)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		usrs := make([]templates.DataPageWalletSettingsUser, 0)
+		for _, usr := range usrsOnWallet {
+			perms := make([]string, 0, 10)
+			// TODO: make this not... exist LOL
+			if accounts.PermAdmin&accounts.Permission(usr.Permissions) == accounts.PermAdmin {
+				perms = append(perms, "admin")
+			}
+			if accounts.PermReadBals&accounts.Permission(usr.Permissions) == accounts.PermReadBals {
+				perms = append(perms, "read")
+			}
+
+			usrs = append(usrs, templates.DataPageWalletSettingsUser{
+				IsUser:      usr.UserID == uData.Id,
+				Name:        usr.DiscordUsername,
+				Permissions: perms,
+			})
+		}
+
+		tmplData := templates.DataLayoutApp{
+			PageData: templates.DataPageWalletSettings{
+				WalletAddr:     wData.Address,
+				OnlyRenderPage: true,
+				Users:          usrs,
+				Token:          "stlw_" + sid,
+				TokenQty:       tknQty,
+			},
+		}
+
+		sse := datastar.NewSSE(w, r)
+		buff := new(bytes.Buffer)
+		err = tmpls.ExecuteTemplate(buff, "pages/wallet-settings", tmplData)
+		if err != nil {
+			panic(err)
+		}
+		sse.MergeFragments(buff.String())
+	}
+}
+
+func WalletDeleteTokens(tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstream.KeyValue) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uData := sessions.GetUser(r.Context())
+		wData := sessions.GetWallet(r.Context())
+
+		// Delete all sessions
+		keyLstnr, err := sessionsKV.ListKeysFiltered(r.Context(), "wallets."+strconv.FormatInt(wData.Id, 10)+".sessions.*")
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		defer keyLstnr.Stop()
+		for key := range keyLstnr.Keys() {
+			sessionsKV.Delete(r.Context(), key)
+		}
+
+		// Render the template out now
+		// Get wallets and format them for the template
+		usrsOnWallet, err := db.Q.GetUsersOnWallet(r.Context(), wData.Address)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		usrs := make([]templates.DataPageWalletSettingsUser, 0)
+		for _, usr := range usrsOnWallet {
+			perms := make([]string, 0, 10)
+			// TODO: make this not... exist LOL
+			if accounts.PermAdmin&accounts.Permission(usr.Permissions) == accounts.PermAdmin {
+				perms = append(perms, "admin")
+			}
+			if accounts.PermReadBals&accounts.Permission(usr.Permissions) == accounts.PermReadBals {
+				perms = append(perms, "read")
+			}
+
+			usrs = append(usrs, templates.DataPageWalletSettingsUser{
+				IsUser:      usr.UserID == uData.Id,
+				Name:        usr.DiscordUsername,
+				Permissions: perms,
+			})
+		}
+
+		tmplData := templates.DataLayoutApp{
+			PageData: templates.DataPageWalletSettings{
+				WalletAddr:     wData.Address,
+				OnlyRenderPage: true,
+				Users:          usrs,
+				TokenQty:       0,
 			},
 		}
 

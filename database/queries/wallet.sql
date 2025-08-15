@@ -7,6 +7,9 @@ RETURNING id;
 -- name: GetWallet :one
 SELECT * FROM wallet WHERE id = $1;
 
+-- name: GetWalletByAddr :one
+SELECT * FROM wallet WHERE address = $1;
+
 -- name: GetWalletAddr :one
 SELECT address FROM wallet WHERE id = $1;
 
@@ -46,6 +49,16 @@ LIMIT $2;
 SELECT id
 FROM wallet
 WHERE address = $1;
+
+-- name: GetWalletWebhookByAddr :one
+SELECT webhook
+FROM wallet
+WHERE address = $1;
+
+-- name: UpdateWalletWebhookByAddr :exec
+UPDATE wallet
+SET webhook = $1
+WHERE address = $2;
 
 -- name: GetWalletAddrByUsrIdAndCode :one
 SELECT

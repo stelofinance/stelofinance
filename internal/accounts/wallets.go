@@ -47,6 +47,60 @@ func (a AccountCode) IsCredit() bool {
 	}
 }
 
+// IdentifyTxCode will identify which TxCode the transaction is based on the
+// sending and receiving AccountCode. NOTE, if TxWarehouseTransfer is identified
+// you should check if it is actually a TxCollateral.
+func (sendingAcc AccountCode) IdentifyTxCode(receivingAcc AccountCode) TxCode {
+	// Define valid pairs for each TxCode
+	type txPair struct {
+		txCode TxCode
+		pairs  [][2]AccountCode
+	}
+
+	txPairs := []txPair{
+		{
+			txCode: TxSysUser,
+			pairs: [][2]AccountCode{
+				{DAL, GeneralAcc},
+				{DAL, PersonalAcc},
+			},
+		},
+		{
+			txCode: TxUserToUser,
+			pairs: [][2]AccountCode{
+				{GeneralAcc, GeneralAcc},
+				{GeneralAcc, PersonalAcc},
+				{PersonalAcc, PersonalAcc},
+			},
+		},
+		{
+			txCode: TxWarehouseTransfer,
+			pairs: [][2]AccountCode{
+				{PersonalAcc, WarehouseAcc},
+			},
+		},
+		{
+			txCode: TxWarehouseToWarehouseTransfer,
+			pairs: [][2]AccountCode{
+				{WarehouseAcc, WarehouseAcc},
+			},
+		},
+		// TxCollateral has no pairs, so it’s omitted
+	}
+
+	for _, txc := range txPairs {
+		for _, pair := range txc.pairs {
+			// Match if (sender, receiver) equals pair or its reverse
+			if (sendingAcc == pair[0] && receivingAcc == pair[1]) ||
+				(sendingAcc == pair[1] && receivingAcc == pair[0]) {
+				return txc.txCode
+			}
+		}
+	}
+
+	return -1
+}
+
 func (a AccountCode) IsDebit() bool {
 	return !a.IsCredit()
 }

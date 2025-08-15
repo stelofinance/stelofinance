@@ -29,7 +29,7 @@
   <div class="mt-6 flex gap-2 relative" data-signals="{addUserOpen: false}">
     <button
       data-show="!$addUserOpen"
-      class="bg-neutral-800 w-full py-1 px-3 rounded"
+      class="bg-neutral-800 w-full py-1 px-3 rounded cursor-pointer"
       data-on-click="$addUserOpen = true"
     >Add User</button>
     <input
@@ -41,11 +41,34 @@
     >
     <button
       data-show="$addUserOpen"
-      class="bg-neutral-800 py-1 px-3 rounded"
+      class="bg-neutral-800 py-1 px-3 rounded cursor-pointer"
       data-on-click="@post('/app/wallets/{{$.WalletAddr}}/users')"
     >Add</button>
     <button data-show="$addUserOpen" data-on-click="$addUserOpen = false" class="text-xs underline absolute top-full left-0">cancel</button>
   </div>
+  <h2 class="text-lg mt-6">Tokens</h2>
+  <p class="text-sm text-neutral-400">These are tokens that can be used to access this wallet via the API</p>
+  {{if .TokenQty}}
+  <div class="flex mt-2 px-3 pt-0.5 pb-1 justify-between items-center bg-neutral-800 rounded">
+    <span class="text-xl">Total Tokens: {{.TokenQty}}</span>
+    <button
+      data-on-click="@delete('/app/wallets/{{$.WalletAddr}}/tokens')"
+      class="underline text-red-600 cursor-pointer"
+    >Revoke All</button>
+  </div>
+  {{end}}
+  {{if .Token}}
+  <div class="flex flex-col mt-2 px-3 pt-0.5 pb-1 bg-neutral-800 rounded">
+    <span class="text-xl">{{.Token}}</span>
+    <span class="text-neutral-400 text-sm">
+      save this token! It won't be shown again
+    </span>
+  </div>
+  {{end}}
+  <button
+    class="mt-6 bg-neutral-800 py-1 px-3 rounded cursor-pointer"
+    data-on-click="@post('/app/wallets/{{$.WalletAddr}}/tokens')"
+  >Create</button>
 </main>
 {{end}}
 

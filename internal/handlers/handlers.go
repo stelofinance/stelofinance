@@ -7,11 +7,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/nats-io/nats.go/jetstream"
 	datastar "github.com/starfederation/datastar/sdk/go"
 	"github.com/stelofinance/stelofinance/internal/sessions"
 	"github.com/stelofinance/stelofinance/web/templates"
 )
+
+var validate = validator.New(validator.WithRequiredStructEnabled())
 
 func Index(tmpls *templates.Tmpls) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -54,6 +54,8 @@ type DataPageWalletSettings struct {
 	OnlyRenderPage bool
 	WalletAddr     string
 	Users          []DataPageWalletSettingsUser
+	Token          string
+	TokenQty       int
 }
 type DataPageWalletSettingsUser struct {
 	Name        string
