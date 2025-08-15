@@ -7,7 +7,7 @@ Please refer to the [Webhook routes](./wallets.md#webhooks) in Wallet Routes for
 ## Webhook POST Example
 Your server (specified by the URL you've set) will be sent a POST request with a body such as the following: 
 
-```json
+```jsonc
 {
     "id": 123, // Transaction ID
     "debitAddr": "XYZABC",

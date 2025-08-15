@@ -26,7 +26,7 @@ Ledgers have "codes" that define what type of asset they are.
 ##### Responses
 
 http code `200` | Content-Type `application/json`
-```json
+```jsonc
   [
     {
       "id": 1, // Stelo's ID for this ledger

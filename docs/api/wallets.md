@@ -11,7 +11,7 @@ The paramtere `{addr}` should be replaced with your wallet's address.
 ##### Responses
 
 http code `200` | Content-Type `application/json`
-```json
+```jsonc
 [
     {
         "assetName": "hexcoin",
@@ -41,7 +41,7 @@ http code `200` | Content-Type `application/json`
 ##### Responses
 
 http code `200` | Content-Type `application/json`
-```json
+```jsonc
 [
     {
         "id": 239,
@@ -77,7 +77,7 @@ http code `200` | Content-Type `application/json`
 ##### Responses
 
 http code `200` | Content-Type `application/json`
-```json
+```jsonc
 {
     "id": 239,
     "debitAddress": "HMWARNFGA",
@@ -103,7 +103,7 @@ http code `200` | Content-Type `application/json`
 ##### Responses
 
 http code `200` | Content-Type `application/json`
-```json
+```jsonc
 [
     {
         "amount": 1,
@@ -119,7 +119,7 @@ http code `200` | Content-Type `application/json`
 <summary><code>POST</code> <code><b>/transactions</b></code> <code>(Create a transaction)</code></summary>
 
 ##### Body
-```json
+```jsonc
 {
     "receivingAddr": "HMWARNFGA", // Wallet address you want to send to
     "memo": "Ipsum was here", // (Optional)
@@ -158,7 +158,7 @@ http code `200` | Content-Type `application/json`
 <summary><code>PUT</code> <code><b>/webhook</b></code> <code>(Update/add webhook to this wallet)</code></summary>
 
 ##### Body
-```json
+```jsonc
 {
     "webhook": "https://your-api.com/stelo-webhook?secret=123"
 }
