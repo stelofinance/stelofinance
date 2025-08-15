@@ -26,6 +26,9 @@ func Index(tmpls *templates.Tmpls) http.Handler {
 					Href: "https://discord.gg/t6gM7v7V7T",
 					Text: "Discord",
 				}, {
+					Href: "https://github.com/stelofinance/stelofinance/tree/main/docs",
+					Text: "Docs",
+				}, {
 					Href: "https://github.com/stelofinance",
 					Text: "GitHub",
 				}},
@@ -70,6 +73,9 @@ func Login(tmpls *templates.Tmpls) http.HandlerFunc {
 				Links: []templates.DataComponentFooterLink{{
 					Href: "https://discord.gg/t6gM7v7V7T",
 					Text: "Discord",
+				}, {
+					Href: "https://github.com/stelofinance/stelofinance/tree/main/docs",
+					Text: "Docs",
 				}, {
 					Href: "https://github.com/stelofinance",
 					Text: "GitHub",
