@@ -1,21 +1,31 @@
 -- name: InsertTransfer :one
-INSERT INTO transfer (transaction_id, debit_account_id, credit_account_id, amount, pending_id, ledger_id, code, flags, created_at)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning id;
+INSERT INTO transfer (debit_account_id, credit_account_id, amount, pending_id, ledger_id, code, flags, memo, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) returning id;
 
--- name: GetTransfersByTxId :many
-SELECT * FROM transfer WHERE transaction_id = $1;
-
--- name: InsertTransfers :copyfrom
-INSERT INTO transfer (transaction_id, debit_account_id, credit_account_id, amount, pending_id, ledger_id, code, flags, created_at)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
-
--- name: GetTransfersAssetsByTxIds :many
+-- name: GetTransfersByAccountId :many
 SELECT
-    t.transaction_id,
-    t.amount,
-    l.name,
-    l.asset_scale,
-    l.code
-FROM transfer t
-JOIN ledger l ON l.id = t.ledger_id
-WHERE t.transaction_id = ANY(sqlc.arg(transaction_id)::BIGINT[]);
+    tr.*,
+    da.address AS debit_address,
+    ca.address AS credit_address
+FROM transfer AS tr
+JOIN
+	account AS da ON da.id = tr.debit_account_id
+JOIN
+	account AS ca ON ca.id = tr.credit_account_id
+WHERE debit_account_id = sqlc.arg(account_id) OR credit_account_id = sqlc.arg(account_id)
+LIMIT 250;
+
+-- name: GetTransferById :one
+SELECT * FROM transfer WHERE id = ?;
+
+-- name: GetTransferWithAddrsById :one
+SELECT
+    tr.*,
+    da.address AS debit_address,
+    ca.address AS credit_address
+FROM transfer AS tr
+JOIN
+	account AS da ON da.id = tr.debit_account_id
+JOIN
+	account AS ca ON ca.id = tr.credit_account_id
+WHERE tr.id = ?;

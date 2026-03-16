@@ -9,8 +9,9 @@ type userCtxKey struct{}
 var userContextKey = userCtxKey{}
 
 type UserData struct {
-	Id        int64  `json:"userId"` // The user's id
-	DiscordId string `json:"discordId"`
+	Id         int64  `json:"userId"` // The user's id
+	BitcraftId string `json:"bitcraftId"`
+	// DiscordId string `json:"discordId"`
 }
 
 func WithUser(ctx context.Context, data *UserData) context.Context {
@@ -32,28 +33,27 @@ func GetUser(ctx context.Context) *UserData {
 	return data
 }
 
-type walletCtxKey struct{}
+type accountCtxKey struct{}
 
-var walletContextKey = walletCtxKey{}
+var accountContextKey = accountCtxKey{}
 
-type WalletData struct {
-	Id      int64 // The wallet's id
-	Address string
+type AccountData struct {
+	Id int64 // The account's id
 }
 
-func WithWallet(ctx context.Context, data *WalletData) context.Context {
-	return context.WithValue(ctx, walletContextKey, data)
+func WithAccount(ctx context.Context, data *AccountData) context.Context {
+	return context.WithValue(ctx, accountContextKey, data)
 }
 
-// GetWallet will return the wallet data in the Context.
-// If the wallet data isn't found, nil is returned.
-func GetWallet(ctx context.Context) *WalletData {
-	val := ctx.Value(walletContextKey)
+// GetAccount will return the account data in the Context.
+// If the account data isn't found, nil is returned.
+func GetAccount(ctx context.Context) *AccountData {
+	val := ctx.Value(accountContextKey)
 	if val == nil {
 		return nil
 	}
 
-	data, ok := val.(*WalletData)
+	data, ok := val.(*AccountData)
 	if !ok {
 		panic("sessions: wallet context value of wrong type")
 	}

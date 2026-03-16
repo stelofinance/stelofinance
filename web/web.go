@@ -2,9 +2,9 @@ package web
 
 import (
 	"context"
+	"database/sql"
 	"embed"
 	_ "embed"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -22,11 +22,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
-	"github.com/gorilla/sessions"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/markbates/goth"
-	"github.com/markbates/goth/gothic"
-	"github.com/markbates/goth/providers/discord"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -34,6 +29,7 @@ import (
 	"github.com/stelofinance/stelofinance/database/gensql"
 	"github.com/stelofinance/stelofinance/internal/routes"
 	"github.com/stelofinance/stelofinance/web/templates"
+	_ "turso.tech/database/tursogo"
 )
 
 //go:embed templates/*/*.html.tmpl
@@ -66,33 +62,6 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 	if err != nil {
 		return err
 	}
-
-	// GOTH stuff
-	discordClientId := getenv("DISCORD_CLIENT_ID")
-	discordClientSecret := getenv("DISCORD_CLIENT_SECRET")
-	discordCallbackURL := getenv("DISCORD_CALLBACK_URL")
-	if discordClientId == "" || discordClientSecret == "" || discordCallbackURL == "" {
-		return errors.New("missing Discord environment variable(s)")
-	}
-
-	gothKey := getenv("GOTH_KEY")
-	if gothKey == "" {
-		return errors.New("missing GOTH_KEY environment variable")
-	}
-	key, err := base64.URLEncoding.DecodeString(gothKey)
-	if err != nil {
-		return err
-	}
-	store := sessions.NewCookieStore(key)
-	store.Options.Path = "/"
-	store.Options.HttpOnly = true
-	store.Options.MaxAge = 86400
-	store.Options.Secure = getenv("ENV") == "prod"
-	store.Options.SameSite = http.SameSiteLaxMode
-	gothic.Store = store
-	goth.UseProviders(
-		discord.New(discordClientId, discordClientSecret, discordCallbackURL, discord.ScopeIdentify),
-	)
 
 	// Start embedded NATS server
 	jsDir := getenv("JS_DIR")
@@ -130,15 +99,12 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 		return err
 	}
 
-	// Connect pgx and create db struct
-	pgPool, err := pgxpool.New(ctx, getenv("POSTGRES_URI"))
+	// Connect up turso db and create db struct
+	dbConn, err := sql.Open("turso", getenv("TURSO_FILE"))
 	if err != nil {
 		return err
 	}
-	db := &database.Database{
-		Pool: pgPool,
-		Q:    gensql.New(pgPool),
-	}
+	db := database.New(dbConn, gensql.New(dbConn))
 
 	// Create and run server
 	srv := NewServer(logger, tmpls, db, sessionsKV, nc)
@@ -176,6 +142,9 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 		// TODO: Maybe gracefully shut this down? Currently it breaks/contradicts datastar's SSE
 		if err := httpServer.Close(); err != nil {
 			fmt.Fprintf(stderr, "error shutting down http server: %s\n", err)
+		}
+		if err := dbConn.Close(); err != nil {
+			fmt.Fprintf(stderr, "error closing db: %s\n", err)
 		}
 		if err := ns.Shutdown(shutdownCtx); err != nil {
 			fmt.Fprintf(stderr, "error shutting down nats server: %s\n", err)
