@@ -2,29 +2,21 @@ package middlewares
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stelofinance/stelofinance/database"
 	"github.com/stelofinance/stelofinance/database/gensql"
 	"github.com/stelofinance/stelofinance/internal/accounts"
 	"github.com/stelofinance/stelofinance/internal/sessions"
 )
-
-func GothicChiAdapter(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		provider := chi.URLParam(r, "provider")
-		r = r.WithContext(context.WithValue(r.Context(), "provider", provider))
-
-		next.ServeHTTP(w, r)
-	})
-}
 
 func AuthUser(logger *slog.Logger, sessionsKV jetstream.KeyValue, authRequired bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -70,43 +62,48 @@ func AuthUser(logger *slog.Logger, sessionsKV jetstream.KeyValue, authRequired b
 	}
 }
 
-// AuthUser must be before AuthUserWallet on the middleware chain
-// TODO: Maybe support repeated calls to AuthUserWallet? Save perms in Context?
-func AuthUserWallet(db *database.Database, perms ...accounts.Permission) func(http.Handler) http.Handler {
+// AuthUser must be before AuthUserAccount on the middleware chain
+// TODO: Maybe support repeated calls to AuthUserAccount? Save perms in Context?
+func AuthUserAccount(db *database.Database, perms ...accounts.Permission) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			wAddr := chi.URLParam(r, "wallet_addr")
+			accIdStr := chi.URLParam(r, "account_id")
 			sData := sessions.GetUser(r.Context())
 
+			accId, err := strconv.Atoi(accIdStr)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+
 			// Check if they have the wallet permissions
-			permsResult, err := db.Q.GetWalletPermissions(r.Context(), gensql.GetWalletPermissionsParams{
-				ID:      sData.Id,
-				Address: wAddr,
+			permsResult, err := db.Q.GetAccountPermissions(r.Context(), gensql.GetAccountPermissionsParams{
+				UserID:    sData.Id,
+				AccountID: int64(accId),
 			})
 			if err != nil {
-				if errors.Is(err, pgx.ErrNoRows) {
+				if errors.Is(err, sql.ErrNoRows) {
 					w.WriteHeader(http.StatusForbidden)
 					return
 				}
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
-			walletPerms := accounts.Permission(permsResult.Permissions)
+			accountPerms := accounts.Permission(permsResult)
 
 			// Add wallet data to session
-			r = r.WithContext(sessions.WithWallet(r.Context(), &sessions.WalletData{
-				Id:      permsResult.WalletID,
-				Address: wAddr,
+			r = r.WithContext(sessions.WithAccount(r.Context(), &sessions.AccountData{
+				Id: int64(accId),
 			}))
 
 			// Wallet admin can bypass all
-			if accounts.PermAdmin&walletPerms == accounts.PermAdmin {
+			if accounts.PermAdmin&accountPerms == accounts.PermAdmin {
 				next.ServeHTTP(w, r)
 				return
 			}
 
 			for _, perm := range perms {
-				if perm&walletPerms != perm {
+				if perm&accountPerms != perm {
 					w.WriteHeader(http.StatusForbidden)
 					return
 				}
@@ -117,7 +114,7 @@ func AuthUserWallet(db *database.Database, perms ...accounts.Permission) func(ht
 	}
 }
 
-func AuthWalletToken(sessionsKV jetstream.KeyValue) func(http.Handler) http.Handler {
+func AuthAccountToken(sessionsKV jetstream.KeyValue) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			AuthHdr := r.Header.Get("Authorization")
@@ -139,8 +136,8 @@ func AuthWalletToken(sessionsKV jetstream.KeyValue) func(http.Handler) http.Hand
 				return
 			}
 
-			// Get the wallet session token
-			val, err := getKeyValueWithPattern(r.Context(), sessionsKV, "wallets.*.sessions."+tVal)
+			// Get the account session token
+			val, err := getKeyValueWithPattern(r.Context(), sessionsKV, "accounts.*.sessions."+tVal)
 			if err != nil {
 				if errors.Is(err, ErrKeyNotFound) {
 					w.WriteHeader(http.StatusForbidden)
@@ -151,23 +148,22 @@ func AuthWalletToken(sessionsKV jetstream.KeyValue) func(http.Handler) http.Hand
 			}
 
 			// Unmarhsal key value
-			var wltData sessions.WalletData
-			if err := json.Unmarshal(val, &wltData); err != nil {
+			var accData sessions.AccountData
+			if err := json.Unmarshal(val, &accData); err != nil {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
 
-			// Ensure key matches wallet addr in request
-			wAddr := chi.URLParam(r, "wallet_addr")
-			if wAddr != wltData.Address {
+			// Ensure key matches account addr in request
+			accIdStr := chi.URLParam(r, "account_id")
+			if accIdStr != strconv.Itoa(int(accData.Id)) {
 				w.WriteHeader(http.StatusForbidden)
 				return
 			}
 
-			// Add wallet data to session
-			r = r.WithContext(sessions.WithWallet(r.Context(), &sessions.WalletData{
-				Id:      wltData.Id,
-				Address: wltData.Address,
+			// Add account data to session
+			r = r.WithContext(sessions.WithAccount(r.Context(), &sessions.AccountData{
+				Id: accData.Id,
 			}))
 
 			next.ServeHTTP(w, r)

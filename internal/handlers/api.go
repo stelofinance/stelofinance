@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -9,7 +10,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 	"github.com/nats-io/nats.go"
 	"github.com/stelofinance/stelofinance/database"
 	"github.com/stelofinance/stelofinance/database/gensql"
@@ -25,6 +25,10 @@ func Ledgers(db *database.Database) http.HandlerFunc {
 			return
 		}
 
+		if len(ldgrs) < 1 {
+			ldgrs = make([]gensql.Ledger, 0)
+		}
+
 		data, err := json.Marshal(ldgrs)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -36,140 +40,45 @@ func Ledgers(db *database.Database) http.HandlerFunc {
 	}
 }
 
-func Accounts(db *database.Database) http.HandlerFunc {
+func Account(db *database.Database) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		wData := sessions.GetWallet(r.Context())
-		accs, err := db.Q.GetAccountBalancesByWalletAddr(r.Context(), wData.Address)
+		aData := sessions.GetAccount(r.Context())
+		acc, err := db.Q.GetAccountById(r.Context(), aData.Id)
 		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		type ResponseRow struct {
-			AssetName string `json:"assetName"`
-			Balace    int64  `json:"balance"`
-			LedgerID  int64  `json:"ledgerId"`
-			Code      int32  `json:"code"`
-		}
-
-		rsp := make([]ResponseRow, 0, len(accs))
-
-		for _, a := range accs {
-			bal := a.DebitBalance
-			if accounts.AccountCode(a.Code).IsCredit() {
-				bal = a.CreditBalance
-			}
-
-			rsp = append(rsp, ResponseRow{
-				AssetName: a.AssetName,
-				Balace:    bal,
-				LedgerID:  a.LedgerID,
-				Code:      a.Code,
-			})
-		}
-
-		data, err := json.Marshal(rsp)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(data)
-	}
-}
-
-func Transactions(db *database.Database) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		wData := sessions.GetWallet(r.Context())
-
-		txs, err := db.Q.GetTransactionsByWalletId(r.Context(), gensql.GetTransactionsByWalletIdParams{
-			DebitWalletID: wData.Id,
-			Limit:         50,
-		})
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		type ResponseRow struct {
-			ID         int64     `json:"id"`
-			DebitAddr  string    `json:"debitAddr"`
-			CreditAddr string    `json:"creditAddr"`
-			Code       int32     `json:"code"`
-			Memo       *string   `json:"memo,omitempty"`
-			CreatedAt  time.Time `json:"createdAt"`
-			Status     int32     `json:"status"`
-		}
-
-		rsp := make([]ResponseRow, 0, len(txs))
-
-		for _, t := range txs {
-			rsp = append(rsp, ResponseRow{
-				ID:         t.ID,
-				DebitAddr:  t.DebitAddress,
-				CreditAddr: t.CreditAddress,
-				Code:       t.Code,
-				Memo:       t.Memo,
-				CreatedAt:  t.CreatedAt,
-				Status:     t.Status,
-			})
-		}
-
-		data, err := json.Marshal(rsp)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(data)
-	}
-}
-
-func Transaction(db *database.Database) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		wData := sessions.GetWallet(r.Context())
-
-		txId := chi.URLParam(r, "tx_id")
-		txIdNum, err := strconv.Atoi(txId)
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-
-		tx, err := db.Q.GetTransactionAndAddresses(r.Context(), gensql.GetTransactionAndAddressesParams{
-			TransactionID: int64(txIdNum),
-			WalletID:      wData.Id,
-		})
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				w.WriteHeader(http.StatusNotFound)
-				return
-			}
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
 		type Response struct {
-			ID            int64     `json:"id"`
-			DebitAddress  string    `json:"debitAddress"`
-			CreditAddress string    `json:"creditAddress"`
-			Code          int32     `json:"code"`
-			Memo          *string   `json:"memo,omitempty"`
-			CreatedAt     time.Time `json:"createdAt"`
-			Status        int32     `json:"status"`
+			UserID         *int64    `json:"userId"`
+			Balance        int64     `json:"balance"`
+			DebitsPending  int64     `json:"debitsPending"`
+			DebitsPosted   int64     `json:"debitsPosted"`
+			CreditsPending int64     `json:"creditsPending"`
+			CreditsPosted  int64     `json:"creditsPosted"`
+			LedgerID       int64     `json:"ledgerId"`
+			Code           int64     `json:"code"`
+			CreatedAt      time.Time `json:"createdAt"`
 		}
 
-		data, err := json.Marshal(Response{
-			ID:            tx.ID,
-			DebitAddress:  tx.DebitAddress,
-			CreditAddress: tx.CreditAddress,
-			Code:          tx.Code,
-			Memo:          tx.Memo,
-			CreatedAt:     tx.CreatedAt,
-			Status:        tx.Status,
-		})
+		bal := acc.DebitsPosted - (acc.CreditsPosted + acc.CreditsPending)
+		if accounts.AccountCode(acc.Code).IsCredit() {
+			bal = acc.CreditsPosted - (acc.DebitsPosted + acc.DebitsPending)
+		}
+
+		rsp := Response{
+			UserID:         acc.UserID,
+			Balance:        bal,
+			DebitsPending:  acc.DebitsPending,
+			DebitsPosted:   acc.DebitsPending,
+			CreditsPending: acc.CreditsPending,
+			CreditsPosted:  acc.CreditsPosted,
+			LedgerID:       acc.LedgerID,
+			Code:           acc.Code,
+			CreatedAt:      acc.CreatedAt,
+		}
+
+		data, err := json.Marshal(rsp)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -180,17 +89,135 @@ func Transaction(db *database.Database) http.HandlerFunc {
 	}
 }
 
-func CreateTransaction(db *database.Database, nc *nats.Conn) http.HandlerFunc {
+// TODO: Allow offset and limit query params
+func Transfers(db *database.Database) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		wData := sessions.GetWallet(r.Context())
+		accData := sessions.GetAccount(r.Context())
+
+		trs, err := db.Q.GetTransfersByAccountId(r.Context(), accData.Id)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		type ResponseRow struct {
+			ID int64 `json:"id"`
+
+			DebitAccId  int64  `json:"debitAccId"`
+			CreditAccId int64  `json:"creditAccId"`
+			Amount      int64  `json:"amount"`
+			LedgerID    int64  `json:"ledgerId"`
+			DebitAddr   string `json:"debitAddr"`
+			CreditAddr  string `json:"creditAddr"`
+
+			// PendingID       *int64    `json:"pendingId"`
+			Code int32   `json:"code"`
+			Memo *string `json:"memo,omitempty"`
+			// Flags     uint8     `json:"flags"`
+			CreatedAt time.Time `json:"createdAt"`
+		}
+
+		rsp := make([]ResponseRow, 0, len(trs))
+
+		for _, t := range trs {
+			rsp = append(rsp, ResponseRow{
+				ID:          t.ID,
+				DebitAccId:  t.DebitAccountID,
+				CreditAccId: t.CreditAccountID,
+				Amount:      t.Amount,
+				LedgerID:    t.LedgerID,
+				DebitAddr:   t.DebitAddress,
+				CreditAddr:  t.CreditAddress,
+				Code:        int32(t.Code),
+				Memo:        t.Memo,
+				CreatedAt:   t.CreatedAt,
+			})
+		}
+
+		data, err := json.Marshal(rsp)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(data)
+	}
+}
+
+func Transfer(db *database.Database) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		accData := sessions.GetAccount(r.Context())
+
+		trId := chi.URLParam(r, "tr_id")
+		trIdNum, err := strconv.Atoi(trId)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		tr, err := db.Q.GetTransferWithAddrsById(r.Context(), int64(trIdNum))
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		// Don't allow reading other's transfer(s)
+		if tr.CreditAccountID != accData.Id || tr.DebitAccountID != accData.Id {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		type Response struct {
+			ID int64 `json:"id"`
+
+			DebitAccId  int64  `json:"debitAccId"`
+			CreditAccId int64  `json:"creditAccId"`
+			Amount      int64  `json:"amount"`
+			LedgerID    int64  `json:"ledgerId"`
+			DebitAddr   string `json:"debitAddr"`
+			CreditAddr  string `json:"creditAddr"`
+
+			// PendingID       *int64    `json:"pendingId"`
+			Code int32   `json:"code"`
+			Memo *string `json:"memo,omitempty"`
+			// Flags     uint8     `json:"flags"`
+			CreatedAt time.Time `json:"createdAt"`
+		}
+
+		rsp := Response{
+			ID:          tr.ID,
+			DebitAccId:  tr.DebitAccountID,
+			CreditAccId: tr.CreditAccountID,
+			Amount:      tr.Amount,
+			LedgerID:    tr.LedgerID,
+			DebitAddr:   tr.DebitAddress,
+			CreditAddr:  tr.CreditAddress,
+			Code:        int32(tr.Code),
+			Memo:        tr.Memo,
+			CreatedAt:   tr.CreatedAt,
+		}
+
+		data, err := json.Marshal(rsp)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(data)
+	}
+}
+
+func CreateTransfer(db *database.Database, nc *nats.Conn) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		accData := sessions.GetAccount(r.Context())
 
 		type Input struct {
-			ReceivingAddr string  `json:"receivingAddr" validate:"required"`
-			Memo          *string `json:"memo"`
-			Transfers     []struct {
-				LedgerId int64 `json:"ledgerId"`
-				Amount   int64 `json:"amount" validate:"min=1"`
-			} `json:"transfers" validate:"gt=0,dive"`
+			ReceivingId int64   `json:"receivingId" validate:"required"`
+			Memo        *string `json:"memo"`
+			LedgerId    int64   `json:"ledgerId" validate:"required"`
+			Amount      int64   `json:"amount" validate:"min=1"`
 		}
 		var body Input
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -202,58 +229,22 @@ func CreateTransaction(db *database.Database, nc *nats.Conn) http.HandlerFunc {
 			return
 		}
 
-		tx, err := db.Pool.Begin(r.Context())
+		qtx, err := db.QTx(r.Context(), database.WithForeignKeys)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		defer tx.Rollback(r.Context())
-		qtx := db.Q.WithTx(tx)
+		defer qtx.Cleanup()
 
-		// Create assets transfer array
-		assetTfs := make([]accounts.TxAssets, 0, len(body.Transfers))
-		for _, t := range body.Transfers {
-			assetTfs = append(assetTfs, accounts.TxAssets{
-				LedgerId: t.LedgerId,
-				Amount:   t.Amount,
-			})
-		}
-
-		_, err = accounts.CreateTransactionByAddrs(r.Context(), qtx, nc, accounts.TxByAddrsInput{
-			SendingAddr:   wData.Address,
-			ReceivingAddr: body.ReceivingAddr,
-			Memo:          body.Memo,
-			Assets:        assetTfs,
+		_, err = accounts.CreateTransfer(r.Context(), qtx.Q(), nc, accounts.CreateTransferInput{
+			SendingId:   accData.Id,
+			ReceivingId: body.ReceivingId,
+			Memo:        body.Memo,
+			LedgerId:    body.LedgerId,
+			Amount:      body.Amount,
 		})
 		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		tx.Commit(r.Context())
-
-		w.WriteHeader(http.StatusCreated)
-	}
-}
-
-func Transfers(db *database.Database) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		wData := sessions.GetWallet(r.Context())
-
-		// First, verify transaction belongs to them
-		txId := chi.URLParam(r, "tx_id")
-		txIdNum, err := strconv.Atoi(txId)
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-
-		_, err = db.Q.GetTransactionAndAddresses(r.Context(), gensql.GetTransactionAndAddressesParams{
-			TransactionID: int64(txIdNum),
-			WalletID:      wData.Id,
-		})
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
+			if errors.Is(err, sql.ErrNoRows) {
 				w.WriteHeader(http.StatusNotFound)
 				return
 			}
@@ -261,50 +252,23 @@ func Transfers(db *database.Database) http.HandlerFunc {
 			return
 		}
 
-		transfers, err := db.Q.GetTransfersByTxId(r.Context(), int64(txIdNum))
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
+		qtx.Commit()
 
-		type ResponseRow struct {
-			Amount    int64     `json:"amount"`
-			LedgerID  int64     `json:"ledgerId"`
-			CreatedAt time.Time `json:"createdAt"`
-		}
-
-		rsp := make([]ResponseRow, 0, len(transfers))
-
-		for _, t := range transfers {
-			rsp = append(rsp, ResponseRow{
-				Amount:    t.Amount,
-				LedgerID:  t.LedgerID,
-				CreatedAt: t.CreatedAt,
-			})
-		}
-
-		data, err := json.Marshal(rsp)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(data)
+		w.WriteHeader(http.StatusCreated)
 	}
 }
 
 func GetWebhook(db *database.Database) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		wData := sessions.GetWallet(r.Context())
+		accData := sessions.GetAccount(r.Context())
 
-		webhook, err := db.Q.GetWalletWebhookByAddr(r.Context(), wData.Address)
+		accResult, err := db.Q.GetAccountById(r.Context(), accData.Id)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
-		data, err := json.Marshal(webhook)
+		data, err := json.Marshal(accResult.Webhook)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -317,7 +281,7 @@ func GetWebhook(db *database.Database) http.HandlerFunc {
 
 func PutWebhook(db *database.Database) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		wData := sessions.GetWallet(r.Context())
+		accData := sessions.GetAccount(r.Context())
 
 		type Input struct {
 			Webhook string `json:"webhook"`
@@ -335,9 +299,9 @@ func PutWebhook(db *database.Database) http.HandlerFunc {
 			return
 		}
 
-		err = db.Q.UpdateWalletWebhookByAddr(r.Context(), gensql.UpdateWalletWebhookByAddrParams{
+		err = db.Q.UpdateAccountWebhookById(r.Context(), gensql.UpdateAccountWebhookByIdParams{
 			Webhook: &body.Webhook,
-			Address: wData.Address,
+			ID:      accData.Id,
 		})
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -350,11 +314,11 @@ func PutWebhook(db *database.Database) http.HandlerFunc {
 
 func DeleteWebhook(db *database.Database) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		wData := sessions.GetWallet(r.Context())
+		accData := sessions.GetAccount(r.Context())
 
-		err := db.Q.UpdateWalletWebhookByAddr(r.Context(), gensql.UpdateWalletWebhookByAddrParams{
+		err := db.Q.UpdateAccountWebhookById(r.Context(), gensql.UpdateAccountWebhookByIdParams{
 			Webhook: nil,
-			Address: wData.Address,
+			ID:      accData.Id,
 		})
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)

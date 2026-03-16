@@ -9,7 +9,7 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/nats-io/nats.go/jetstream"
-	datastar "github.com/starfederation/datastar/sdk/go"
+	"github.com/starfederation/datastar-go/datastar"
 	"github.com/stelofinance/stelofinance/internal/sessions"
 	"github.com/stelofinance/stelofinance/web/templates"
 )

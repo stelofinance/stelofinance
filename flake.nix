@@ -64,6 +64,7 @@
         ] ++ (if builtins.getEnv "NIX_BUILD_SHELL" != "1" then [
           # watchman # tailwind watch uses this
           goose
+          turso
         ] else []);
       };
     });

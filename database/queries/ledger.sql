@@ -1,11 +1,11 @@
 -- name: GetLedgers :many
-SELECT * FROM ledger WHERE id = ANY($1::BIGINT[]);
+SELECT * FROM ledger WHERE id IN (sqlc.slice('ids'));
 
 -- name: GetAllLedgers :many
 SELECT * FROM ledger;
 
 -- name: GetLedger :one
-SELECT * FROM ledger WHERE id = $1;
+SELECT * FROM ledger WHERE id = ?;
 
 -- name: GetLedgersByCode :many
-SELECT * FROM ledger WHERE code = $1;
+SELECT * FROM ledger WHERE code = ?;

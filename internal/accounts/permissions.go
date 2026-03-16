@@ -5,10 +5,10 @@ type Permission uint64
 const PermNone Permission = 0
 
 const (
-	// Wallet Management
-	// these permissions are for wallet managed related permissions
+	// Account Management
+	// these permissions are for account managed related permissions
 
-	// Complete control of the wallet
+	// Complete control of the account
 	PermAdmin Permission = 1 << iota
 	PermRESERVED2
 	PermRESERVED3
@@ -26,10 +26,10 @@ const (
 	PermRESERVED15
 	PermRESERVED16
 
-	// Wallet Actions
-	// these permissions are for specific actions on the wallet
+	// Account Actions
+	// these permissions are for specific actions on the account
 
-	PermReadBals // Read account balances
+	PermReadBal // Read account balance
 	// PermRESERVED2
 	// PermRESERVED3
 	// PermRESERVED4
