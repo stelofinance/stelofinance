@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"embed"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,12 +14,15 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/Nintron27/pillow"
 	"github.com/andybalholm/brotli"
+	"github.com/dchest/uniuri"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
@@ -27,6 +31,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stelofinance/stelofinance/database"
 	"github.com/stelofinance/stelofinance/database/gensql"
+	"github.com/stelofinance/stelofinance/internal/handlers"
 	"github.com/stelofinance/stelofinance/internal/routes"
 	"github.com/stelofinance/stelofinance/web/templates"
 	_ "turso.tech/database/tursogo"
@@ -93,7 +98,8 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 		return err
 	}
 	sessionsKV, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{
-		Bucket: "sessions",
+		Bucket:         "sessions",
+		LimitMarkerTTL: time.Second * 5,
 	})
 	if err != nil {
 		return err
@@ -126,6 +132,121 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 		)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			fmt.Fprintf(os.Stderr, "error listening and serving: %s\n", err)
+		}
+	}()
+
+	// TODO: move out to it's own module or something, gracefully shutdown too
+	go func() {
+		type Message struct {
+			Username string `json:"username"`
+			Text     string `json:"text"`
+		}
+		type MsgResponse struct {
+			Messages []Message `json:"messages"`
+		}
+		type Player struct {
+			EntityId string `json:"entityId"`
+			Username string `json:"username"`
+			// SignedIn bool `json:"signedIn"`
+		}
+		type PlyrResponse struct {
+			Players []Player `json:"players"`
+		}
+
+		recentAuths := make([]string, 0, 32)
+
+		prefix := "STL#"
+		client := &http.Client{}
+
+		// Long running loop fetching chat messages for logins
+		for {
+			req, err := http.NewRequest(http.MethodGet, "https://bitjita.com/api/chat?limit=10", nil)
+			if getenv("ENV") == "prod" {
+				req.Header.Add("User-Agent", "SteloFinance/0.4.0")
+			} else {
+				req.Header.Add("User-Agent", "SteloFinance/0.4.0 (Dev)")
+			}
+
+			resp, err := client.Do(req)
+			if err != nil {
+				// TODO: uhhhh
+				continue
+			}
+			var data MsgResponse
+			if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+				// TODO: uhhhh
+				continue
+			}
+
+			// Scan for Stelo logins, backwards so oldest counts first
+			for _, msg := range slices.Backward(data.Messages) {
+				cleanTxt := strings.TrimSpace(msg.Text)
+				if strings.HasPrefix(cleanTxt, prefix) {
+					pubCode := strings.TrimPrefix(cleanTxt, prefix)
+					if slices.Contains(recentAuths, pubCode) {
+						continue
+					}
+
+					// Fetch user information
+					splitUsername := strings.SplitN(msg.Username, "/", 2)
+					username := splitUsername[len(splitUsername)-1]
+					req, err := http.NewRequest(http.MethodGet, "https://bitjita.com/api/players?q="+username, nil)
+					if getenv("ENV") == "prod" {
+						req.Header.Add("User-Agent", "SteloFinance/0.4.0")
+					} else {
+						req.Header.Add("User-Agent", "SteloFinance/0.4.0 (Dev)")
+					}
+
+					resp, err := client.Do(req)
+					if err != nil {
+						// TODO: uhhhh
+						continue
+					}
+					var data PlyrResponse
+					if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+						// TODO: uhhhh
+						continue
+					}
+					var val handlers.LoginKV
+					for _, plyr := range data.Players {
+						if plyr.Username == username {
+							val.Username = username
+							val.PlayerId = plyr.EntityId
+							break
+						}
+					}
+
+					// Create login kv
+					bytes, err := json.Marshal(val)
+					if err != nil {
+						// TODO: uhhh \*-*/
+						continue
+					}
+					secretKey := uniuri.New()
+					_, err = sessionsKV.Create(ctx, "logins."+secretKey, bytes, jetstream.KeyTTL(time.Second*10))
+					if err != nil {
+						// TODO: uhhh \*-*/
+						continue
+					}
+					// Notify handler
+					err = nc.Publish("login-notifications."+pubCode, []byte(secretKey))
+					if err != nil {
+						// TODO: mmmm
+						continue
+					}
+
+					// Store this so it can be skipped next loop
+					recentAuths = append(recentAuths, pubCode)
+				}
+			}
+
+			// trim off recentAuths
+			if len(recentAuths) > 10 {
+				recentAuths = recentAuths[len(recentAuths)-10:]
+			}
+
+			resp.Body.Close()
+			time.Sleep(time.Second)
 		}
 	}()
 

@@ -9,9 +9,9 @@ type userCtxKey struct{}
 var userContextKey = userCtxKey{}
 
 type UserData struct {
-	Id         int64  `json:"userId"` // The user's id
-	BitcraftId string `json:"bitcraftId"`
-	// DiscordId string `json:"discordId"`
+	Id               int64  `json:"userId"` // The user's id
+	BitcraftId       string `json:"bitcraftId"`
+	BitCraftUsername string `json:"bitcraftUsername"`
 }
 
 func WithUser(ctx context.Context, data *UserData) context.Context {

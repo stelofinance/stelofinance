@@ -218,3 +218,10 @@ type DataPageHomepageInfoCard struct {
 	Title string
 	Body  string
 }
+
+// pages/homepage
+
+type DataPageLogin struct {
+	OnlyRenderPage bool
+	Code           string
+}

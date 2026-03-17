@@ -1,17 +1,38 @@
+{{if not .PageData.OnlyRenderPage}}
 {{template "layouts/primary" .}}
+{{end}}
 
 {{define "page-content"}}
-<main class="flex flex-col h-screen-available items-center justify-center text-white">
-  <h1 class="font-medium text-4xl">Login</h1>
-  <a
-    class="mt-16 flex items-center gap-2 rounded-md py-2 px-3 text-white hover:shadow-md lg:text-lg lg:py-3 lg:px-6"
-    style="background-color: #5865F2;"
-    href="/auth/discord"
-  >
-    Continue with Discord
-    {{template "icons/discord"}}
-  </a>
-  <p class="text-center px-4 max-w-2xl text-neutral-400 text-sm mt-4 mb-40">Stelo is current in an alpha state, and as such you should expect a unfinished experience,
-  and occasional bugs or service interruption.</p>
+<main id="page-content" class="flex flex-col h-screen-available items-center justify-center text-white">
+	<h1 class="font-medium text-4xl">Login</h1>
+	{{if not .Code}}
+	<button class="mt-16 flex items-center gap-2 rounded-md py-2 px-3 text-white hover:shadow-md lg:text-lg lg:py-3 lg:px-6"
+	        style="background-color: #15567E;"
+	        data-on:click="$loggingIn = true; @get('/login')"
+	>
+		Login through BitCraft
+		{{template "icons/bitcraft"}}
+	</button>
+	<p class="text-center px-4 max-w-2xl text-neutral-400 text-sm mt-4 mb-40">Stelo is currently in a beta state, and as such you should expect a unfinished experience,
+		and occasional bugs or service interruption.</p>
+	{{else}}
+	<div class="mt-16 mb-40 flex flex-col py-4 px-6 bg-neutral-800 rounded-lg">
+		<p class="text-xl">In BitCraft, paste the following text into region chat:</p>
+		<div class="relative flex flex-col py-1.5 px-4 mt-6 font-mono mx-auto bg-neutral-900 rounded cursor-copy"
+		     data-class:cursor-copy="!$codeCopied"
+		     data-on:click="navigator.clipboard.writeText('STL#{{.Code}}'); $codeCopied = true; setTimeout(() => {$codeCopied = false}, 2500)"
+		>
+			<p class="text-lg">STL#{{.Code}}</p>
+			<p data-show="$codeCopied"
+			   class="text-xs text-neutral-300 absolute -bottom-0.5 left-1/2 -translate-x-1/2"
+			   style="display: none"
+			>copied!</p>
+		</div>
+		{{end}}
+	</div>
 </main>
+{{end}}
+
+{{if .PageData.OnlyRenderPage}}
+{{template "page-content" .PageData}}
 {{end}}
