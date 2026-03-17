@@ -20,15 +20,10 @@ func AddRoutes(mux *chi.Mux, logger *slog.Logger, tmpls *templates.Tmpls, db *da
 	mux.Handle("GET /hotreload", handlers.HotReload())
 
 	mux.With(midware.AuthUser(logger, sessionsKV, false)).Handle("GET /", handlers.Index(tmpls))
-	mux.Handle("GET /login", handlers.Login(tmpls))
 
-	// Login routes
-	// mux.Route("/auth/{provider}", func(mux chi.Router) {
-	// 	mux.Use(midware.GothicChiAdapter)
-
-	// 	mux.Handle("GET /", handlers.AuthStart())
-	// 	mux.Handle("GET /callback", handlers.AuthCallback(logger, db, sessionsKV))
-	// })
+	// Login/Auth routes
+	mux.Handle("GET /login", handlers.Login(tmpls, nc))
+	mux.Handle("GET /auth/{key}", handlers.Auth(logger, db, sessionsKV))
 
 	// App related routes
 	mux.Route("/app", func(mux chi.Router) {
@@ -102,6 +97,7 @@ func AddRoutes(mux *chi.Mux, logger *slog.Logger, tmpls *templates.Tmpls, db *da
 			w.Write([]byte("pong"))
 		}))
 
+		// TODO: Add route to search for accounts, potentially by username, address, other?
 		// mux.Handle("GET /accounts", handlers.Accounts(db))
 
 		mux.Route("/accounts/{account_id}", func(mux chi.Router) {

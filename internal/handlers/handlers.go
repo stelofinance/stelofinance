@@ -1,13 +1,18 @@
 package handlers
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/dchest/uniuri"
 	"github.com/go-playground/validator/v10"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/starfederation/datastar-go/datastar"
 	"github.com/stelofinance/stelofinance/internal/sessions"
@@ -36,23 +41,23 @@ func Index(tmpls *templates.Tmpls) http.Handler {
 			PageData: templates.DataPageHomepage{
 				User: sData != nil,
 				InfoCards: []templates.DataPageHomepageInfoCard{{
-					Title: "Convienent in every way",
-					Body:  "One of Stelo's core goals is to be a convienent way for managing all your finances. Once you've created your account the entire platform is at your fingertips.",
+					Title: "From Physical to Digial",
+					Body:  "Assets on Stelo range from purely digital to 1:1 backed with real redeemable items in-game (and in-between)!",
 				}, {
-					Title: "Connecting the physical to the digial",
-					Body:  "Every item in the Stelo ecosystem is backed by the real asset in game. Whenever you want any of your digital goods in game, just visit a Stelo partnered warehouse and you'll receive the items from your account.",
+					Title: "Built to be Built Upon",
+					Body:  "The Stelo platform enables you to create whatever financial product you can dream of, from loan services to nation state bonds.",
 				}, {
-					Title: "Built to be built upon",
-					Body:  "By leveraging Stelo's app platform you can build loan services, trading bots, tax systems, and so much more! If you're daring enough, you could even build another entire finance platform ontop.",
+					Title: "Permissioned Control",
+					Body:  "Stelo gives you a range of granular permissions, so you can be confident in managing and delegating your finances.",
 				}, {
-					Title: "A simplistic currency",
-					Body:  "The Stelo currency is a divisible, limited supply currency built into the Stelo platform. It's main purpose is to be the collateral against assets stored in Stelo partnered warehouses.",
+					Title: "An Open Platform",
+					Body:  "Stelo provides a public API so anyone can leverage the platform to build their idea. Need more functionality? Join the Discord and ask!",
 				}, {
-					Title: "A free platform",
-					Body:  "Stelo's core functionality is completely free! No monthly subscription, no transactions fees on anything. Stelo will be monetized by other means if needed.",
+					Title: "Global Exchange",
+					Body:  "What good are all these assets if they can't be traded? That's why Stelo has a built in order-book global market, to maximize the liquidity of all your assets.",
 				}, {
-					Title: "A global exchange",
-					Body:  "To showcase the power of the smart wallet system, Stelo will be creating a global exchange where users can sell goods to anyone, anytime, anywhere. This utility will be only just the start of the Stelo ecosystem.",
+					Title: "Instantaneous",
+					Body:  "Trade at the speed of light. Whether you're in different towns, regions, or not even online, you can trade all your assets instantly with anyone.",
 				}},
 			},
 		}
@@ -65,29 +70,82 @@ func Index(tmpls *templates.Tmpls) http.Handler {
 	})
 }
 
-func Login(tmpls *templates.Tmpls) http.HandlerFunc {
+func Login(tmpls *templates.Tmpls, nc *nats.Conn) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		tmplData := templates.DataLayoutPrimary{
-			NavData: templates.DataComponentNav{},
-			FooterData: templates.DataComponentFooter{
-				Links: []templates.DataComponentFooterLink{{
-					Href: "https://discord.gg/t6gM7v7V7T",
-					Text: "Discord",
-				}, {
-					Href: "https://github.com/stelofinance/stelofinance/tree/main/docs",
-					Text: "Docs",
-				}, {
-					Href: "https://github.com/stelofinance",
-					Text: "GitHub",
-				}},
-			},
-			PageData: nil,
+		loggingIn := false
+		if r.URL.Query().Has("datastar") {
+			type input struct {
+				LoggingIn bool `json:"loggingIn"`
+			}
+			var ds input
+			err := json.Unmarshal([]byte(r.URL.Query().Get("datastar")), &ds)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			loggingIn = ds.LoggingIn
 		}
 
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		err := tmpls.ExecuteTemplate(w, "pages/login", tmplData)
-		if err != nil {
-			panic(err)
+		if loggingIn {
+			publicCode := uniuri.NewLen(8)
+			tmplData := templates.DataLayoutPrimary{
+				PageData: templates.DataPageLogin{
+					OnlyRenderPage: true,
+					Code:           publicCode,
+				},
+			}
+			sse := datastar.NewSSE(w, r)
+
+			buff := new(bytes.Buffer)
+			err := tmpls.ExecuteTemplate(buff, "pages/login", tmplData)
+			if err != nil {
+				panic(err)
+			}
+
+			sse.PatchElements(buff.String())
+
+			sub, err := nc.SubscribeSync("login-notifications." + publicCode)
+			if err != nil {
+				// TODO: handle this error...
+				return
+			}
+
+			msg, err := sub.NextMsg(time.Minute)
+			if err != nil {
+				if errors.Is(err, nats.ErrTimeout) {
+					// TODO: Timeout message
+				}
+				// TODO: handle other errors
+				return
+			}
+
+			// Redirect to secret auth endpoint
+			sse.Redirect("/auth/" + string(msg.Data))
+		} else {
+			tmplData := templates.DataLayoutPrimary{
+				NavData: templates.DataComponentNav{},
+				FooterData: templates.DataComponentFooter{
+					Links: []templates.DataComponentFooterLink{{
+						Href: "https://discord.gg/t6gM7v7V7T",
+						Text: "Discord",
+					}, {
+						Href: "https://github.com/stelofinance/stelofinance/tree/main/docs",
+						Text: "Docs",
+					}, {
+						Href: "https://github.com/stelofinance",
+						Text: "GitHub",
+					}},
+				},
+				PageData: templates.DataPageLogin{
+					OnlyRenderPage: false,
+				},
+			}
+
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			err := tmpls.ExecuteTemplate(w, "pages/login", tmplData)
+			if err != nil {
+				panic(err)
+			}
 		}
 	}
 }

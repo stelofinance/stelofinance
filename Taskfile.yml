@@ -1,6 +1,6 @@
 version: '3'
 
-interval: 100ms
+interval: 150ms
 
 env:
   STATIC_DIR: "web/static"
