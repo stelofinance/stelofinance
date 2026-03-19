@@ -106,6 +106,6 @@ func Auth(logger *slog.Logger, db *database.Database, sessionsKV jetstream.KeyVa
 		sessionsKV.Create(r.Context(), "users."+strconv.FormatInt(userId, 10)+".sessions."+sid, bytes)
 
 		http.SetCookie(w, &cookie)
-		http.Redirect(w, r, "/", http.StatusFound) // TODO: Replace this with the dashboard later
+		http.Redirect(w, r, "/app", http.StatusFound)
 	}
 }

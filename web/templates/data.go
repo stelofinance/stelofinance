@@ -1,5 +1,7 @@
 package templates
 
+import "github.com/stelofinance/stelofinance/internal/accounts"
+
 // layouts/primary
 
 type DataLayoutPrimary struct {
@@ -27,15 +29,36 @@ type DataLayoutApp struct {
 	PageData    any
 }
 type DataComponentAppNav struct {
-	ForWarehouse bool
-	WalletAddr   string // optional
-	ProfileImage string
-	Username     string
+	Username string
 }
 type DataComponentAppMenu struct {
-	ForWarehouse bool
-	ActivePage   string
-	WalletAddr   string //optional, won't render if not supplied though
+	ActivePage string
+}
+
+// pages/app-home
+type DataPageAppHome struct {
+	Username string
+}
+
+// pages/app-accounts
+type DataPageAppAccounts struct {
+	OnlyRenderPage bool
+	Accounts       []DataAccount
+	Ledgers        []DataLedger
+}
+
+type DataLedger struct {
+	ID   int64
+	Name string
+}
+type DataAccount struct {
+	AccId      int64
+	Addr       string
+	IsPrimary  bool
+	AccCode    accounts.AccountCode
+	LedgerCode accounts.LedgerCode
+	LedgerName string
+	DisplayQty string
 }
 
 // pages/wallet-home

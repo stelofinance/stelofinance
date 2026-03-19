@@ -171,6 +171,25 @@ func AuthAccountToken(sessionsKV jetstream.KeyValue) func(http.Handler) http.Han
 	}
 }
 
+func AuthAdmin(getenv func(string) string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			AuthHdr := r.Header.Get("Authorization")
+			if AuthHdr == "" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+
+			if AuthHdr != getenv("ADMIN_KEY") {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 var ErrKeyNotFound = errors.New("middlewares: key not found")
 
 // TODO: replace with ListKeysFiltered maybe?
