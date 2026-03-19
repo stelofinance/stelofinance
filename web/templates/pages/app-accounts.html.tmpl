@@ -1,0 +1,47 @@
+{{if not .PageData.OnlyRenderPage}}
+{{template "layouts/app" .}}
+{{end}}
+
+{{define "page-content"}}
+<main id="page-content" class="flex flex-col text-white px-2 py-4">
+	{{range .Accounts}}
+	<a href="/app/accounts/{{.AccId}}"
+	   class="flex flex-col py-1 px-2 {{if and (ge .AccCode 0) (le .AccCode 99)}}border-l-4 border-red-600{{end}} bg-neutral-800 rounded mb-2 hover:shadow-lg hover:bg-neutral-700 transition-all"
+	>
+		<div class="grid grid-cols-3 text-neutral-400 text-sm">
+			<p>#{{.Addr}}</p>
+			{{if eq .LedgerCode 100}}
+			<p class="text-center">item</p>
+			{{end}}
+			{{if .IsPrimary}}
+			<p class="text-anakiwa text-end">primary</p>
+			{{end}}
+		</div>
+		<div class="flex justify-between">
+			<p>{{.LedgerName}}</p>
+			<p>{{.DisplayQty}}</p>
+		</div>
+	</a>
+	{{end}}
+	{{if len .Ledgers}}
+	<button class="bg-anakiwa-900 px-4 pt-0.5 pb-1 rounded cursor-pointer hover:bg-anakiwa-800 transition-all hover:shadow-lg"
+	        data-on:click="$creatingAcc = true"
+	        data-show="!$creatingAcc"
+	>Create Account</button>
+	<form data-show="$creatingAcc" style="display: none" class="bg-neutral-800 rounded w-full flex">
+		<select class="mr-auto" name="ledger">
+			<option value="">-- Choose --</option>
+			{{range .Ledgers}}
+			<option value="{{.ID}}">{{.Name}}</option>
+			{{end}}
+		</select>
+		<button data-on:click="$creatingAcc = false" class="bg-red-700 px-2 rounded">Cancel</button>
+		<button data-on:click="@post('/app/accounts', {contentType: 'form'})" class="bg-anakiwa-900 px-2 rounded">Create</button>
+	</form>
+	{{end}}
+</main>
+{{end}}
+
+{{if .PageData.OnlyRenderPage}}
+{{template "page-content" .PageData}}
+{{end}}

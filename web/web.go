@@ -113,7 +113,7 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 	db := database.New(dbConn, gensql.New(dbConn))
 
 	// Create and run server
-	srv := NewServer(logger, tmpls, db, sessionsKV, nc)
+	srv := NewServer(logger, tmpls, db, sessionsKV, nc, getenv)
 	httpServer := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      srv,
@@ -275,7 +275,14 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 	return nil
 }
 
-func NewServer(logger *slog.Logger, tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstream.KeyValue, nc *nats.Conn) http.Handler {
+func NewServer(
+	logger *slog.Logger,
+	tmpls *templates.Tmpls,
+	db *database.Database,
+	sessionsKV jetstream.KeyValue,
+	nc *nats.Conn,
+	getenv func(string) string,
+) http.Handler {
 	mux := chi.NewMux()
 
 	// mux.Use(middleware.Logger)
@@ -291,7 +298,7 @@ func NewServer(logger *slog.Logger, tmpls *templates.Tmpls, db *database.Databas
 	mux.Use(middleware.Heartbeat("/heartbeat"))
 	mux.Use(Compressor(2))
 
-	routes.AddRoutes(mux, logger, tmpls, db, sessionsKV, nc)
+	routes.AddRoutes(mux, logger, tmpls, db, sessionsKV, nc, getenv)
 
 	return mux
 }

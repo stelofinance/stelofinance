@@ -15,5 +15,7 @@ sql:
             go_type:
               import: "time"
               type: "Time"
-          - db_type: "timestamptz"
-            go_type: "time.Time"
+          - column: "*.updated_at"
+            go_type:
+              import: "time"
+              type: "Time"

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -40,6 +41,50 @@ func Ledgers(db *database.Database) http.HandlerFunc {
 	}
 }
 
+func CreateAccount(db *database.Database) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		type Input struct {
+			Addr     string  `json:"addr"`
+			Webhook  *string `json:"webhook" validate:"omitnil,url"`
+			OwnerId  int64   `json:"ownerId" validate:"required"`
+			LedgerId int64   `json:"ledgerId" validate:"required"`
+			Code     int64   `json:"code"`
+		}
+		var body Input
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if err := validate.Struct(body); err != nil {
+			fmt.Println(err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		qtx, err := db.QTx(r.Context(), database.WithForeignKeys)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		defer qtx.Cleanup()
+
+		_, err = accounts.CreateAccount(r.Context(), qtx.Q(), accounts.CreateAccountInput{
+			OwnerId:  body.OwnerId,
+			Address:  body.Addr,
+			Webhook:  body.Webhook,
+			LedgerId: body.LedgerId,
+			Code:     accounts.AccountCode(body.Code),
+		})
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		qtx.Commit()
+
+		w.WriteHeader(http.StatusCreated)
+	}
+}
 func Account(db *database.Database) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		aData := sessions.GetAccount(r.Context())

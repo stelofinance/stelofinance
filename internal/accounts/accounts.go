@@ -1,8 +1,15 @@
 package accounts
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/dchest/uniuri"
+	"github.com/stelofinance/stelofinance/database/gensql"
 )
 
 type AccountCode int32
@@ -39,6 +46,15 @@ func (a AccountCode) IsDebit() bool {
 	return !a.IsCredit()
 }
 
+func (a AccountCode) IsValid() bool {
+	switch a {
+	case GA, PRA, SRA:
+		return true
+	default:
+		return false
+	}
+}
+
 // IdentifyTrCode will identify which TrCode the transaction is based on the
 // sending and receiving AccountCode.
 func (sendingAcc AccountCode) IdentifyTrCode(receivingAcc AccountCode) TrCode {
@@ -62,92 +78,76 @@ var ErrDuplicateAddress = fmt.Errorf("accounts: address already taken")
 
 const MaxAddressLength int = 16
 
-type CreateAccountInput struct {
-	UserId int64 // Owner (initial admin of the account)
+// Easy to read and not mistake letters (20 in total)
+var AddressStdChars = []byte("ABCDEFGHJKMNPRTUVWXY")
 
-	Address string
-	Code    AccountCode
-	Webhook string
+type CreateAccountInput struct {
+	OwnerId   int64 // Owner (initial admin of the account)
+	isPrimary bool  // Should the account be the primary for the OwnerId user
+
+	Address  string
+	Webhook  *string
+	LedgerId int64
+	Code     AccountCode
 }
 
-// func CreateAccount(ctx context.Context, q *gensql.Queries, input CreateAccountInput) (int64, error) {
-// 	// Validate the address
-// 	if len(input.Address) > MaxAddressLength {
-// 		return 0, ErrAddressExceedsLength
-// 	}
-// 	input.Address = strings.ToUpper(input.Address)
-// 	if strings.ContainsFunc(input.Address, func(r rune) bool {
-// 		return r < 'A' || r > 'Z'
-// 	}) {
-// 		return 0, ErrInvalidAccountConfiguration
-// 	}
+// CreateAccount should always be called with a transaction that has foreign keys PRAGMA enabled.
+func CreateAccount(ctx context.Context, q *gensql.Queries, input CreateAccountInput) (int64, error) {
+	// Validate the address
+	if len(input.Address) == 0 {
+		input.Address = uniuri.NewLenChars(8, AddressStdChars)
+		// TODO: double check that address isn't taken...
+	} else if len(input.Address) > MaxAddressLength {
+		return 0, ErrAddressExceedsLength
+	}
+	input.Address = strings.ToUpper(input.Address)
+	if strings.ContainsFunc(input.Address, func(r rune) bool {
+		return r < 'A' || r > 'Z'
+	}) {
+		return 0, ErrInvalidAccountConfiguration
+	}
 
-// 	// Prepare account params
-// 	accountParams := gensql.InsertAccountParams{
-// 		Address:   "",
-// 		Webhook:   new(string),
-// 		UserID:    new(int64),
-// 		LedgerID:  0,
-// 		Code:      0,
-// 		Flags:     0,
-// 		CreatedAt: time.Time{},
-// 	}
+	// Verify webhook
+	if input.Webhook != nil {
+		_, err := url.ParseRequestURI(*input.Webhook)
+		if err != nil {
+			return 0, err
+		}
+	}
 
-// 	switch input.Code {
-// 	case PersonalAcc:
-// 		// Ensure user doesn't already have personal account
-// 		user, err := q.GetUserByIdForUpdate(ctx, input.UserId)
-// 		if err != nil {
-// 			return 0, err
-// 		}
-// 		if user.WalletID != nil {
-// 			return 0, errors.New("accounts: already have primary account")
-// 		}
-// 	case WarehouseAcc:
-// 		if input.CollateralPercentage < 0 || input.CollateralPercentage > 9999 {
-// 			return 0, errors.New("accounts: invalid collateralPercentage")
-// 		}
+	// Validate account code
+	if !input.Code.IsValid() {
+		return 0, ErrInvalidAccountConfiguration
+	}
 
-// 		walletParams.StGeomfromewkb = &input.Location
-// 		walletParams.CollateralPercentage = pgtype.Numeric{
-// 			Int:   big.NewInt(input.CollateralPercentage),
-// 			Exp:   -3,
-// 			Valid: true,
-// 		}
-// 	case DAL, GA:
-// 	default:
-// 		return 0, errors.New("accounts: unknown AccountCode")
-// 	}
+	var user *int64
+	if input.isPrimary {
+		user = &input.OwnerId
+	}
 
-// 	walletId, err := q.InsertWallet(ctx, walletParams)
-// 	if err != nil {
-// 		// TODO: Check if duplicate address
-// 		return 0, err
-// 	}
-// 	_, err = q.InsertWalletPermission(ctx, gensql.InsertWalletPermissionParams{
-// 		WalletID:    walletId,
-// 		UserID:      input.UserId,
-// 		Permissions: int64(PermAdmin),
-// 		UpdatedAt:   time.Now(),
-// 		CreatedAt:   time.Now(),
-// 	})
-// 	if err != nil {
-// 		return 0, err
-// 	}
+	// Insert the account and account permissions
+	accId, err := q.InsertAccount(ctx, gensql.InsertAccountParams{
+		Address:   input.Address,
+		Webhook:   input.Webhook,
+		UserID:    user,
+		LedgerID:  input.LedgerId,
+		Code:      int64(input.Code),
+		Flags:     0,
+		CreatedAt: time.Now(),
+	})
+	if err != nil {
+		return 0, err
+	}
+	q.InsertAccountPerm(ctx, gensql.InsertAccountPermParams{
+		AccountID:   accId,
+		UserID:      input.OwnerId,
+		Permissions: int64(PermAdmin),
+		UpdatedAt:   time.Now(),
+		CreatedAt:   time.Now(),
+	})
 
-// 	if input.Code == PersonalAcc {
-// 		// Update users personal wallet id
-// 		err := q.UpdateUserWalletId(ctx, gensql.UpdateUserWalletIdParams{
-// 			WalletID: &walletId,
-// 			UserID:   input.UserId,
-// 		})
-// 		if err != nil {
-// 			return 0, err
-// 		}
-// 	}
-
-// 	return walletId, nil
-// }
+	return accId, nil
+}
 
 // // Easy to read and not mistake letters (20 in total)
 // var AddressStdChars = []byte("ABCDEFGHJKMNPRTUVWXY")

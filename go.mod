@@ -7,6 +7,7 @@ require (
 	github.com/andybalholm/brotli v1.2.0
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/dchest/uniuri v1.2.0
+	github.com/dustin/go-humanize v1.0.1
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/go-chi/cors v1.2.2
 	github.com/go-playground/validator/v10 v10.30.1

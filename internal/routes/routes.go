@@ -14,7 +14,15 @@ import (
 	"github.com/stelofinance/stelofinance/web/templates"
 )
 
-func AddRoutes(mux *chi.Mux, logger *slog.Logger, tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstream.KeyValue, nc *nats.Conn) {
+func AddRoutes(
+	mux *chi.Mux,
+	logger *slog.Logger,
+	tmpls *templates.Tmpls,
+	db *database.Database,
+	sessionsKV jetstream.KeyValue,
+	nc *nats.Conn,
+	getenv func(string) string,
+) {
 	assets.HttpHandler(mux)
 
 	mux.Handle("GET /hotreload", handlers.HotReload())
@@ -28,6 +36,10 @@ func AddRoutes(mux *chi.Mux, logger *slog.Logger, tmpls *templates.Tmpls, db *da
 	// App related routes
 	mux.Route("/app", func(mux chi.Router) {
 		mux.Use(midware.AuthUser(logger, sessionsKV, true))
+
+		mux.Handle("GET /", handlers.AppHome(tmpls, db))
+		mux.Handle("GET /accounts", handlers.AppAccounts(tmpls, db))
+		mux.Handle("POST /accounts", handlers.AppCreateAccount(tmpls, db))
 
 		// mux.Handle("GET /wallets", handlers.Wallets(tmpls, db))
 		// mux.Handle("POST /wallets", handlers.WalletsCreate(db))
@@ -99,6 +111,8 @@ func AddRoutes(mux *chi.Mux, logger *slog.Logger, tmpls *templates.Tmpls, db *da
 
 		// TODO: Add route to search for accounts, potentially by username, address, other?
 		// mux.Handle("GET /accounts", handlers.Accounts(db))
+
+		mux.With(midware.AuthAdmin(getenv)).Handle("POST /accounts", handlers.CreateAccount(db))
 
 		mux.Route("/accounts/{account_id}", func(mux chi.Router) {
 			mux.Use(midware.AuthAccountToken(sessionsKV))
