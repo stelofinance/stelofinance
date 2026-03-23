@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS account
     ledger_id INTEGER NOT NULL REFERENCES ledger(id),
     code INTEGER NOT NULL,
     flags INTEGER NOT NULL,
-    created_at TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL,
 
     -- Users can only have one primary account for each ledger type
     UNIQUE (user_id, ledger_id),
@@ -36,8 +36,8 @@ CREATE TABLE IF NOT EXISTS account_permission
     account_id INTEGER NOT NULL REFERENCES account(id),
     user_id INTEGER NOT NULL REFERENCES "user"(id),
     permissions INTEGER NOT NULL,
-    updated_at TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    updated_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP NOT NULL
 );
 CREATE TABLE IF NOT EXISTS transfer
 (
@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS transfer
     code INTEGER NOT NULL,
     flags INTEGER NOT NULL,
     memo TEXT,
-    created_at TEXT NOT NULL
+    created_at TIMESTAMP NOT NULL
 );
 
 -- +goose Down
