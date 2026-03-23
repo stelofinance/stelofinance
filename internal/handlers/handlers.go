@@ -24,10 +24,10 @@ var validate = validator.New(validator.WithRequiredStructEnabled())
 func Index(tmpls *templates.Tmpls) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		sData := sessions.GetUser(r.Context())
-		tmplData := templates.DataLayoutPrimary{
-			NavData: templates.DataComponentNav{},
-			FooterData: templates.DataComponentFooter{
-				Links: []templates.DataComponentFooterLink{{
+		tmplData := templates.LayoutPrimary{
+			NavData: templates.ComponentNav{},
+			FooterData: templates.ComponentFooter{
+				Links: []templates.ComponentFooterLink{{
 					Href: "https://discord.gg/t6gM7v7V7T",
 					Text: "Discord",
 				}, {
@@ -38,9 +38,9 @@ func Index(tmpls *templates.Tmpls) http.Handler {
 					Text: "GitHub",
 				}},
 			},
-			PageData: templates.DataPageHomepage{
-				User: sData != nil,
-				InfoCards: []templates.DataPageHomepageInfoCard{{
+			PageData: templates.PageIndex{
+				IsAuthed: sData != nil,
+				InfoCards: []templates.PageIndexInfoCard{{
 					Title: "From Physical to Digial",
 					Body:  "Assets on Stelo range from purely digital to 1:1 backed with real redeemable items in-game (and in-between)!",
 				}, {
@@ -63,7 +63,7 @@ func Index(tmpls *templates.Tmpls) http.Handler {
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		err := tmpls.ExecuteTemplate(w, "pages/homepage", tmplData)
+		err := tmpls.ExecuteTemplate(w, "pages/index", tmplData)
 		if err != nil {
 			panic(err)
 		}
@@ -88,11 +88,10 @@ func Login(tmpls *templates.Tmpls, nc *nats.Conn) http.HandlerFunc {
 
 		if loggingIn {
 			publicCode := uniuri.NewLen(8)
-			tmplData := templates.DataLayoutPrimary{
-				PageData: templates.DataPageLogin{
-					OnlyRenderPage: true,
-					Code:           publicCode,
-				},
+			tmplData := templates.DefaultLayoutPrimary
+			tmplData.PageData = templates.PageLogin{
+				OnlyRenderPage: true,
+				Code:           publicCode,
 			}
 			sse := datastar.NewSSE(w, r)
 
@@ -122,24 +121,7 @@ func Login(tmpls *templates.Tmpls, nc *nats.Conn) http.HandlerFunc {
 			// Redirect to secret auth endpoint
 			sse.Redirect("/auth/" + string(msg.Data))
 		} else {
-			tmplData := templates.DataLayoutPrimary{
-				NavData: templates.DataComponentNav{},
-				FooterData: templates.DataComponentFooter{
-					Links: []templates.DataComponentFooterLink{{
-						Href: "https://discord.gg/t6gM7v7V7T",
-						Text: "Discord",
-					}, {
-						Href: "https://github.com/stelofinance/stelofinance/tree/main/docs",
-						Text: "Docs",
-					}, {
-						Href: "https://github.com/stelofinance",
-						Text: "GitHub",
-					}},
-				},
-				PageData: templates.DataPageLogin{
-					OnlyRenderPage: false,
-				},
-			}
+			tmplData := templates.DefaultLayoutPrimary
 
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			err := tmpls.ExecuteTemplate(w, "pages/login", tmplData)
