@@ -78,17 +78,17 @@ func LoadTemplates(fsys fs.FS, prefix, extension string, getenv func(string) str
 	}, nil
 }
 
-func (t *Tmpls) ExecuteTemplate(wr io.Writer, name string, data any) error {
+func (t *Tmpls) ExecuteTemplate(w io.Writer, name string, data any) error {
 	tmpl := t.commonTmpls.Lookup(name)
 	if tmpl != nil {
-		return tmpl.Execute(wr, data)
+		return tmpl.Execute(w, data)
 	}
 
 	tmpl, ok := t.variantTmpls[name]
 	if !ok {
 		return ErrTemplateNotFound
 	}
-	return tmpl.Execute(wr, data)
+	return tmpl.Execute(w, data)
 }
 
 func addCustomFuncs(getenv func(string) string) template.FuncMap {

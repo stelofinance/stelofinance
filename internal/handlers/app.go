@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"math"
 	"net/http"
@@ -19,16 +20,16 @@ func AppHome(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uData := sessions.GetUser(r.Context())
 
-		tmplData := templates.DataLayoutApp{
+		tmplData := templates.LayoutApp{
 			Title:       "Home",
 			Description: "App homepage",
-			NavData: templates.DataComponentAppNav{
+			NavData: templates.ComponentAppNav{
 				Username: uData.BitCraftUsername,
 			},
-			MenuData: templates.DataComponentAppMenu{
+			MenuData: templates.ComponentAppMenu{
 				ActivePage: "home",
 			},
-			PageData: templates.DataPageAppHome{
+			PageData: templates.PageAppHome{
 				Username: uData.BitCraftUsername,
 			},
 		}
@@ -41,66 +42,71 @@ func AppHome(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
 	}
 }
 
+func loadAppAccountsPageData(ctx context.Context, db *database.Database, uData *sessions.UserData, onlyRenderPage bool) (templates.LayoutApp, error) {
+	// Fetch data and render page
+	ldgrsResult, err := db.Q.GetAllLedgers(ctx)
+	if err != nil {
+		return templates.LayoutApp{}, err
+	}
+	accsResult, err := db.Q.GetAccountsUserHasPerms(ctx, uData.Id)
+	if err != nil {
+		return templates.LayoutApp{}, err
+	}
+
+	var accs []templates.PageAppAccountsAccount
+	for _, acc := range accsResult {
+		isPrimary := false
+		if acc.PrimaryUserID != nil && *acc.PrimaryUserID == uData.Id {
+			isPrimary = true
+		}
+		bal := acc.DebitsPosted - acc.CreditsPosted - acc.CreditsPending
+		if accounts.AccountCode(acc.AccountCode).IsCredit() {
+			bal = acc.CreditsPosted - acc.DebitsPosted - acc.DebitsPending
+		}
+		accs = append(accs, templates.PageAppAccountsAccount{
+			AccId:      acc.ID,
+			Addr:       acc.Address,
+			AccCode:    accounts.AccountCode(acc.AccountCode),
+			IsPrimary:  isPrimary,
+			LedgerCode: accounts.LedgerCode(acc.LedgerCode),
+			LedgerName: acc.LedgerName,
+			DisplayQty: humanize.Commaf(float64(bal) / math.Pow(10, float64(acc.AssetScale))),
+		})
+	}
+	var ldgrs []templates.PageAppAccountsLedger
+	for _, ldgr := range ldgrsResult {
+		ldgrs = append(ldgrs, templates.PageAppAccountsLedger{
+			ID:   ldgr.ID,
+			Name: ldgr.Name,
+		})
+	}
+
+	return templates.LayoutApp{
+		Title:       "Home",
+		Description: "App homepage",
+		NavData: templates.ComponentAppNav{
+			Username: uData.BitCraftUsername,
+		},
+		MenuData: templates.ComponentAppMenu{
+			ActivePage: "accounts",
+		},
+		PageData: templates.PageAppAccounts{
+			OnlyRenderPage: onlyRenderPage,
+			Ledgers:        ldgrs,
+			Accounts:       accs,
+		},
+	}, nil
+}
+
 func AppAccounts(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uData := sessions.GetUser(r.Context())
 
-		// Fetch data and render page
-		ldgrsResult, err := db.Q.GetAllLedgers(r.Context())
+		tmplData, err := loadAppAccountsPageData(r.Context(), db, uData, false)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		accsResult, err := db.Q.GetAccountsUserHasPerms(r.Context(), uData.Id)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		var accs []templates.DataAccount
-		for _, acc := range accsResult {
-			isPrimary := false
-			if acc.PrimaryUserID != nil && *acc.PrimaryUserID == uData.Id {
-				isPrimary = true
-			}
-			bal := acc.DebitsPosted - acc.CreditsPosted - acc.CreditsPending
-			if accounts.AccountCode(acc.AccountCode).IsCredit() {
-				bal = acc.CreditsPosted - acc.DebitsPosted - acc.DebitsPending
-			}
-			accs = append(accs, templates.DataAccount{
-				AccId:      acc.ID,
-				Addr:       acc.Address,
-				AccCode:    accounts.AccountCode(acc.AccountCode),
-				IsPrimary:  isPrimary,
-				LedgerCode: accounts.LedgerCode(acc.LedgerCode),
-				LedgerName: acc.LedgerName,
-				DisplayQty: humanize.Commaf(float64(bal) / math.Pow(10, float64(acc.AssetScale))),
-			})
-		}
-		var ldgrs []templates.DataLedger
-		for _, ldgr := range ldgrsResult {
-			ldgrs = append(ldgrs, templates.DataLedger{
-				ID:   ldgr.ID,
-				Name: ldgr.Name,
-			})
-		}
-
-		tmplData := templates.DataLayoutApp{
-			Title:       "Home",
-			Description: "App homepage",
-			NavData: templates.DataComponentAppNav{
-				Username: uData.BitCraftUsername,
-			},
-			MenuData: templates.DataComponentAppMenu{
-				ActivePage: "accounts",
-			},
-			PageData: templates.DataPageAppAccounts{
-				OnlyRenderPage: false,
-				Ledgers:        ldgrs,
-				Accounts:       accs,
-			},
-		}
-
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		err = tmpls.ExecuteTemplate(w, "pages/app-accounts", tmplData)
 		if err != nil {
@@ -135,53 +141,11 @@ func AppCreateAccount(tmpls *templates.Tmpls, db *database.Database) http.Handle
 
 		qtx.Commit()
 
-		// Fetch data and render page
-		ldgrsResult, err := db.Q.GetAllLedgers(r.Context())
+		tmplData, err := loadAppAccountsPageData(r.Context(), db, uData, true)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		accsResult, err := db.Q.GetAccountsUserHasPerms(r.Context(), uData.Id)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		var accs []templates.DataAccount
-		for _, acc := range accsResult {
-			isPrimary := false
-			if acc.PrimaryUserID != nil && *acc.PrimaryUserID == uData.Id {
-				isPrimary = true
-			}
-			bal := acc.DebitsPosted - acc.CreditsPosted - acc.CreditsPending
-			if accounts.AccountCode(acc.AccountCode).IsCredit() {
-				bal = acc.CreditsPosted - acc.DebitsPosted - acc.DebitsPending
-			}
-			accs = append(accs, templates.DataAccount{
-				AccId:      acc.ID,
-				Addr:       acc.Address,
-				AccCode:    accounts.AccountCode(acc.AccountCode),
-				IsPrimary:  isPrimary,
-				LedgerCode: accounts.LedgerCode(acc.LedgerCode),
-				LedgerName: acc.LedgerName,
-				DisplayQty: humanize.Commaf(float64(bal) / math.Pow(10, float64(acc.AssetScale))),
-			})
-		}
-		var ldgrs []templates.DataLedger
-		for _, ldgr := range ldgrsResult {
-			ldgrs = append(ldgrs, templates.DataLedger{
-				ID:   ldgr.ID,
-				Name: ldgr.Name,
-			})
-		}
-		tmplData := templates.DataLayoutApp{
-			PageData: templates.DataPageAppAccounts{
-				OnlyRenderPage: true,
-				Ledgers:        ldgrs,
-				Accounts:       accs,
-			},
-		}
-
 		sse := datastar.NewSSE(w, r)
 
 		buff := new(bytes.Buffer)
