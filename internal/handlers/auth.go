@@ -22,24 +22,30 @@ type LoginKV struct {
 	PlayerId string `json:"playerId"`
 }
 
-func Auth(logger *slog.Logger, db *database.Database, sessionsKV jetstream.KeyValue) http.HandlerFunc {
+func Auth(logger *slog.Logger, db *database.Database, sessionsKV jetstream.KeyValue, getenv func(string) string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Retrieve the session
-		scrtKey := chi.URLParam(r, "key")
+		var playerInfo LoginKV
+		// Check if it's an admin bypass, otherwise handle normally
+		if r.URL.Query().Get("adminkey") == getenv("ADMIN_KEY") {
+			playerInfo.PlayerId = r.URL.Query().Get("playerid")
+			playerInfo.Username = r.URL.Query().Get("username")
+		} else {
+			// Retrieve the session
+			scrtKey := chi.URLParam(r, "key")
 
-		val, err := sessionsKV.Get(r.Context(), "logins."+scrtKey)
-		if err != nil {
-			if errors.Is(err, jetstream.ErrKeyNotFound) {
-				w.WriteHeader(http.StatusNotFound)
+			val, err := sessionsKV.Get(r.Context(), "logins."+scrtKey)
+			if err != nil {
+				if errors.Is(err, jetstream.ErrKeyNotFound) {
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
+				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		var playerInfo LoginKV
-		if err := json.Unmarshal(val.Value(), &playerInfo); err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
+			if err := json.Unmarshal(val.Value(), &playerInfo); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
 		}
 
 		var userId int64
