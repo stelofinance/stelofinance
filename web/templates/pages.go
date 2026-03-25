@@ -41,3 +41,20 @@ type PageAppAccountsAccount struct {
 	LedgerName string
 	DisplayQty string
 }
+
+type PageAppAccount struct {
+	OnlyRenderPage bool
+	AccountId      int64
+	Address        string
+	LedgerName     string
+	IsAdmin        bool
+	IsPrimary      bool
+	UserId         int64
+	Users          []PageAppAccountUser
+}
+
+type PageAppAccountUser struct {
+	UserId   int64
+	APId     int64
+	Username string
+}
