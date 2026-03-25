@@ -14,16 +14,15 @@ WHERE ap.account_id = sqlc.arg(account_id) AND u.bitcraft_username = sqlc.arg(bi
 
 -- name: GetUsersOnAccount :many
 SELECT
-	u.id AS user_id,
+	ap.id,
+	ap.user_id,
 	u.bitcraft_username,
 	ap.permissions
 FROM
 	account_permission AS ap
 JOIN
-	account AS a ON a.id = ap.account_id
-JOIN
 	"user" AS u ON ap.user_id = u.id
-WHERE a.address = sqlc.arg(account_addr);
+WHERE ap.account_id = sqlc.arg(account_id);
 
 -- name: InsertAccountPerm :one
 INSERT

@@ -46,3 +46,13 @@ const (
 	// PermRESERVED15
 	// PermRESERVED16
 )
+
+func (p Permission) HasPerms(perms ...Permission) bool {
+	for _, perm := range perms {
+		if perm&p != perm {
+			return false
+		}
+	}
+
+	return true
+}

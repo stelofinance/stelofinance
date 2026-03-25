@@ -1,0 +1,65 @@
+{{if not .PageData.OnlyRenderPage}}
+{{template "layouts/app" .}}
+{{end}}
+
+{{define "page-content"}}
+<main id="page-content" class="flex flex-col text-white px-2 py-4">
+	<h1 class="text-xl font-bold mt-2">Account</h1>
+	<nav class="text-xs">
+		<ol>
+			<li><a href="/app/accounts/{{.AccountId}}" class="underline">#{{.Address}}-{{.LedgerName}}</a></li>
+		</ol>
+	</nav>
+	{{if .IsAdmin}}
+	<h2 class="mt-4 text-lg">Primary</h2>
+	<p class="text-xs leading-none text-neutral-400">When funds are sent to your BitCraft username, the primary account for that asset is the one the funds go to.</p>
+	<div class="mt-2 text-sm bg-neutral-800 rounded grid grid-cols-2 max-w-64">
+		{{if .IsPrimary}}
+		<button disabled class="py-0.5 text-center bg-anakiwa-800 rounded">ENABLED</button>
+		<button class="py-0.5 text-center cursor-pointer"
+		        data-on:click="$primary = false; @put('/app/accounts/{{.AccountId}}/user-id')"
+		>DISABLED</button>
+		{{else}}
+		<button class="py-0.5 text-center cursor-pointer"
+		        data-on:click="$primary = true; @put('/app/accounts/{{.AccountId}}/user-id')"
+		>ENABLED</button>
+		<button disabled class="py-0.5 text-center bg-anakiwa-800 rounded">DISABLED</button>
+		{{end}}
+	</div>
+	{{end}}
+	{{if .IsAdmin}}
+	<h2 class="mt-4 text-lg">Permissions</h2>
+	<div class="mt-2 bg-neutral-800 rounded flex max-w-72">
+		<input type="text"
+		       style="display: none;"
+		       data-bind:add-username
+		       data-show="$addingUser"
+		>
+		<button class="w-full rounded bg-anakiwa-800 text-center"
+		        data-show="!$addingUser"
+		        data-on:click="$addingUser = true;"
+		>ADD USER</button>
+		<button class="w-full rounded bg-anakiwa-800 text-center"
+		        style="display: none;"
+		        data-show="$addingUser"
+		        data-on:click="@post('/app/accounts/{{.AccountId}}/users')"
+		>ADD</button>
+	</div>
+	{{range .Users}}
+	<div class="mt-2 bg-neutral-800 rounded flex flex-col py-1 px-2">
+		<div class="flex justify-between">
+			<p>{{.Username}}</p>
+			{{if ne .UserId $.UserId}}
+			<button class="text-red-600 cursor-pointer">remove</button>
+			{{end}}
+		</div>
+		<!-- TODO: Add in specific permissions here, and ability to update them -->
+	</div>
+	{{end}}
+	{{end}}
+</main>
+{{end}}
+
+{{if .PageData.OnlyRenderPage}}
+{{template "page-content" .PageData}}
+{{end}}

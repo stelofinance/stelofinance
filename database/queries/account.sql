@@ -46,12 +46,27 @@ INSERT
 -- name: GetAccountById :one
 SELECT * FROM account WHERE id = ?;
 
+-- name: GetAccountAndLedgerById :one
+SELECT
+    a.*,
+    l.name AS ledger_name,
+    l.asset_scale,
+    l.code AS ledger_code
+FROM account a
+JOIN ledger l ON l.id = a.ledger_id
+WHERE a.id = ?;
+
 -- name: GetAccountByAddrAndLedgerId :one
 SELECT * FROM account WHERE address = ? AND ledger_id = ?;
 
 -- name: UpdateAccountWebhookById :exec
 UPDATE account
 SET webhook = ?
+WHERE id = ?;
+
+-- name: UpdateAccountUserId :exec
+UPDATE account
+SET user_id = ?
 WHERE id = ?;
 
 -- name: GetAccountsUserHasPerms :many

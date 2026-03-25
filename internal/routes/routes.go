@@ -39,8 +39,13 @@ func AddRoutes(
 		mux.Use(midware.AuthUser(logger, sessionsKV, true))
 
 		mux.Handle("GET /", handlers.AppHome(tmpls, db))
+
 		mux.Handle("GET /accounts", handlers.AppAccounts(tmpls, db))
 		mux.Handle("POST /accounts", handlers.AppCreateAccount(tmpls, db))
+
+		mux.Handle("GET /accounts/{account_id}", handlers.AppAccount(tmpls, db))
+		mux.Handle("PUT /accounts/{account_id}/user-id", handlers.PutAccountUser(tmpls, db))
+		mux.Handle("POST /accounts/{account_id}/users", handlers.PostAccountUsers(tmpls, db))
 
 		// mux.Handle("GET /wallets", handlers.Wallets(tmpls, db))
 		// mux.Handle("POST /wallets", handlers.WalletsCreate(db))
