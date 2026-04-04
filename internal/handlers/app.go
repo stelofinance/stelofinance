@@ -3,14 +3,19 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
 	"strconv"
+	"time"
 
+	"github.com/dchest/uniuri"
 	"github.com/dustin/go-humanize"
 	"github.com/go-chi/chi/v5"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/starfederation/datastar-go/datastar"
 	"github.com/stelofinance/stelofinance/database"
 	"github.com/stelofinance/stelofinance/database/gensql"
@@ -159,7 +164,7 @@ func AppCreateAccount(tmpls *templates.Tmpls, db *database.Database) http.Handle
 	}
 }
 
-func loadAppAccountPageData(ctx context.Context, db *database.Database, uData *sessions.UserData, accId int64, onlyPage bool) (templates.LayoutApp, error) {
+func loadAppAccountPageData(ctx context.Context, db *database.Database, sessionsKV jetstream.KeyValue, uData *sessions.UserData, accId int64, onlyPage bool) (templates.LayoutApp, error) {
 	acc, err := db.Q.GetAccountAndLedgerById(ctx, accId)
 	if err != nil {
 		return templates.LayoutApp{}, err
@@ -188,6 +193,18 @@ func loadAppAccountPageData(ctx context.Context, db *database.Database, uData *s
 		isPrimary = true
 	}
 
+	// Count tokens
+	keyLstnr, err := sessionsKV.ListKeysFiltered(ctx, "accounts."+strconv.Itoa(int(accId))+".sessions.*")
+	if err != nil {
+		return templates.LayoutApp{}, err
+	}
+	defer keyLstnr.Stop()
+	tknQty := 0
+
+	for range keyLstnr.Keys() {
+		tknQty++
+	}
+
 	return templates.LayoutApp{
 		Title:       fmt.Sprintf("#%s / %s", acc.Address, acc.LedgerName),
 		Description: "Account configuration",
@@ -206,11 +223,12 @@ func loadAppAccountPageData(ctx context.Context, db *database.Database, uData *s
 			IsPrimary:      isPrimary,
 			UserId:         uData.Id,
 			Users:          users,
+			TotalTokens:    tknQty,
 		},
 	}, nil
 }
 
-func AppAccount(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
+func AppAccount(tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstream.KeyValue) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uData := sessions.GetUser(r.Context())
 		accIdStr := chi.URLParam(r, "account_id")
@@ -223,6 +241,7 @@ func AppAccount(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc 
 		tmplData, err := loadAppAccountPageData(
 			r.Context(),
 			db,
+			sessionsKV,
 			uData,
 			int64(accId),
 			false,
@@ -240,7 +259,7 @@ func AppAccount(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc 
 	}
 }
 
-func PutAccountUser(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
+func PutAccountUser(tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstream.KeyValue) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uData := sessions.GetUser(r.Context())
 		accIdStr := chi.URLParam(r, "account_id")
@@ -290,6 +309,7 @@ func PutAccountUser(tmpls *templates.Tmpls, db *database.Database) http.HandlerF
 		tmplData, err := loadAppAccountPageData(
 			r.Context(),
 			db,
+			sessionsKV,
 			uData,
 			int64(accId),
 			true,
@@ -309,11 +329,10 @@ func PutAccountUser(tmpls *templates.Tmpls, db *database.Database) http.HandlerF
 	}
 }
 
-func PostAccountUsers(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
+func PostAccountUser(tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstream.KeyValue) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uData := sessions.GetUser(r.Context())
-		accIdStr := chi.URLParam(r, "account_id")
-		accId, err := strconv.Atoi(accIdStr)
+		accId, err := strconv.Atoi(chi.URLParam(r, "account_id"))
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			return
@@ -328,7 +347,7 @@ func PostAccountUsers(tmpls *templates.Tmpls, db *database.Database) http.Handle
 			return
 		}
 
-		// Update primary user
+		// setup qtx
 		qtx, err := db.QTx(r.Context(), database.WithForeignKeys)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -336,16 +355,27 @@ func PostAccountUsers(tmpls *templates.Tmpls, db *database.Database) http.Handle
 		}
 		defer qtx.Cleanup()
 
-		// TODO: query the userid from the username, then add perms
-		// and merge in new html
+		// Query the userid from username, then add perms
+		usr, err := qtx.Q().GetUserByUsername(r.Context(), body.Username)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				// TODO: Update page with not found error
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 
-		// qtx.Q().InsertAccountPerm(r.Context(), gensql.InsertAccountPermParams{
-		// 	AccountID:   int64(accId),
-		// 	UserID:      u,
-		// 	Permissions: int64(accounts.PermAdmin),
-		// 	UpdatedAt:   ,
-		// 	CreatedAt:   time.Time{},
-		// })
+		now := time.Now()
+
+		qtx.Q().InsertAccountPerm(r.Context(), gensql.InsertAccountPermParams{
+			AccountID:   int64(accId),
+			UserID:      usr.ID,
+			Permissions: int64(accounts.PermAdmin),
+			UpdatedAt:   now,
+			CreatedAt:   now,
+		})
 
 		qtx.Commit()
 
@@ -353,6 +383,7 @@ func PostAccountUsers(tmpls *templates.Tmpls, db *database.Database) http.Handle
 		tmplData, err := loadAppAccountPageData(
 			r.Context(),
 			db,
+			sessionsKV,
 			uData,
 			int64(accId),
 			true,
@@ -362,6 +393,122 @@ func PostAccountUsers(tmpls *templates.Tmpls, db *database.Database) http.Handle
 			return
 		}
 		sse := datastar.NewSSE(w, r)
+
+		buff := new(bytes.Buffer)
+		err = tmpls.ExecuteTemplate(buff, "pages/app-account", tmplData)
+		if err != nil {
+			panic(err)
+		}
+		sse.PatchElements(buff.String())
+	}
+}
+
+func DeleteAccountUser(tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstream.KeyValue) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uData := sessions.GetUser(r.Context())
+		accId, err := strconv.Atoi(chi.URLParam(r, "account_id"))
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		userId, err := strconv.Atoi(chi.URLParam(r, "user_id"))
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		// setup qtx
+		qtx, err := db.QTx(r.Context(), database.WithForeignKeys)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		defer qtx.Cleanup()
+
+		// Remove user's perms from account
+		err = qtx.Q().DeleteAccountPerm(r.Context(), gensql.DeleteAccountPermParams{
+			AccountID: int64(accId),
+			UserID:    int64(userId),
+		})
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		qtx.Commit()
+
+		// Update page
+		tmplData, err := loadAppAccountPageData(
+			r.Context(),
+			db,
+			sessionsKV,
+			uData,
+			int64(accId),
+			true,
+		)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		sse := datastar.NewSSE(w, r)
+
+		buff := new(bytes.Buffer)
+		err = tmpls.ExecuteTemplate(buff, "pages/app-account", tmplData)
+		if err != nil {
+			panic(err)
+		}
+		sse.PatchElements(buff.String())
+	}
+}
+
+func PostAccountToken(tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstream.KeyValue) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uData := sessions.GetUser(r.Context())
+		accId, err := strconv.Atoi(chi.URLParam(r, "account_id"))
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		// Create token
+		sid := uniuri.NewLen(27)
+		sData := sessions.AccountData{
+			Id: int64(accId),
+		}
+		bitties, err := json.Marshal(sData)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, err = sessionsKV.Create(r.Context(), "accounts."+strconv.Itoa(accId)+".sessions."+sid, bitties)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		// Update page
+		tmplData, err := loadAppAccountPageData(
+			r.Context(),
+			db,
+			sessionsKV,
+			uData,
+			int64(accId),
+			true,
+		)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		sse := datastar.NewSSE(w, r)
+
+		// Add token data
+		pageData, ok := tmplData.PageData.(templates.PageAppAccount)
+		if !ok {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		pageData.Token = "stla_" + sid
+		tmplData.PageData = pageData
 
 		buff := new(bytes.Buffer)
 		err = tmpls.ExecuteTemplate(buff, "pages/app-account", tmplData)

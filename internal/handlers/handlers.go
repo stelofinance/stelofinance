@@ -122,6 +122,7 @@ func Login(tmpls *templates.Tmpls, nc *nats.Conn) http.HandlerFunc {
 			sse.Redirect("/auth/" + string(msg.Data))
 		} else {
 			tmplData := templates.DefaultLayoutPrimary
+			tmplData.PageData = templates.PageLogin{}
 
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			err := tmpls.ExecuteTemplate(w, "pages/login", tmplData)

@@ -9,7 +9,7 @@
 		<style>{{ `tw-output.css` | raw_asset_string "CSS" }}</style>
 		<script type="module" src="{{ `/assets/datastar-1-0-0-rc-8.js` | hash_asset_path }}"></script>
 	</head>
-	<body class="bg-neutral-900 font-source-code-pro pb-12">
+	<body class="bg-neutral-900 font-source-code-pro pb-14">
 		{{template "components/app-nav" .NavData}}
 		<div class="max-w-screen-md mx-auto">
 			{{block "page-content" .PageData}}

@@ -31,6 +31,10 @@ INSERT
 RETURNING id;
 
 -- name: DeleteAccountPerm :exec
+DELETE FROM account_permission
+WHERE account_id = sqlc.arg(account_id) AND user_id = sqlc.arg(user_id);
+
+-- name: DeleteAccountPermOLD :exec
 DELETE FROM account_permission AS ap
 WHERE ap.account_id = sqlc.arg(account_id) AND user_id IN (
 	SELECT id AS user_id

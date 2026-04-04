@@ -51,6 +51,8 @@ type PageAppAccount struct {
 	IsPrimary      bool
 	UserId         int64
 	Users          []PageAppAccountUser
+	TotalTokens    int
+	Token          string
 }
 
 type PageAppAccountUser struct {

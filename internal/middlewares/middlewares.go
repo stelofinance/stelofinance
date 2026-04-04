@@ -131,7 +131,7 @@ func AuthAccountToken(sessionsKV jetstream.KeyValue) func(http.Handler) http.Han
 			tType := split[0]
 			tVal := split[1]
 
-			if tType != "stlw" {
+			if tType != "stla" {
 				w.WriteHeader(http.StatusForbidden)
 				return
 			}
