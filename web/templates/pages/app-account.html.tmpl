@@ -27,6 +27,7 @@
 		{{end}}
 	</div>
 	{{end}}
+	
 	{{if .IsAdmin}}
 	<h2 class="mt-4 text-lg">Permissions</h2>
 	<div class="mt-2 bg-neutral-800 rounded flex max-w-72">
@@ -50,12 +51,34 @@
 		<div class="flex justify-between">
 			<p>{{.Username}}</p>
 			{{if ne .UserId $.UserId}}
-			<button class="text-red-600 cursor-pointer">remove</button>
+			<button class="text-red-600 cursor-pointer"
+			        data-on:click="@delete('/app/accounts/{{$.AccountId}}/users/{{.UserId}}')"
+			>remove</button>
 			{{end}}
 		</div>
 		<!-- TODO: Add in specific permissions here, and ability to update them -->
 	</div>
 	{{end}}
+	{{end}}
+	
+	{{if .IsAdmin}}
+	<h2 class="mt-4 text-lg">Tokens</h2>
+	<p class="text-xs leading-none text-neutral-400">These are tokens that can be used to access this account via the API</p>
+	{{if gt .TotalTokens 0}}
+	<div class="flex justify-between bg-neutral-800 rounded mt-2 pt-0.5 pb-1 px-2">
+		<p>Total Tokens: {{.TotalTokens}}</p>
+		<button class="text-red-600 underline">Revoke All</button>
+	</div>
+	{{end}}
+	{{if .Token}}
+	<div class="mt-2 flex flex-col bg-neutral-800 rounded px-2 pt-1.5 pb-2 overflow-auto">
+		<p class="">{{.Token}}</p>
+		<p class="text-sm text-neutral-400">Save this token! It won't be shown again.</p>
+	</div>
+	{{end}}
+	<button class="w-full rounded bg-neutral-800 mt-4 pb-0.5 cursor-pointer"
+	        data-on:click="@post('/app/accounts/{{$.AccountId}}/tokens')"
+	>Create</button>
 	{{end}}
 </main>
 {{end}}

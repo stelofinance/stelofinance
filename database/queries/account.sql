@@ -7,16 +7,17 @@ UPDATE account
     WHERE id = sqlc.arg(account_id);
 
 -- name: UpdateAccountBalance :exec
+-- SQLC doesn't recognize @field in the CASE, so I manually made it ?1 to match
 UPDATE account
 SET 
-    debits_posted = CASE WHEN CAST(sqlc.arg(field) AS TEXT) = 'debits_posted' THEN debits_posted + sqlc.arg(quantity) ELSE debits_posted END,
-    debits_pending = CASE WHEN sqlc.arg(field) = 'debits_pending' THEN debits_pending + sqlc.arg(quantity) ELSE debits_pending END,
-    credits_posted = CASE WHEN sqlc.arg(field) = 'credits_posted' THEN credits_posted + sqlc.arg(quantity) ELSE credits_posted END,
-    credits_pending = CASE WHEN sqlc.arg(field) = 'credits_pending' THEN credits_pending + sqlc.arg(quantity) ELSE credits_pending END
-WHERE id = sqlc.arg(id)
+    debits_posted = CASE WHEN CAST(@field AS TEXT) = 'debits_posted' THEN debits_posted + @quantity ELSE debits_posted END,
+    debits_pending = CASE WHEN @field = 'debits_pending' THEN debits_pending + @quantity ELSE debits_pending END,
+    credits_posted = CASE WHEN @field = 'credits_posted' THEN credits_posted + @quantity ELSE credits_posted END,
+    credits_pending = CASE WHEN @field = 'credits_pending' THEN credits_pending + @quantity ELSE credits_pending END
+WHERE id = @id
 AND CASE
-    WHEN (code BETWEEN 100 AND 199) AND sqlc.arg(field) IN ('credits_posted', 'credits_pending') THEN (debits_posted >= credits_pending + credits_posted + sqlc.arg(quantity))
-    WHEN (code BETWEEN 0 AND 99) AND sqlc.arg(field) IN ('debits_posted', 'debits_pending') THEN (credits_posted >= debits_pending + debits_posted + sqlc.arg(quantity))
+    WHEN (code BETWEEN 100 AND 199) AND ?1 IN ('credits_posted', 'credits_pending') THEN (debits_posted >= credits_pending + credits_posted + @quantity)
+    WHEN (code BETWEEN 0 AND 99) AND ?1 IN ('debits_posted', 'debits_pending') THEN (credits_posted >= debits_pending + debits_posted + @quantity)
     ELSE TRUE
 END;
 
