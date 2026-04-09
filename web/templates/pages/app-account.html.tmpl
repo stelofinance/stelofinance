@@ -67,7 +67,7 @@
 	{{if gt .TotalTokens 0}}
 	<div class="flex justify-between bg-neutral-800 rounded mt-2 pt-0.5 pb-1 px-2">
 		<p>Total Tokens: {{.TotalTokens}}</p>
-		<button class="text-red-600 underline">Revoke All</button>
+		<button class="text-red-600 underline cursor-pointer" data-on:click="@delete('/app/accounts/{{.AccountId}}/tokens')">Revoke All</button>
 	</div>
 	{{end}}
 	{{if .Token}}
@@ -77,7 +77,7 @@
 	</div>
 	{{end}}
 	<button class="w-full rounded bg-neutral-800 mt-4 pb-0.5 cursor-pointer"
-	        data-on:click="@post('/app/accounts/{{$.AccountId}}/tokens')"
+	        data-on:click="@post('/app/accounts/{{.AccountId}}/tokens')"
 	>Create</button>
 	{{end}}
 </main>

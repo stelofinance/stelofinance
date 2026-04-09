@@ -109,14 +109,10 @@ func CreateTransfer(ctx context.Context, q *gensql.Queries, nc *nats.Conn, input
 	now := time.Now()
 
 	// Update account balances
-	suffix := "_posted"
-	// if TrFlagPending&input.Flags == TrFlagPending {
-	// 	suffix = "_pending"
-	// }
+	// TODO: implement pending if needed
 
 	// Debit the debit account
-	err = q.UpdateAccountBalance(ctx, gensql.UpdateAccountBalanceParams{
-		Field:    "debits" + suffix,
+	err = q.UpdateDebitsPosted(ctx, gensql.UpdateDebitsPostedParams{
 		Quantity: input.Amount,
 		ID:       debitId,
 	})
@@ -128,8 +124,7 @@ func CreateTransfer(ctx context.Context, q *gensql.Queries, nc *nats.Conn, input
 		}
 	}
 	// Credit the credit account
-	err = q.UpdateAccountBalance(ctx, gensql.UpdateAccountBalanceParams{
-		Field:    "credits" + suffix,
+	err = q.UpdateCreditsPosted(ctx, gensql.UpdateCreditsPostedParams{
 		Quantity: input.Amount,
 		ID:       creditId,
 	})

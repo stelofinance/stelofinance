@@ -49,6 +49,7 @@ func AddRoutes(
 		mux.With(midware.AuthUserAccount(db, accounts.PermAdmin)).Handle("POST /accounts/{account_id}/users", handlers.PostAccountUser(tmpls, db, sessionsKV))
 		mux.With(midware.AuthUserAccount(db, accounts.PermAdmin)).Handle("DELETE /accounts/{account_id}/users/{user_id}", handlers.DeleteAccountUser(tmpls, db, sessionsKV))
 		mux.With(midware.AuthUserAccount(db, accounts.PermAdmin)).Handle("POST /accounts/{account_id}/tokens", handlers.PostAccountToken(tmpls, db, sessionsKV))
+		mux.With(midware.AuthUserAccount(db, accounts.PermAdmin)).Handle("DELETE /accounts/{account_id}/tokens", handlers.DeleteAccountTokens(tmpls, db, sessionsKV))
 
 		// mux.Handle("GET /wallets", handlers.Wallets(tmpls, db))
 		// mux.Handle("POST /wallets", handlers.WalletsCreate(db))
