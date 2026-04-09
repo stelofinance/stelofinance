@@ -21,6 +21,42 @@ AND CASE
     ELSE TRUE
 END;
 
+-- name: UpdateDebitsPosted :exec
+UPDATE account
+SET debits_posted = debits_posted + @quantity
+WHERE id = @id
+AND CASE
+    WHEN code BETWEEN 0 AND 99 THEN credits_posted >= debits_pending + debits_posted + @quantity
+    ELSE TRUE
+END;
+
+-- name: UpdateDebitsPending :exec
+UPDATE account
+SET debits_pending = debits_pending + @quantity
+WHERE id = @id
+AND CASE
+    WHEN code BETWEEN 0 AND 99 THEN credits_posted >= debits_pending + debits_posted + @quantity
+    ELSE TRUE
+END;
+
+-- name: UpdateCreditsPosted :exec
+UPDATE account
+SET credits_posted = credits_posted + @quantity
+WHERE id = @id
+AND CASE
+    WHEN code BETWEEN 100 AND 199 THEN debits_posted >= credits_pending + credits_posted + @quantity
+    ELSE TRUE
+END;
+
+-- name: UpdateCreditsPending :exec
+UPDATE account
+SET credits_pending = credits_pending + @quantity
+WHERE id = @id
+AND CASE
+    WHEN code BETWEEN 100 AND 199 THEN debits_posted >= credits_pending + credits_posted + @quantity
+    ELSE TRUE
+END;
+
 -- name: InsertAccount :one
 INSERT
     INTO account (address, webhook, user_id, debits_pending, debits_posted, credits_pending, credits_posted, ledger_id, code, flags, created_at)

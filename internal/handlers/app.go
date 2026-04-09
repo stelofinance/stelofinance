@@ -518,3 +518,47 @@ func PostAccountToken(tmpls *templates.Tmpls, db *database.Database, sessionsKV 
 		sse.PatchElements(buff.String())
 	}
 }
+
+func DeleteAccountTokens(tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstream.KeyValue) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uData := sessions.GetUser(r.Context())
+		accId, err := strconv.Atoi(chi.URLParam(r, "account_id"))
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		// Delete all tokens
+		keyLstnr, err := sessionsKV.ListKeysFiltered(r.Context(), "accounts."+strconv.Itoa(int(accId))+".sessions.*")
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		defer keyLstnr.Stop()
+		for key := range keyLstnr.Keys() {
+			sessionsKV.Delete(r.Context(), key)
+		}
+
+		// Update page
+		tmplData, err := loadAppAccountPageData(
+			r.Context(),
+			db,
+			sessionsKV,
+			uData,
+			int64(accId),
+			true,
+		)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		sse := datastar.NewSSE(w, r)
+
+		buff := new(bytes.Buffer)
+		err = tmpls.ExecuteTemplate(buff, "pages/app-account", tmplData)
+		if err != nil {
+			panic(err)
+		}
+		sse.PatchElements(buff.String())
+	}
+}
