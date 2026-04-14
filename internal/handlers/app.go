@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -560,5 +561,149 @@ func DeleteAccountTokens(tmpls *templates.Tmpls, db *database.Database, sessions
 			panic(err)
 		}
 		sse.PatchElements(buff.String())
+	}
+}
+
+func derefOrFallback[T any](ref *T, fallback T) T {
+	if ref != nil {
+		return *ref
+	}
+	return fallback
+}
+
+func AppTransfers(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		type input struct {
+			AccountId *int64 `json:"accId"`
+		}
+		var ds input
+		if r.URL.Query().Has("datastar") {
+			err := json.Unmarshal([]byte(r.URL.Query().Get("datastar")), &ds)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+		}
+
+		uData := sessions.GetUser(r.Context())
+
+		// Fetch data
+		accsResult, err := db.Q.GetAccountsUserHasPerms(r.Context(), uData.Id)
+		if err != nil {
+
+		}
+		// If there is ds input, filter by that
+		var accId *int64
+		if ds.AccountId != nil && *ds.AccountId != -1 {
+			accId = ds.AccountId
+		}
+		transferResult, err := db.Q.GetTransfersUserHasPermsOn(r.Context(), gensql.GetTransfersUserHasPermsOnParams{
+			UserID:    uData.Id,
+			AccountID: accId,
+		})
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		pageData := templates.PageAppTransfers{}
+		pageData.SelectedAccountId = strconv.Itoa(int(accsResult[0].ID))
+
+		// Transform data
+		pageData.Accounts = make([]templates.PageAppTransfersAccount, 0, len(accsResult))
+		for _, acc := range accsResult {
+			pageData.Accounts = append(pageData.Accounts, templates.PageAppTransfersAccount{
+				Id:    strconv.Itoa(int(acc.ID)),
+				Label: "#" + acc.Address + "/" + acc.LedgerName,
+			})
+		}
+		existingTransfers := make(map[int64]struct{})
+		pageData.Transfers = make([]templates.PageAppTransfersTransfer, 0, len(transferResult))
+		for _, trn := range transferResult {
+			data := templates.PageAppTransfersTransfer{
+				Id:          trn.ID,
+				Received:    false,
+				DisplayTime: "",
+				From:        "",
+				To:          "",
+				QtyFmtd:     "",
+				LedgerName:  trn.LedgerName,
+				Memo:        "",
+			}
+
+			_, bothWays := existingTransfers[trn.ID]
+			senderId, receiverId := accounts.DetermineSenderReceiver(accounts.TrCode(trn.Code), trn.CreditAccountID, trn.DebitAccountID)
+			// If we're filtering by account (via DS), then we shouldn't have both ways,
+			// so filter out whichever side this account wasn't on
+			if bothWays && ds.AccountId != nil && *ds.AccountId != -1 {
+				oldLen := len(pageData.Transfers)
+				newTransfers := slices.DeleteFunc(pageData.Transfers, func(t templates.PageAppTransfersTransfer) bool {
+					return t.Received == (senderId == *ds.AccountId) && t.Id == trn.ID
+				})
+				if len(newTransfers) == oldLen {
+					continue
+				}
+				pageData.Transfers = newTransfers
+			}
+
+			if !bothWays {
+				data.Received = slices.ContainsFunc(accsResult, func(a gensql.GetAccountsUserHasPermsRow) bool {
+					return a.ID == receiverId
+				})
+			}
+
+			data.DisplayTime = humanize.RelTime(time.Now(), trn.CreatedAt, "N/A", "ago")
+
+			if senderId == trn.CreditAccountID {
+				data.From = derefOrFallback(trn.CreditUsername, "#"+trn.CreditAddr)
+				if !data.Received && !bothWays {
+					data.To = derefOrFallback(trn.DebitUsername, "#"+trn.DebitAddr)
+				} else {
+					data.To = "#" + trn.DebitAddr
+				}
+			} else {
+				data.From = derefOrFallback(trn.DebitUsername, "#"+trn.DebitAddr)
+				data.To = derefOrFallback(trn.CreditUsername, "#"+trn.CreditAddr)
+			}
+
+			data.QtyFmtd = humanize.Commaf(float64(trn.Amount) / math.Pow(10, float64(trn.AssetScale)))
+
+			if trn.Memo != nil {
+				data.Memo = *trn.Memo
+			}
+			pageData.Transfers = append(pageData.Transfers, data)
+			existingTransfers[trn.ID] = struct{}{}
+		}
+
+		tmplData := templates.LayoutApp{
+			Title:       "Transfers",
+			Description: "All transfers on your accounts or selected account",
+			NavData: templates.ComponentAppNav{
+				Username: uData.BitCraftUsername,
+			},
+			MenuData: templates.ComponentAppMenu{
+				ActivePage: "transfers",
+			},
+			PageData: pageData,
+		}
+
+		if ds.AccountId != nil {
+			pageData.OnlyRenderPage = true
+			tmplData.PageData = pageData
+			sse := datastar.NewSSE(w, r)
+
+			buff := new(bytes.Buffer)
+			err = tmpls.ExecuteTemplate(buff, "pages/app-transfers", tmplData)
+			if err != nil {
+				panic(err)
+			}
+			sse.PatchElements(buff.String())
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		err = tmpls.ExecuteTemplate(w, "pages/app-transfers", tmplData)
+		if err != nil {
+			panic(err)
+		}
 	}
 }

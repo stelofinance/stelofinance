@@ -235,3 +235,15 @@ func determineCreditorDebitor(trC TrCode, sendingId, receivingId int64) (creditI
 		return sendingId, receivingId
 	}
 }
+
+func DetermineSenderReceiver(trC TrCode, creditorId, debitorId int64) (senderId, receiverId int64) {
+	switch trC {
+	case TrLiability:
+		return debitorId, creditorId
+	case TrAsset, TrIssue, TrRedeem:
+		return creditorId, debitorId
+	default:
+		// TODO: Should this be handled?
+		return creditorId, debitorId
+	}
+}
