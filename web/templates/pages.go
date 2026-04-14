@@ -60,3 +60,26 @@ type PageAppAccountUser struct {
 	APId     int64
 	Username string
 }
+
+type PageAppTransfers struct {
+	OnlyRenderPage    bool
+	SelectedAccountId string
+	Accounts          []PageAppTransfersAccount
+	Transfers         []PageAppTransfersTransfer
+}
+
+type PageAppTransfersAccount struct {
+	Id    string
+	Label string
+}
+
+type PageAppTransfersTransfer struct {
+	Id          int64
+	Received    bool
+	DisplayTime string
+	From        string
+	To          string
+	QtyFmtd     string
+	LedgerName  string
+	Memo        string
+}

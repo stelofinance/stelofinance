@@ -1,0 +1,45 @@
+{{if not .PageData.OnlyRenderPage}}
+{{template "layouts/app" .}}
+{{end}}
+
+{{define "page-content"}}
+<main id="page-content" class="flex flex-col text-white px-2 py-4">
+	<label class="">
+		<span class="text-sm text-neutral-300">Selected Account</span>
+		<select data-signals:acc-id="-1" data-bind:acc-id data-on:change="@get('/app/transfers')" class="bg-neutral-800 rounded w-full px-2 pt-0.5 pb-1 text-lg" name="account">
+			<option value="-1" selected>All Accounts</option>
+			{{range .Accounts}}
+			<option value="{{.Id}}">{{.Label}}</option>
+			{{end}}
+		</select>
+	</label>
+	<!-- TODO: Add in transfer section -->
+	<h2 class="mt-4 text-lg">Transfers</h2>
+	{{range .Transfers}}
+	<div class="flex flex-col bg-neutral-800 rounded mb-2 px-2 py-0.5">
+		<div class="flex justify-between text-xs">
+			{{if .Received}}
+			<p class="text-anakiwa">-&gt; received</p>
+			{{else}}
+			<p class="text-melrose">&lt;- sent</p>
+			{{end}}
+			<p class="text-neutral-300">{{.DisplayTime}}</p>
+		</div>
+
+		<div class="mt-1 flex justify-between">
+			<p class="">{{.From}}{{if .To}} -&gt; {{.To}}{{end}}</p>
+			<p class="text-lg">{{.QtyFmtd}}<span class="text-base">{{.LedgerName}}</span></p>
+		</div>
+
+		{{if .Memo}}
+		<hr class="my-0.5">
+		<p class="text-sm text-neutral-300">{{.Memo}}</p>
+		{{end}}
+	</div>
+	{{end}}
+</main>
+{{end}}
+
+{{if .PageData.OnlyRenderPage}}
+{{template "page-content" .PageData}}
+{{end}}
