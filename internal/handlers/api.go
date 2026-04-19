@@ -18,6 +18,39 @@ import (
 	"github.com/stelofinance/stelofinance/internal/sessions"
 )
 
+func CreateLedger(db *database.Database) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		type Input struct {
+			Name  string `json:"name" validate:"required"`
+			Scale int64  `json:"scale" validate:"min=0"`
+			Code  int64  `json:"code" validate:"min=0"`
+		}
+		var body Input
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if err := validate.Struct(body); err != nil {
+			fmt.Println(err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		// TODO: Actually validate ledger codes
+
+		_, err := db.Q.InsertLedger(r.Context(), gensql.InsertLedgerParams{
+			Name:       body.Name,
+			AssetScale: body.Scale,
+			Code:       body.Code,
+		})
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusCreated)
+	}
+}
 func Ledgers(db *database.Database) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ldgrs, err := db.Q.GetAllLedgers(r.Context())
@@ -208,7 +241,7 @@ func Transfer(db *database.Database) http.HandlerFunc {
 		}
 
 		// Don't allow reading other's transfer(s)
-		if tr.CreditAccountID != accData.Id || tr.DebitAccountID != accData.Id {
+		if tr.CreditAccountID != accData.Id && tr.DebitAccountID != accData.Id {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
