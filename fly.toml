@@ -8,9 +8,9 @@ primary_region = "iad"
 	PORT = "8080"
 	ENV = "prod"
 	JS_DIR = "/data/nats"
-	TURSO_FILE = "/data/prod.db"
+	TURSO_FILE = "/data/prod2.db"
 	GOOSE_DRIVER = "sqlite3"
-	GOOSE_DBSTRING = "/data/prod.db"
+	GOOSE_DBSTRING = "/data/prod2.db"
 
 [mounts]
 	source = "data"
