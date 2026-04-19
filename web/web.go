@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -110,6 +111,36 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 	if err != nil {
 		return err
 	}
+
+	go func() {
+		for {
+			time.Sleep(time.Second * 15)
+			entries, err := os.ReadDir("data")
+			if err != nil {
+				lgr.Log(logger.Log{
+					Message: "Error reading dir, lol",
+					Data: map[string]any{
+						"error": err.Error(),
+					},
+					Level: logger.WarnLevel,
+				})
+				log.Println(err.Error())
+			}
+
+			strs := make([]string, 0)
+			for _, e := range entries {
+				strs = append(strs, e.Name())
+			}
+
+			lgr.Log(logger.Log{
+				Message: "Here are the files",
+				Data: map[string]any{
+					"files": strs,
+				},
+				Level: logger.WarnLevel,
+			})
+		}
+	}()
 
 	// Connect up turso db and create db struct
 	dbConn, err := sql.Open("turso", getenv("TURSO_FILE"))

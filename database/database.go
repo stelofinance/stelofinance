@@ -117,5 +117,5 @@ func RunMigrations(ctx context.Context, getenv func(string) string) error {
 		return err
 	}
 
-	return nil
+	return dbConn.Close()
 }
