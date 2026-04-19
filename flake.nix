@@ -18,7 +18,7 @@
         nativeBuildInputs = with pkgs; [ sqlc tailwindcss_4 ];
 
         env.CGO_ENABLED = 0;
-        vendorHash = "sha256-wQDNg+TUmcc88y9uRhWQD02YYq9cJdVun2simU/r9dU=";
+        vendorHash = "sha256-PR5JG4OTXYmhqlyXLkJclE2zAGDbHVOtfCgyvnbzZxg=";
 
         postPatch = ''
           tailwindcss -i web/styles/tw-input.css -o web/static/tw-output.css --minify
@@ -34,7 +34,7 @@
         nativeBuildInputs = [ pkgs.sqlc ];
 
         env.CGO_ENABLED = 0;
-        vendorHash = "sha256-wQDNg+TUmcc88y9uRhWQD02YYq9cJdVun2simU/r9dU=";
+        vendorHash = "sha256-PR5JG4OTXYmhqlyXLkJclE2zAGDbHVOtfCgyvnbzZxg=";
 
         postPatch = ''
           sqlc generate

@@ -8,7 +8,8 @@ import (
 
 	"github.com/pressly/goose/v3"
 	"github.com/stelofinance/stelofinance/database/gensql"
-	_ "turso.tech/database/tursogo"
+	// _ "turso.tech/database/tursogo"
+	_ "modernc.org/sqlite"
 )
 
 type Database struct {
@@ -102,7 +103,7 @@ var embeddedMigrations embed.FS
 
 func RunMigrations(ctx context.Context, getenv func(string) string) error {
 	// Connect up DB
-	dbConn, err := sql.Open("turso", getenv("GOOSE_DBSTRING"))
+	dbConn, err := sql.Open("sqlite", getenv("GOOSE_DBSTRING"))
 	if err != nil {
 		return err
 	}

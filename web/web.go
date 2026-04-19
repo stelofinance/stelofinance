@@ -37,7 +37,8 @@ import (
 	"github.com/stelofinance/stelofinance/internal/logger"
 	"github.com/stelofinance/stelofinance/internal/routes"
 	"github.com/stelofinance/stelofinance/web/templates"
-	_ "turso.tech/database/tursogo"
+	// _ "turso.tech/database/tursogo"
+	_ "modernc.org/sqlite"
 )
 
 //go:embed templates/*/*.html.tmpl
@@ -224,7 +225,7 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 	}()
 
 	// Connect up turso db and create db struct
-	dbConn, err := sql.Open("turso", getenv("TURSO_FILE"))
+	dbConn, err := sql.Open("sqlite", getenv("TURSO_FILE"))
 	if err != nil {
 		return err
 	}
