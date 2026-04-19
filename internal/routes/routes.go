@@ -116,6 +116,7 @@ func AddRoutes(
 	// API related routes
 	mux.Route("/api", func(mux chi.Router) {
 		mux.Handle("GET /ledgers", handlers.Ledgers(db))
+		mux.With(midware.AuthAdmin(getenv)).Handle("POST /ledgers", handlers.CreateLedger(db))
 
 		// Simple no-auth ping route
 		mux.Handle("GET /ping", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
