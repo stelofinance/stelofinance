@@ -27,3 +27,4 @@ The required ENV secrets are stored in `.env` at the project root, and are as fo
 - `GOOSE_DBSTRING`: DB connection URI string (ex `./tmp/dev.db`)
 - `GOOSE_MIGRATION_DIR`: "./database/migrations"
 - `TURSO_FILE`: Same as `GOOSE_DBSTRING`, the DB file location
+- `ADMIN_KEY`: This is an admin key that can be used to make admin API requests
