@@ -105,6 +105,12 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 		return err
 	}
 
+	// Run migrations
+	err = database.RunMigrations(ctx, getenv)
+	if err != nil {
+		return err
+	}
+
 	// Connect up turso db and create db struct
 	dbConn, err := sql.Open("turso", getenv("TURSO_FILE"))
 	if err != nil {

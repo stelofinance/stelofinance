@@ -12,8 +12,8 @@ primary_region = "iad"
 	GOOSE_DRIVER = "sqlite3"
 	GOOSE_DBSTRING = "db/prod.db"
 
-[deploy]
-	release_command = "/bin/migrate"
+	# [deploy]
+	# 	release_command = "/bin/migrate"
 
 [[mounts]]
 	source = "nats"
