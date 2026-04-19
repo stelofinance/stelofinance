@@ -11,11 +11,13 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/dchest/uniuri"
 	"github.com/dustin/go-humanize"
 	"github.com/go-chi/chi/v5"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/starfederation/datastar-go/datastar"
 	"github.com/stelofinance/stelofinance/database"
@@ -590,7 +592,7 @@ func AppTransfers(tmpls *templates.Tmpls, db *database.Database) http.HandlerFun
 		// Fetch data
 		accsResult, err := db.Q.GetAccountsUserHasPerms(r.Context(), uData.Id)
 		if err != nil {
-
+			// TODO
 		}
 		// If there is ds input, filter by that
 		var accId *int64
@@ -602,17 +604,36 @@ func AppTransfers(tmpls *templates.Tmpls, db *database.Database) http.HandlerFun
 			AccountID: accId,
 		})
 		if err != nil {
-			fmt.Println(err)
+			// TODO
 		}
 
 		pageData := templates.PageAppTransfers{}
-		pageData.SelectedAccountId = strconv.Itoa(int(accsResult[0].ID))
+		if ds.AccountId == nil || *ds.AccountId == -1 {
+			pageData.SelectedAccount.Id = -1
+		} else {
+			// Get all the account info
+			pageData.SelectedAccount.Id = *ds.AccountId
+			accResult, err := db.Q.GetAccountAndLedgerById(r.Context(), *ds.AccountId)
+			if err != nil {
+				// TODO
+			}
+			pageData.SelectedAccount.LedgerName = accResult.LedgerName
+			var bal int64 = 0
+			if accounts.AccountCode(accResult.Code).IsDebit() {
+				bal = accResult.DebitsPosted - accResult.CreditsPosted - accResult.CreditsPending
+			} else {
+				bal = accResult.CreditsPosted - accResult.DebitsPosted - accResult.DebitsPending
+
+			}
+			pageData.SelectedAccount.Balance = float64(bal) / math.Pow(10, float64(accResult.AssetScale))
+			pageData.SelectedAccount.Step = 1.0 / math.Pow(10, float64(accResult.AssetScale))
+		}
 
 		// Transform data
 		pageData.Accounts = make([]templates.PageAppTransfersAccount, 0, len(accsResult))
 		for _, acc := range accsResult {
 			pageData.Accounts = append(pageData.Accounts, templates.PageAppTransfersAccount{
-				Id:    strconv.Itoa(int(acc.ID)),
+				Id:    acc.ID,
 				Label: "#" + acc.Address + "/" + acc.LedgerName,
 			})
 		}
@@ -705,5 +726,195 @@ func AppTransfers(tmpls *templates.Tmpls, db *database.Database) http.HandlerFun
 		if err != nil {
 			panic(err)
 		}
+	}
+}
+
+func FormRecipient(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		type input struct {
+			AccountId       *int64 `json:"accId"`
+			RecipientAccId  *int64 `json:"recipientAccId"`
+			RecipientSearch string `json:"recipientSearch"`
+		}
+		var ds input
+		if !r.URL.Query().Has("datastar") {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		err := json.Unmarshal([]byte(r.URL.Query().Get("datastar")), &ds)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		// uData := sessions.GetUser(r.Context())
+
+		// If recipient selected, merge in that
+		if ds.RecipientAccId != nil && *ds.RecipientAccId != -1 {
+			// Fetch account for Label
+			acc, err := db.Q.GetAccountWithUsernameById(r.Context(), *ds.RecipientAccId)
+			if err != nil {
+				// TODO: Not always just an internal error
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			label := "#" + acc.Address
+			if acc.BitcraftUsername != nil {
+				label = *acc.BitcraftUsername
+			}
+			data := templates.PageAppTransfersRecipientInput{
+				RecipientLabel:  label,
+				RecipientAddrId: *ds.RecipientAccId,
+			}
+
+			sse := datastar.NewSSE(w, r)
+			buff := new(bytes.Buffer)
+			err = tmpls.ExecuteTemplate(buff, "components/transfer-recipient", data)
+			if err != nil {
+				panic(err)
+			}
+			sse.PatchElements(buff.String())
+			return
+		}
+
+		// If empty, just patch empty
+		if ds.AccountId == nil || ds.RecipientSearch == "" {
+			sse := datastar.NewSSE(w, r)
+			buff := new(bytes.Buffer)
+			err = tmpls.ExecuteTemplate(buff, "components/transfer-recipient", nil)
+			if err != nil {
+				panic(err)
+			}
+			sse.PatchElements(buff.String())
+			return
+		}
+
+		// Fetch account for ledger
+		acc, err := db.Q.GetAccountById(r.Context(), *ds.AccountId)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		// Fetch the options now
+		results, err := db.Q.SearchAccountsByAddrAndUsername(r.Context(), gensql.SearchAccountsByAddrAndUsernameParams{
+			SearchTerm:       "%" + strings.ToUpper(ds.RecipientSearch) + "%",
+			LedgerID:         acc.LedgerID,
+			ExcludeAccountID: *ds.AccountId,
+			Limit:            5,
+		})
+		if err != nil {
+			// TODO: Not always an internal server error tbf
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		data := templates.PageAppTransfersRecipientInput{
+			RecipientLabel:  "",
+			RecipientAddrId: 0,
+			Recipients:      make([]templates.PageAppTransfersRecipients, 0, len(results)),
+		}
+		for _, r := range results {
+			label := "#" + r.Address
+			if r.BitcraftUsername != nil {
+				label = *r.BitcraftUsername
+			}
+			data.Recipients = append(data.Recipients, templates.PageAppTransfersRecipients{
+				AccountId: r.ID,
+				Label:     label,
+			})
+		}
+
+		// Merge in recipients
+		sse := datastar.NewSSE(w, r)
+		buff := new(bytes.Buffer)
+		err = tmpls.ExecuteTemplate(buff, "components/transfer-recipient", data)
+		if err != nil {
+			panic(err)
+		}
+		sse.PatchElements(buff.String())
+	}
+}
+
+func SubmitTransfer(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// TODO: Honestly, have the whole entire thing just be form data, then merge
+		// in a fragment of success. Or maybe fail message too?
+		//
+		// Be sure to check user actually owns the account they're submitting from
+		// uData := sessions.GetUser(r.Context())
+
+		err := r.ParseForm()
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		accId, err := strconv.ParseInt(chi.URLParam(r, "account_id"), 10, 64)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		recipientId, err := strconv.ParseInt(r.FormValue("recipientId"), 10, 64)
+		if err != nil || recipientId == accId {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		var memo *string
+		if r.FormValue("memo") != "" {
+			str := r.FormValue("memo")
+			memo = &str
+		}
+
+		acc, err := db.Q.GetAccountAndLedgerById(r.Context(), accId)
+
+		qtyFloat, err := strconv.ParseFloat(r.FormValue("qty"), 64)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		qtyInt := int64(qtyFloat * math.Pow(10, float64(acc.AssetScale)))
+
+		qtx, err := db.QTx(r.Context(), database.WithForeignKeys)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		defer qtx.Cleanup()
+
+		_, err = accounts.CreateTransfer(r.Context(), qtx.Q(), nc, accounts.CreateTransferInput{
+			SendingId:   accId,
+			ReceivingId: recipientId,
+			Memo:        memo,
+			LedgerId:    acc.LedgerID,
+			Amount:      qtyInt,
+		})
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		qtx.Commit()
+
+		sse := datastar.NewSSE(w, r)
+
+		// TODO: Too lazy to not just fetch again...
+		newAcc, err := db.Q.GetAccountAndLedgerById(r.Context(), accId)
+		var newBal int64 = 0
+		if accounts.AccountCode(newAcc.Code).IsDebit() {
+			newBal = newAcc.DebitsPosted - newAcc.CreditsPosted - newAcc.CreditsPending
+		} else {
+			newBal = newAcc.CreditsPosted - newAcc.DebitsPosted - newAcc.DebitsPending
+
+		}
+		newBalFmtd := float64(newBal) / math.Pow(10, float64(acc.AssetScale))
+		sse.PatchElementf(`<span id="bal" class="text-neutral-300 text-sm">(bal: %v)</span>`, newBalFmtd)
+		sse.PatchElements(`
+			<div id="transfer-form" class="flex justify-between bg-neutral-800 rounded px-2 pt-2 pb-3">
+				<p>Transfer Sent!</p>
+				<button class="underline text-anakiwa cursor-pointer" data-on:click="@get('/app/transfers')">Start Over</button>
+			</div>
+		`)
 	}
 }

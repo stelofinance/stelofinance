@@ -62,14 +62,33 @@ type PageAppAccountUser struct {
 }
 
 type PageAppTransfers struct {
-	OnlyRenderPage    bool
-	SelectedAccountId string
-	Accounts          []PageAppTransfersAccount
-	Transfers         []PageAppTransfersTransfer
+	OnlyRenderPage  bool
+	RecipientInput  PageAppTransfersRecipientInput
+	SelectedAccount PageAppTransfersSelectedAccount
+	Accounts        []PageAppTransfersAccount
+	Transfers       []PageAppTransfersTransfer
+}
+
+type PageAppTransfersRecipientInput struct {
+	RecipientLabel  string
+	RecipientAddrId int64
+	Recipients      []PageAppTransfersRecipients
+}
+
+type PageAppTransfersRecipients struct {
+	AccountId int64
+	Label     string
+}
+
+type PageAppTransfersSelectedAccount struct {
+	Id         int64
+	LedgerName string
+	Step       float64
+	Balance    float64
 }
 
 type PageAppTransfersAccount struct {
-	Id    string
+	Id    int64
 	Label string
 }
 

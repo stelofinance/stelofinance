@@ -83,6 +83,14 @@ INSERT
 -- name: GetAccountById :one
 SELECT * FROM account WHERE id = ?;
 
+-- name: GetAccountWithUsernameById :one
+SELECT
+    a.*,
+    u.bitcraft_username
+FROM account AS a
+LEFT JOIN "user" AS u ON u.id = a.user_id
+WHERE a.id = ?;
+
 -- name: GetAccountAndLedgerById :one
 SELECT
     a.*,
@@ -126,3 +134,17 @@ FROM account a
 INNER JOIN ledger l ON l.id = a.ledger_id
 INNER JOIN account_permission ap ON ap.account_id = a.id
 WHERE ap.user_id = ?;
+
+-- name: SearchAccountsByAddrAndUsername :many
+SELECT
+    a.id,
+    a.address,
+    u.bitcraft_username
+FROM account AS a
+LEFT JOIN "user" as u
+    ON a.user_id = u.id
+WHERE
+    (a.address LIKE sqlc.arg(search_term) OR UPPER(u.bitcraft_username) LIKE sqlc.arg(search_term))
+    AND a.id != sqlc.arg(exclude_account_id)
+    AND a.ledger_id = sqlc.arg(ledger_id)
+LIMIT sqlc.arg(limit);

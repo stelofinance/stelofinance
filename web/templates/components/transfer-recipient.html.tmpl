@@ -1,0 +1,31 @@
+<fieldset id="recipient-input" class="w-56 grow relative" data-attr:disabled="$sending">
+	{{if .RecipientLabel}}
+	<div class="flex justify-between bg-neutral-700 rounded px-2">
+		<input type="hidden" name="recipientId" value="{{.RecipientAddrId}}">
+		<p>{{.RecipientLabel}}</p>
+		<button class="text-red-600 underline" data-on:click="$recipientSearch = ''; $recipientAccId = -1; @get('/app/transfers/form-recipient')">clear</button>
+	</div>
+	{{else}}
+	<div data-signals:recipient-acc-id="-1" class="{{if .Recipients}}absolute top-full flex flex-col px-2 bg-neutral-800 border border-t-0{{else}}hidden{{end}}">
+		{{range .Recipients}}
+		<label class="flex">
+			<input data-bind:recipient-acc-id
+			       data-on:change="@get('/app/transfers/form-recipient')"
+			       type="radio"
+			       value="{{.AccountId}}"
+			       class="hidden"
+			>
+			<span class="w-full py-1">{{.Label}}</span>
+		</label>
+		{{end}}
+	</div>
+	<input type="text"
+	       name="recipientSearch"
+	       placeholder="Recipient..."
+	       required
+	       class="w-full border-b pl-1"
+	       data-bind:recipient-search
+	       data-on:input__debounce.300ms="@get('/app/transfers/form-recipient')"
+	>
+	{{end}}
+</fieldset>
