@@ -7,26 +7,14 @@ primary_region = "iad"
 [env]
 	PORT = "8080"
 	ENV = "prod"
-	JS_DIR = "nats"
-	TURSO_FILE = "db/prod.db"
+	JS_DIR = "data/nats"
+	TURSO_FILE = "data/db/prod.db"
 	GOOSE_DRIVER = "sqlite3"
-	GOOSE_DBSTRING = "db/prod.db"
+	GOOSE_DBSTRING = "data/db/prod.db"
 
-	# [deploy]
-	# 	release_command = "/bin/migrate"
-
-[[mounts]]
-	source = "nats"
-	destination = "/nats"
-	# processes = []
-	initial_size = "1gb"
-	auto_extend_size_threshold = 90
-	auto_extend_size_limit = "50gb"
-	auto_extend_size_increment = "1gb"
-[[mounts]]
-	source = "db"
-	destination = "/db"
-	# processes = []
+[mounts]
+	source = "data"
+	destination = "/data"
 	initial_size = "1gb"
 	auto_extend_size_threshold = 90
 	auto_extend_size_limit = "50gb"
