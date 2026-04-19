@@ -34,7 +34,7 @@
         nativeBuildInputs = [ pkgs.sqlc ];
 
         env.CGO_ENABLED = 0;
-        vendorHash = "sha256-ZQ0nCoZwR/i6VKjMuZFNy1fvKTpVPtu3rse3+HPwYCU=";
+        vendorHash = "sha256-wQDNg+TUmcc88y9uRhWQD02YYq9cJdVun2simU/r9dU=";
 
         postPatch = ''
           sqlc generate
