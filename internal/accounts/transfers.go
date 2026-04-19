@@ -72,6 +72,8 @@ const (
 var ErrInvalidQuantity = errors.New("transfer: invalid quantity")
 var ErrInvalidBalance = errors.New("transfer: invalid balance")
 var ErrIncompatibleAccCodes = errors.New("transaction: incompatible account codes")
+var ErrIncompatibleLedgers = errors.New("transaction: incompatible account ledgers")
+var ErrMatchingSenderReceiver = errors.New("transaction: sender is receiver")
 
 type CreateTransferInput struct {
 	SendingId   int64
@@ -88,6 +90,10 @@ func CreateTransfer(ctx context.Context, q *gensql.Queries, nc *nats.Conn, input
 		return 0, ErrInvalidQuantity
 	}
 
+	if input.SendingId == input.ReceivingId {
+		return 0, ErrMatchingSenderReceiver
+	}
+
 	// Query both wallets for types
 	sendingAcc, err := q.GetAccountById(ctx, input.SendingId)
 	if err != nil {
@@ -96,6 +102,11 @@ func CreateTransfer(ctx context.Context, q *gensql.Queries, nc *nats.Conn, input
 	receivingAcc, err := q.GetAccountById(ctx, input.ReceivingId)
 	if err != nil {
 		return 0, err
+	}
+
+	// Ensure both accounts are for same ledger
+	if sendingAcc.LedgerID != receivingAcc.LedgerID {
+		return 0, ErrIncompatibleLedgers
 	}
 
 	// Determine TxCode
