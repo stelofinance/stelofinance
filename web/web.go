@@ -14,7 +14,9 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"os/user"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -45,6 +47,39 @@ type Config struct {
 	Port         string
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
+}
+
+func printPermissions(filename string) []string {
+	info, err := os.Stat(filename)
+	if err != nil {
+		panic(err)
+	}
+
+	strs := make([]string, 0)
+
+	mode := info.Mode()
+
+	str := "Owner: "
+	for i := 1; i < 4; i++ {
+		str += string(mode.String()[i])
+	}
+
+	strs = append(strs, str)
+
+	str = "Group: "
+	for i := 4; i < 7; i++ {
+		str += string(mode.String()[i])
+	}
+
+	strs = append(strs, str)
+
+	str = "Other: "
+	for i := 7; i < 10; i++ {
+		str += string(mode.String()[i])
+	}
+
+	strs = append(strs, str)
+	return strs
 }
 
 // Run sets up all needed dependencies for the server, early returning with
@@ -113,33 +148,79 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 	}
 
 	go func() {
-		for {
-			time.Sleep(time.Second * 15)
-			entries, err := os.ReadDir("data")
-			if err != nil {
-				lgr.Log(logger.Log{
-					Message: "Error reading dir, lol",
-					Data: map[string]any{
-						"error": err.Error(),
-					},
-					Level: logger.WarnLevel,
-				})
-				log.Println(err.Error())
-			}
+		time.Sleep(time.Second * 15)
 
-			strs := make([]string, 0)
-			for _, e := range entries {
-				strs = append(strs, e.Name())
-			}
-
+		usr, err := user.Current()
+		if err != nil {
 			lgr.Log(logger.Log{
-				Message: "Here are the files",
+				Message: "Error gettting user()",
 				Data: map[string]any{
-					"files": strs,
+					"error": err.Error(),
 				},
 				Level: logger.WarnLevel,
 			})
 		}
+		if usr != nil {
+			lgr.Log(logger.Log{
+				Message: "user info",
+				Data: map[string]any{
+					"userid":   usr.Uid,
+					"username": usr.Name,
+				},
+				Level: logger.WarnLevel,
+			})
+		}
+
+		entries, err := os.ReadDir("data")
+		if err != nil {
+			lgr.Log(logger.Log{
+				Message: "Error reading dir, lol",
+				Data: map[string]any{
+					"error": err.Error(),
+				},
+				Level: logger.WarnLevel,
+			})
+			log.Println(err.Error())
+		}
+
+		type Info struct {
+			Filename  string
+			OwnerId   string
+			OwnerName string
+			Perms     []string
+		}
+
+		infos := make([]Info, 0)
+		for _, e := range entries {
+			fi, err := os.Stat("data/" + e.Name())
+
+			inf := Info{}
+
+			sys, _ := fi.Sys().(*syscall.Stat_t)
+			// uid := int(sys.Uid) // UID is uint32 on most systems
+
+			inf.Filename = e.Name()
+			inf.OwnerId = strconv.Itoa(int(sys.Uid))
+
+			// Try to resolve UID → username (requires /etc/passwd access)
+			u, err := user.LookupId(strconv.Itoa(int(sys.Uid)))
+			if err != nil {
+				inf.OwnerName = "failed"
+			} else {
+				inf.OwnerName = u.Username
+			}
+			inf.Perms = printPermissions("data/" + e.Name())
+			infos = append(infos, inf)
+		}
+
+		lgr.Log(logger.Log{
+			Message: "Here are the deets",
+			Data: map[string]any{
+				"deets": infos,
+			},
+			Level: logger.WarnLevel,
+		})
+		// }
 	}()
 
 	// Connect up turso db and create db struct
