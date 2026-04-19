@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -14,6 +13,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stelofinance/stelofinance/database"
 	"github.com/stelofinance/stelofinance/database/gensql"
+	"github.com/stelofinance/stelofinance/internal/logger"
 	"github.com/stelofinance/stelofinance/internal/sessions"
 )
 
@@ -22,7 +22,7 @@ type LoginKV struct {
 	PlayerId string `json:"playerId"`
 }
 
-func Auth(logger *slog.Logger, db *database.Database, sessionsKV jetstream.KeyValue, getenv func(string) string) http.HandlerFunc {
+func Auth(logger *logger.Logger, db *database.Database, sessionsKV jetstream.KeyValue, getenv func(string) string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var playerInfo LoginKV
 		// Check if it's an admin bypass, otherwise handle normally
@@ -54,12 +54,6 @@ func Auth(logger *slog.Logger, db *database.Database, sessionsKV jetstream.KeyVa
 		dbUser, err := db.Q.GetUserByBitCraftId(r.Context(), playerInfo.PlayerId)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			w.WriteHeader(http.StatusInternalServerError)
-			logger.LogAttrs(
-				r.Context(),
-				slog.LevelError,
-				"failed to fetch user from db",
-				slog.String("error", err.Error()),
-			)
 			return
 		}
 		userId = dbUser.ID
@@ -71,12 +65,6 @@ func Auth(logger *slog.Logger, db *database.Database, sessionsKV jetstream.KeyVa
 			})
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
-				logger.LogAttrs(
-					r.Context(),
-					slog.LevelError,
-					"failed to insert new user",
-					slog.String("error", err.Error()),
-				)
 				return
 			}
 			userId = insertedId
@@ -101,12 +89,6 @@ func Auth(logger *slog.Logger, db *database.Database, sessionsKV jetstream.KeyVa
 		bytes, err := json.Marshal(sData)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
-			logger.LogAttrs(
-				r.Context(),
-				slog.LevelError,
-				"failed to marshall session data",
-				slog.String("error", err.Error()),
-			)
 			return
 		}
 		sessionsKV.Create(r.Context(), "users."+strconv.FormatInt(userId, 10)+".sessions."+sid, bytes)

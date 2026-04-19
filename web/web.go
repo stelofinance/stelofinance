@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -32,6 +31,7 @@ import (
 	"github.com/stelofinance/stelofinance/database"
 	"github.com/stelofinance/stelofinance/database/gensql"
 	"github.com/stelofinance/stelofinance/internal/handlers"
+	"github.com/stelofinance/stelofinance/internal/logger"
 	"github.com/stelofinance/stelofinance/internal/routes"
 	"github.com/stelofinance/stelofinance/web/templates"
 	_ "turso.tech/database/tursogo"
@@ -49,9 +49,6 @@ type Config struct {
 // Run sets up all needed dependencies for the server, early returning with
 // an error if one occurs.
 func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writer) error {
-	// Create logger
-	logger := slog.New(slog.NewJSONHandler(stdout, nil))
-
 	// Create config
 	cfg := Config{
 		Port:         getenv("PORT"),
@@ -92,6 +89,9 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 		return err
 	}
 
+	// Create lgr
+	lgr := logger.NewLogger(logger.WarnLevel, nc)
+
 	// Create bucket for sessions
 	js, err := jetstream.New(nc)
 	if err != nil {
@@ -113,7 +113,7 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 	db := database.New(dbConn, gensql.New(dbConn))
 
 	// Create and run server
-	srv := NewServer(logger, tmpls, db, sessionsKV, nc, getenv)
+	srv := NewServer(lgr, tmpls, db, sessionsKV, nc, getenv)
 	httpServer := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      srv,
@@ -124,12 +124,13 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 		},
 	}
 	go func() {
-		logger.LogAttrs(
-			ctx,
-			slog.LevelInfo,
-			"server started",
-			slog.String("PORT", httpServer.Addr),
-		)
+		lgr.Log(logger.Log{
+			Message: "server started",
+			Data: map[string]any{
+				"PORT": httpServer.Addr,
+			},
+			Level: logger.InfoLevel,
+		})
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			fmt.Fprintf(os.Stderr, "error listening and serving: %s\n", err)
 		}
@@ -161,6 +162,16 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 		// Long running loop fetching chat messages for logins
 		for {
 			req, err := http.NewRequest(http.MethodGet, "https://bitjita.com/api/chat?limit=10", nil)
+			if err != nil {
+				lgr.Log(logger.Log{
+					Message: "error making BitJita request",
+					Data: map[string]any{
+						"error": err.Error(),
+					},
+					Level: logger.WarnLevel,
+				})
+				continue
+			}
 			if getenv("ENV") == "prod" {
 				req.Header.Add("User-Agent", "SteloFinance/0.4.0")
 			} else {
@@ -169,12 +180,24 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 
 			resp, err := client.Do(req)
 			if err != nil {
-				// TODO: uhhhh
+				lgr.Log(logger.Log{
+					Message: "error making request to BitJita",
+					Data: map[string]any{
+						"error": err.Error(),
+					},
+					Level: logger.WarnLevel,
+				})
 				continue
 			}
 			var data MsgResponse
 			if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-				// TODO: uhhhh
+				lgr.Log(logger.Log{
+					Message: "error decoding BitJita request body",
+					Data: map[string]any{
+						"error": err.Error(),
+					},
+					Level: logger.WarnLevel,
+				})
 				continue
 			}
 
@@ -191,6 +214,16 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 					splitUsername := strings.SplitN(msg.Username, "/", 2)
 					username := splitUsername[len(splitUsername)-1]
 					req, err := http.NewRequest(http.MethodGet, "https://bitjita.com/api/players?q="+username, nil)
+					if err != nil {
+						lgr.Log(logger.Log{
+							Message: "error making BitJita request for player info",
+							Data: map[string]any{
+								"error": err.Error(),
+							},
+							Level: logger.WarnLevel,
+						})
+						continue
+					}
 					if getenv("ENV") == "prod" {
 						req.Header.Add("User-Agent", "SteloFinance/0.4.0")
 					} else {
@@ -199,12 +232,24 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 
 					resp, err := client.Do(req)
 					if err != nil {
-						// TODO: uhhhh
+						lgr.Log(logger.Log{
+							Message: "error making request to BitJita for player info",
+							Data: map[string]any{
+								"error": err.Error(),
+							},
+							Level: logger.WarnLevel,
+						})
 						continue
 					}
 					var data PlyrResponse
 					if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-						// TODO: uhhhh
+						lgr.Log(logger.Log{
+							Message: "error decoding BitJita request body for player info",
+							Data: map[string]any{
+								"error": err.Error(),
+							},
+							Level: logger.WarnLevel,
+						})
 						continue
 					}
 					var val handlers.LoginKV
@@ -219,19 +264,19 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 					// Create login kv
 					bytes, err := json.Marshal(val)
 					if err != nil {
-						// TODO: uhhh \*-*/
+						// TODO: add log
 						continue
 					}
 					secretKey := uniuri.New()
 					_, err = sessionsKV.Create(ctx, "logins."+secretKey, bytes, jetstream.KeyTTL(time.Second*10))
 					if err != nil {
-						// TODO: uhhh \*-*/
+						// TODO: add log
 						continue
 					}
 					// Notify handler
 					err = nc.Publish("login-notifications."+pubCode, []byte(secretKey))
 					if err != nil {
-						// TODO: mmmm
+						// TODO: add log
 						continue
 					}
 
@@ -276,7 +321,7 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 }
 
 func NewServer(
-	logger *slog.Logger,
+	lgr *logger.Logger,
 	tmpls *templates.Tmpls,
 	db *database.Database,
 	sessionsKV jetstream.KeyValue,
@@ -298,7 +343,7 @@ func NewServer(
 	mux.Use(middleware.Heartbeat("/heartbeat"))
 	mux.Use(Compressor(2))
 
-	routes.AddRoutes(mux, logger, tmpls, db, sessionsKV, nc, getenv)
+	routes.AddRoutes(mux, lgr, tmpls, db, sessionsKV, nc, getenv)
 
 	return mux
 }
