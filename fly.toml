@@ -8,13 +8,24 @@ primary_region = "iad"
 	PORT = "8080"
 	ENV = "prod"
 	JS_DIR = "nats"
+	TURSO_FILE = "db/prod.db"
+	GOOSE_DRIVER = "sqlite3"
+	GOOSE_DBSTRING = "db/prod.db"
 
 [deploy]
 	release_command = "/bin/migrate"
 
-[mounts]
+[[mounts]]
 	source = "nats"
 	destination = "/nats"
+	# processes = []
+	initial_size = "1gb"
+	auto_extend_size_threshold = 90
+	auto_extend_size_limit = "50gb"
+	auto_extend_size_increment = "1gb"
+[[mounts]]
+	source = "db"
+	destination = "/db"
 	# processes = []
 	initial_size = "1gb"
 	auto_extend_size_threshold = 90
@@ -34,7 +45,7 @@ primary_region = "iad"
 		interval = "30s"
 		method = "GET"
 		timeout = "5s"
-		path = "/heartbeat"
+		path = "/api/ping"
 
 
 [[vm]]
