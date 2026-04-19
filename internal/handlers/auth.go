@@ -22,7 +22,7 @@ type LoginKV struct {
 	PlayerId string `json:"playerId"`
 }
 
-func Auth(logger *logger.Logger, db *database.Database, sessionsKV jetstream.KeyValue, getenv func(string) string) http.HandlerFunc {
+func Auth(lgr *logger.Logger, db *database.Database, sessionsKV jetstream.KeyValue, getenv func(string) string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var playerInfo LoginKV
 		// Check if it's an admin bypass, otherwise handle normally
@@ -39,10 +39,24 @@ func Auth(logger *logger.Logger, db *database.Database, sessionsKV jetstream.Key
 					w.WriteHeader(http.StatusNotFound)
 					return
 				}
+				lgr.Log(logger.Log{
+					Message: "error fetching session login value",
+					Data: map[string]any{
+						"error": err.Error(),
+					},
+					Level: logger.ErrorLevel,
+				})
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
 			if err := json.Unmarshal(val.Value(), &playerInfo); err != nil {
+				lgr.Log(logger.Log{
+					Message: "error unmarshalling login data",
+					Data: map[string]any{
+						"error": err.Error(),
+					},
+					Level: logger.ErrorLevel,
+				})
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
@@ -53,6 +67,13 @@ func Auth(logger *logger.Logger, db *database.Database, sessionsKV jetstream.Key
 		// Check if user already exists, if not, create user
 		dbUser, err := db.Q.GetUserByBitCraftId(r.Context(), playerInfo.PlayerId)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			lgr.Log(logger.Log{
+				Message: "error getting user for auth",
+				Data: map[string]any{
+					"error": err.Error(),
+				},
+				Level: logger.ErrorLevel,
+			})
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -64,6 +85,13 @@ func Auth(logger *logger.Logger, db *database.Database, sessionsKV jetstream.Key
 				CreatedAt:        time.Now(),
 			})
 			if err != nil {
+				lgr.Log(logger.Log{
+					Message: "error creating user",
+					Data: map[string]any{
+						"error": err.Error(),
+					},
+					Level: logger.ErrorLevel,
+				})
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
@@ -88,6 +116,13 @@ func Auth(logger *logger.Logger, db *database.Database, sessionsKV jetstream.Key
 		}
 		bytes, err := json.Marshal(sData)
 		if err != nil {
+			lgr.Log(logger.Log{
+				Message: "error marshalling session data",
+				Data: map[string]any{
+					"error": err.Error(),
+				},
+				Level: logger.ErrorLevel,
+			})
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
