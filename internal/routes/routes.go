@@ -1,7 +1,6 @@
 package routes
 
 import (
-	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -11,13 +10,14 @@ import (
 	"github.com/stelofinance/stelofinance/internal/accounts"
 	"github.com/stelofinance/stelofinance/internal/assets"
 	"github.com/stelofinance/stelofinance/internal/handlers"
+	"github.com/stelofinance/stelofinance/internal/logger"
 	midware "github.com/stelofinance/stelofinance/internal/middlewares"
 	"github.com/stelofinance/stelofinance/web/templates"
 )
 
 func AddRoutes(
 	mux *chi.Mux,
-	logger *slog.Logger,
+	lgr *logger.Logger,
 	tmpls *templates.Tmpls,
 	db *database.Database,
 	sessionsKV jetstream.KeyValue,
@@ -28,16 +28,16 @@ func AddRoutes(
 
 	mux.Handle("GET /hotreload", handlers.HotReload())
 
-	mux.With(midware.AuthUser(logger, sessionsKV, false)).Handle("GET /", handlers.Index(tmpls))
+	mux.With(midware.AuthUser(lgr, sessionsKV, false)).Handle("GET /", handlers.Index(tmpls))
 
 	// Login/Auth routes
 	// TODO: Thes routes should be guest protected
 	mux.Handle("GET /login", handlers.Login(tmpls, nc))
-	mux.Handle("GET /auth/{key}", handlers.Auth(logger, db, sessionsKV, getenv))
+	mux.Handle("GET /auth/{key}", handlers.Auth(lgr, db, sessionsKV, getenv))
 
 	// App related routes
 	mux.Route("/app", func(mux chi.Router) {
-		mux.Use(midware.AuthUser(logger, sessionsKV, true))
+		mux.Use(midware.AuthUser(lgr, sessionsKV, true))
 
 		mux.Handle("GET /", handlers.AppHome(tmpls, db))
 

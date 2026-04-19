@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -15,10 +14,11 @@ import (
 	"github.com/stelofinance/stelofinance/database"
 	"github.com/stelofinance/stelofinance/database/gensql"
 	"github.com/stelofinance/stelofinance/internal/accounts"
+	"github.com/stelofinance/stelofinance/internal/logger"
 	"github.com/stelofinance/stelofinance/internal/sessions"
 )
 
-func AuthUser(logger *slog.Logger, sessionsKV jetstream.KeyValue, authRequired bool) func(http.Handler) http.Handler {
+func AuthUser(lgr *logger.Logger, sessionsKV jetstream.KeyValue, authRequired bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cookie, err := r.Cookie("sid")
@@ -44,6 +44,13 @@ func AuthUser(logger *slog.Logger, sessionsKV jetstream.KeyValue, authRequired b
 					w.WriteHeader(http.StatusBadRequest)
 					return
 				}
+				lgr.Log(logger.Log{
+					Message: "error retrieving session data kv",
+					Data: map[string]any{
+						"error": err.Error(),
+					},
+					Level: logger.ErrorLevel,
+				})
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
