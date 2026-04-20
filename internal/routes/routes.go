@@ -123,6 +123,8 @@ func AddRoutes(
 			w.Write([]byte("pong"))
 		}))
 
+		mux.With(midware.AuthAdmin(getenv)).Handle("GET /users/{user_id}", handlers.User(db))
+
 		// TODO: Add route to search for accounts, potentially by username, address, other?
 		// mux.Handle("GET /accounts", handlers.Accounts(db))
 
