@@ -8,7 +8,7 @@ primary_region = "iad"
 	PORT = "8080"
 	ENV = "prod"
 	JS_DIR = "/data/nats"
-	DB_FILE = "/data/prod.db"
+	DB_FILE = "file:/data/prod.db?_texttotime=1&_time_format=sqlite&_timezone=UTC&_pragma=foreign_keys(1)"
 	GOOSE_DRIVER = "sqlite3"
 	GOOSE_DBSTRING = "/data/prod.db"
 
