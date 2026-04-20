@@ -30,7 +30,6 @@ import (
 	"github.com/stelofinance/stelofinance/internal/routes"
 	"github.com/stelofinance/stelofinance/web/templates"
 
-	"modernc.org/sqlite"
 	_ "modernc.org/sqlite"
 )
 
@@ -101,12 +100,6 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 	if err != nil {
 		return err
 	}
-
-	// Force PRAGMAs on all connections
-	sqlite.RegisterConnectionHook(func(conn sqlite.ExecQuerierContext, dsn string) error {
-		_, err := conn.ExecContext(ctx, "PRAGMA foreign_keys = ON", nil)
-		return err
-	})
 
 	// Connect up db and create db struct
 	dbConn, err := sql.Open("sqlite", getenv("DB_FILE"))
