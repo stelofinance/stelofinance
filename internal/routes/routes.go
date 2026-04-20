@@ -32,7 +32,7 @@ func AddRoutes(
 
 	// Login/Auth routes
 	// TODO: Thes routes should be guest protected
-	mux.Handle("GET /login", handlers.Login(tmpls, nc))
+	mux.Handle("GET /login", handlers.Login(tmpls, sessionsKV))
 	mux.Handle("GET /auth/{key}", handlers.Auth(lgr, db, sessionsKV, getenv))
 
 	// App related routes
@@ -110,7 +110,7 @@ func AddRoutes(
 		// 	})
 		// })
 
-		// mux.Handle("GET /logout", handlers.Logout(sessionsKV))
+		mux.Handle("GET /logout", handlers.Logout(sessionsKV))
 	})
 
 	// API related routes

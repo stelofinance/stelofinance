@@ -8,7 +8,7 @@
 2. Run `task live`. This will create a hot-reloading dev environment
 
 ### DB
-Currently testing out using [Turso](https://github.com/tursodatabase/turso) for the db. It's a full Rust rewrite of SQLite with the goal of extending it.
+Currently using sqlite, but want to switch to [Turso](https://github.com/tursodatabase/turso) for the db once it's more stable/supported.
 
 Migrations are done with [Goose](https://github.com/pressly/goose). Migrations are in `database/migrations/*`.
 
@@ -26,5 +26,5 @@ The required ENV secrets are stored in `.env` at the project root, and are as fo
 - `GOOSE_DRIVER`: "sqlite3"
 - `GOOSE_DBSTRING`: DB connection URI string (ex `./tmp/dev.db`)
 - `GOOSE_MIGRATION_DIR`: "./database/migrations"
-- `TURSO_FILE`: Same as `GOOSE_DBSTRING`, the DB file location
+- `DB_FILE`: Same as `GOOSE_DBSTRING`, the DB file location
 - `ADMIN_KEY`: This is an admin key that can be used to make admin API requests

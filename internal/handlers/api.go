@@ -94,14 +94,14 @@ func CreateAccount(db *database.Database) http.HandlerFunc {
 			return
 		}
 
-		qtx, err := db.QTx(r.Context(), database.WithForeignKeys)
+		tx, err := db.Pool.BeginTx(r.Context(), nil)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		defer qtx.Cleanup()
+		defer tx.Rollback()
 
-		_, err = accounts.CreateAccount(r.Context(), qtx.Q(), accounts.CreateAccountInput{
+		_, err = accounts.CreateAccount(r.Context(), db.Q.WithTx(tx), accounts.CreateAccountInput{
 			OwnerId:  body.OwnerId,
 			Address:  body.Addr,
 			Webhook:  body.Webhook,
@@ -113,7 +113,7 @@ func CreateAccount(db *database.Database) http.HandlerFunc {
 			return
 		}
 
-		qtx.Commit()
+		tx.Commit()
 
 		w.WriteHeader(http.StatusCreated)
 	}
@@ -307,14 +307,14 @@ func CreateTransfer(db *database.Database, nc *nats.Conn) http.HandlerFunc {
 			return
 		}
 
-		qtx, err := db.QTx(r.Context(), database.WithForeignKeys)
+		tx, err := db.Pool.BeginTx(r.Context(), nil)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		defer qtx.Cleanup()
+		defer tx.Rollback()
 
-		_, err = accounts.CreateTransfer(r.Context(), qtx.Q(), nc, accounts.CreateTransferInput{
+		_, err = accounts.CreateTransfer(r.Context(), db.Q.WithTx(tx), nc, accounts.CreateTransferInput{
 			SendingId:   accData.Id,
 			ReceivingId: body.ReceivingId,
 			Memo:        body.Memo,
@@ -330,7 +330,7 @@ func CreateTransfer(db *database.Database, nc *nats.Conn) http.HandlerFunc {
 			return
 		}
 
-		qtx.Commit()
+		tx.Commit()
 
 		w.WriteHeader(http.StatusCreated)
 	}

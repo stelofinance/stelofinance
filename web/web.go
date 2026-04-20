@@ -5,26 +5,19 @@ import (
 	"database/sql"
 	"embed"
 	_ "embed"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
-	"os/user"
-	"slices"
-	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/Nintron27/pillow"
 	"github.com/andybalholm/brotli"
-	"github.com/dchest/uniuri"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
@@ -33,11 +26,11 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stelofinance/stelofinance/database"
 	"github.com/stelofinance/stelofinance/database/gensql"
-	"github.com/stelofinance/stelofinance/internal/handlers"
 	"github.com/stelofinance/stelofinance/internal/logger"
 	"github.com/stelofinance/stelofinance/internal/routes"
 	"github.com/stelofinance/stelofinance/web/templates"
-	// _ "turso.tech/database/tursogo"
+
+	"modernc.org/sqlite"
 	_ "modernc.org/sqlite"
 )
 
@@ -48,39 +41,6 @@ type Config struct {
 	Port         string
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
-}
-
-func printPermissions(filename string) []string {
-	info, err := os.Stat(filename)
-	if err != nil {
-		panic(err)
-	}
-
-	strs := make([]string, 0)
-
-	mode := info.Mode()
-
-	str := "Owner: "
-	for i := 1; i < 4; i++ {
-		str += string(mode.String()[i])
-	}
-
-	strs = append(strs, str)
-
-	str = "Group: "
-	for i := 4; i < 7; i++ {
-		str += string(mode.String()[i])
-	}
-
-	strs = append(strs, str)
-
-	str = "Other: "
-	for i := 7; i < 10; i++ {
-		str += string(mode.String()[i])
-	}
-
-	strs = append(strs, str)
-	return strs
 }
 
 // Run sets up all needed dependencies for the server, early returning with
@@ -142,90 +102,20 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 		return err
 	}
 
+	// Force PRAGMAs on all connections
+	sqlite.RegisterConnectionHook(func(conn sqlite.ExecQuerierContext, dsn string) error {
+		_, err := conn.ExecContext(ctx, "PRAGMA foreign_keys = ON", nil)
+		return err
+	})
+
 	// Run migrations
 	err = database.RunMigrations(ctx, getenv)
 	if err != nil {
 		return err
 	}
 
-	go func() {
-		time.Sleep(time.Second * 15)
-
-		usr, err := user.Current()
-		if err != nil {
-			lgr.Log(logger.Log{
-				Message: "Error gettting user()",
-				Data: map[string]any{
-					"error": err.Error(),
-				},
-				Level: logger.WarnLevel,
-			})
-		}
-		if usr != nil {
-			lgr.Log(logger.Log{
-				Message: "user info",
-				Data: map[string]any{
-					"userid":   usr.Uid,
-					"username": usr.Name,
-				},
-				Level: logger.WarnLevel,
-			})
-		}
-
-		entries, err := os.ReadDir("data")
-		if err != nil {
-			lgr.Log(logger.Log{
-				Message: "Error reading dir, lol",
-				Data: map[string]any{
-					"error": err.Error(),
-				},
-				Level: logger.WarnLevel,
-			})
-			log.Println(err.Error())
-		}
-
-		type Info struct {
-			Filename  string
-			OwnerId   string
-			OwnerName string
-			Perms     []string
-		}
-
-		infos := make([]Info, 0)
-		for _, e := range entries {
-			fi, err := os.Stat("data/" + e.Name())
-
-			inf := Info{}
-
-			sys, _ := fi.Sys().(*syscall.Stat_t)
-			// uid := int(sys.Uid) // UID is uint32 on most systems
-
-			inf.Filename = e.Name()
-			inf.OwnerId = strconv.Itoa(int(sys.Uid))
-
-			// Try to resolve UID → username (requires /etc/passwd access)
-			u, err := user.LookupId(strconv.Itoa(int(sys.Uid)))
-			if err != nil {
-				inf.OwnerName = "failed"
-			} else {
-				inf.OwnerName = u.Username
-			}
-			inf.Perms = printPermissions("data/" + e.Name())
-			infos = append(infos, inf)
-		}
-
-		lgr.Log(logger.Log{
-			Message: "Here are the deets",
-			Data: map[string]any{
-				"deets": infos,
-			},
-			Level: logger.WarnLevel,
-		})
-		// }
-	}()
-
-	// Connect up turso db and create db struct
-	dbConn, err := sql.Open("sqlite", getenv("TURSO_FILE"))
+	// Connect up db and create db struct
+	dbConn, err := sql.Open("sqlite", getenv("DB_FILE"))
 	if err != nil {
 		return err
 	}
@@ -255,170 +145,9 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 		}
 	}()
 
-	// TODO: move out to it's own module or something, gracefully shutdown too
-	go func() {
-		type Message struct {
-			Username string `json:"username"`
-			Text     string `json:"text"`
-		}
-		type MsgResponse struct {
-			Messages []Message `json:"messages"`
-		}
-		type Player struct {
-			EntityId string `json:"entityId"`
-			Username string `json:"username"`
-			// SignedIn bool `json:"signedIn"`
-		}
-		type PlyrResponse struct {
-			Players []Player `json:"players"`
-		}
-
-		recentAuths := make([]string, 0, 32)
-
-		prefix := "STL#"
-		client := &http.Client{}
-
-		// Long running loop fetching chat messages for logins
-		for {
-			req, err := http.NewRequest(http.MethodGet, "https://bitjita.com/api/chat?limit=10", nil)
-			if err != nil {
-				lgr.Log(logger.Log{
-					Message: "error making BitJita request",
-					Data: map[string]any{
-						"error": err.Error(),
-					},
-					Level: logger.WarnLevel,
-				})
-				continue
-			}
-			if getenv("ENV") == "prod" {
-				req.Header.Add("User-Agent", "SteloFinance/0.4.0")
-			} else {
-				req.Header.Add("User-Agent", "SteloFinance/0.4.0 (Dev)")
-			}
-
-			resp, err := client.Do(req)
-			if err != nil {
-				lgr.Log(logger.Log{
-					Message: "error making request to BitJita",
-					Data: map[string]any{
-						"error": err.Error(),
-					},
-					Level: logger.WarnLevel,
-				})
-				continue
-			}
-			var data MsgResponse
-			if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-				lgr.Log(logger.Log{
-					Message: "error decoding BitJita request body",
-					Data: map[string]any{
-						"error": err.Error(),
-					},
-					Level: logger.WarnLevel,
-				})
-				continue
-			}
-
-			// Scan for Stelo logins, backwards so oldest counts first
-			for _, msg := range slices.Backward(data.Messages) {
-				cleanTxt := strings.TrimSpace(msg.Text)
-				if strings.HasPrefix(cleanTxt, prefix) {
-					pubCode := strings.TrimPrefix(cleanTxt, prefix)
-					if slices.Contains(recentAuths, pubCode) {
-						continue
-					}
-
-					// Fetch user information
-					splitUsername := strings.SplitN(msg.Username, "/", 2)
-					username := splitUsername[len(splitUsername)-1]
-					req, err := http.NewRequest(http.MethodGet, "https://bitjita.com/api/players?q="+username, nil)
-					if err != nil {
-						lgr.Log(logger.Log{
-							Message: "error making BitJita request for player info",
-							Data: map[string]any{
-								"error": err.Error(),
-							},
-							Level: logger.WarnLevel,
-						})
-						continue
-					}
-					if getenv("ENV") == "prod" {
-						req.Header.Add("User-Agent", "SteloFinance/0.4.0")
-					} else {
-						req.Header.Add("User-Agent", "SteloFinance/0.4.0 (Dev)")
-					}
-
-					resp, err := client.Do(req)
-					if err != nil {
-						lgr.Log(logger.Log{
-							Message: "error making request to BitJita for player info",
-							Data: map[string]any{
-								"error": err.Error(),
-							},
-							Level: logger.WarnLevel,
-						})
-						continue
-					}
-					var data PlyrResponse
-					if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-						lgr.Log(logger.Log{
-							Message: "error decoding BitJita request body for player info",
-							Data: map[string]any{
-								"error": err.Error(),
-							},
-							Level: logger.WarnLevel,
-						})
-						continue
-					}
-					var val handlers.LoginKV
-					for _, plyr := range data.Players {
-						if plyr.Username == username {
-							val.Username = username
-							val.PlayerId = plyr.EntityId
-							break
-						}
-					}
-
-					// Create login kv
-					bytes, err := json.Marshal(val)
-					if err != nil {
-						// TODO: add log
-						continue
-					}
-					secretKey := uniuri.New()
-					_, err = sessionsKV.Create(ctx, "logins."+secretKey, bytes, jetstream.KeyTTL(time.Second*10))
-					if err != nil {
-						// TODO: add log
-						continue
-					}
-					// Notify handler
-					err = nc.Publish("login-notifications."+pubCode, []byte(secretKey))
-					if err != nil {
-						// TODO: add log
-						continue
-					}
-
-					// Store this so it can be skipped next loop
-					recentAuths = append(recentAuths, pubCode)
-				}
-			}
-
-			// trim off recentAuths
-			if len(recentAuths) > 10 {
-				recentAuths = recentAuths[len(recentAuths)-10:]
-			}
-
-			resp.Body.Close()
-			time.Sleep(time.Second)
-		}
-	}()
-
 	// Handle graceful shutdown
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		sigCtx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 		defer cancel()
 		<-sigCtx.Done()
@@ -434,7 +163,7 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 		if err := ns.Shutdown(shutdownCtx); err != nil {
 			fmt.Fprintf(stderr, "error shutting down nats server: %s\n", err)
 		}
-	}()
+	})
 	wg.Wait()
 	return nil
 }

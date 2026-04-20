@@ -135,9 +135,13 @@ func AppCreateAccount(tmpls *templates.Tmpls, db *database.Database) http.Handle
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		qtx, err := db.QTx(r.Context(), database.WithForeignKeys)
-		defer qtx.Cleanup()
-		_, err = accounts.CreateAccount(r.Context(), qtx.Q(), accounts.CreateAccountInput{
+		tx, err := db.Pool.BeginTx(r.Context(), nil)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		defer tx.Rollback()
+		_, err = accounts.CreateAccount(r.Context(), db.Q.WithTx(tx), accounts.CreateAccountInput{
 			OwnerId: uData.Id,
 			// Address:  "",
 			Webhook:  nil,
@@ -149,7 +153,7 @@ func AppCreateAccount(tmpls *templates.Tmpls, db *database.Database) http.Handle
 			return
 		}
 
-		qtx.Commit()
+		tx.Commit()
 
 		tmplData, err := loadAppAccountsPageData(r.Context(), db, uData, true)
 		if err != nil {
@@ -282,12 +286,12 @@ func PutAccountUser(tmpls *templates.Tmpls, db *database.Database, sessionsKV je
 		}
 
 		// Update primary user
-		qtx, err := db.QTx(r.Context(), database.WithForeignKeys)
+		tx, err := db.Pool.BeginTx(r.Context(), nil)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		defer qtx.Cleanup()
+		defer tx.Rollback()
 
 		var userId *int64
 		// If primary is true, set to current user, otherwise keep nil
@@ -297,7 +301,7 @@ func PutAccountUser(tmpls *templates.Tmpls, db *database.Database, sessionsKV je
 			userId = &uData.Id
 		}
 
-		err = qtx.Q().UpdateAccountUserId(r.Context(), gensql.UpdateAccountUserIdParams{
+		err = db.Q.WithTx(tx).UpdateAccountUserId(r.Context(), gensql.UpdateAccountUserIdParams{
 			UserID: userId,
 			ID:     int64(accId),
 		})
@@ -306,7 +310,7 @@ func PutAccountUser(tmpls *templates.Tmpls, db *database.Database, sessionsKV je
 			return
 		}
 
-		qtx.Commit()
+		tx.Commit()
 
 		// Update page
 		tmplData, err := loadAppAccountPageData(
@@ -351,15 +355,15 @@ func PostAccountUser(tmpls *templates.Tmpls, db *database.Database, sessionsKV j
 		}
 
 		// setup qtx
-		qtx, err := db.QTx(r.Context(), database.WithForeignKeys)
+		tx, err := db.Pool.BeginTx(r.Context(), nil)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		defer qtx.Cleanup()
+		defer tx.Rollback()
 
 		// Query the userid from username, then add perms
-		usr, err := qtx.Q().GetUserByUsername(r.Context(), body.Username)
+		usr, err := db.Q.WithTx(tx).GetUserByUsername(r.Context(), body.Username)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				// TODO: Update page with not found error
@@ -372,7 +376,7 @@ func PostAccountUser(tmpls *templates.Tmpls, db *database.Database, sessionsKV j
 
 		now := time.Now()
 
-		qtx.Q().InsertAccountPerm(r.Context(), gensql.InsertAccountPermParams{
+		db.Q.WithTx(tx).InsertAccountPerm(r.Context(), gensql.InsertAccountPermParams{
 			AccountID:   int64(accId),
 			UserID:      usr.ID,
 			Permissions: int64(accounts.PermAdmin),
@@ -380,7 +384,7 @@ func PostAccountUser(tmpls *templates.Tmpls, db *database.Database, sessionsKV j
 			CreatedAt:   now,
 		})
 
-		qtx.Commit()
+		tx.Commit()
 
 		// Update page
 		tmplData, err := loadAppAccountPageData(
@@ -421,15 +425,15 @@ func DeleteAccountUser(tmpls *templates.Tmpls, db *database.Database, sessionsKV
 		}
 
 		// setup qtx
-		qtx, err := db.QTx(r.Context(), database.WithForeignKeys)
+		tx, err := db.Pool.BeginTx(r.Context(), nil)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		defer qtx.Cleanup()
+		defer tx.Rollback()
 
 		// Remove user's perms from account
-		err = qtx.Q().DeleteAccountPerm(r.Context(), gensql.DeleteAccountPermParams{
+		err = db.Q.WithTx(tx).DeleteAccountPerm(r.Context(), gensql.DeleteAccountPermParams{
 			AccountID: int64(accId),
 			UserID:    int64(userId),
 		})
@@ -438,7 +442,7 @@ func DeleteAccountUser(tmpls *templates.Tmpls, db *database.Database, sessionsKV
 			return
 		}
 
-		qtx.Commit()
+		tx.Commit()
 
 		// Update page
 		tmplData, err := loadAppAccountPageData(
@@ -873,14 +877,14 @@ func SubmitTransfer(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn
 		}
 		qtyInt := int64(qtyFloat * math.Pow(10, float64(acc.AssetScale)))
 
-		qtx, err := db.QTx(r.Context(), database.WithForeignKeys)
+		tx, err := db.Pool.BeginTx(r.Context(), nil)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		defer qtx.Cleanup()
+		defer tx.Rollback()
 
-		_, err = accounts.CreateTransfer(r.Context(), qtx.Q(), nc, accounts.CreateTransferInput{
+		_, err = accounts.CreateTransfer(r.Context(), db.Q.WithTx(tx), nc, accounts.CreateTransferInput{
 			SendingId:   accId,
 			ReceivingId: recipientId,
 			Memo:        memo,
@@ -895,7 +899,7 @@ func SubmitTransfer(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		qtx.Commit()
+		tx.Commit()
 
 		sse := datastar.NewSSE(w, r)
 

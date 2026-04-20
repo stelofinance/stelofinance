@@ -3,7 +3,6 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,7 +11,6 @@ import (
 
 	"github.com/dchest/uniuri"
 	"github.com/go-playground/validator/v10"
-	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/starfederation/datastar-go/datastar"
 	"github.com/stelofinance/stelofinance/internal/sessions"
@@ -70,7 +68,7 @@ func Index(tmpls *templates.Tmpls) http.Handler {
 	})
 }
 
-func Login(tmpls *templates.Tmpls, nc *nats.Conn) http.HandlerFunc {
+func Login(tmpls *templates.Tmpls, sessionsKV jetstream.KeyValue) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		loggingIn := false
 		if r.URL.Query().Has("datastar") {
@@ -87,7 +85,7 @@ func Login(tmpls *templates.Tmpls, nc *nats.Conn) http.HandlerFunc {
 		}
 
 		if loggingIn {
-			publicCode := uniuri.NewLen(8)
+			publicCode := uniuri.NewLen(12)
 			tmplData := templates.DefaultLayoutPrimary
 			tmplData.PageData = templates.PageLogin{
 				OnlyRenderPage: true,
@@ -103,23 +101,72 @@ func Login(tmpls *templates.Tmpls, nc *nats.Conn) http.HandlerFunc {
 
 			sse.PatchElements(buff.String())
 
-			sub, err := nc.SubscribeSync("login-notifications." + publicCode)
+			// Now, loop till they auth, timeout after 60 seconds
+			start := time.Now()
+			client := &http.Client{}
+			body := make(map[string]string)
+			body["code"] = "stelo:" + publicCode
+			data, err := json.Marshal(body)
 			if err != nil {
-				// TODO: handle this error...
+				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
-
-			msg, err := sub.NextMsg(time.Minute)
-			if err != nil {
-				if errors.Is(err, nats.ErrTimeout) {
-					// TODO: Timeout message
+			type ValidateResponsePlayer struct {
+				EntityId string
+				Username string
+			}
+			type ValidateResponse struct {
+				Success bool                   `json:"success"`
+				Player  ValidateResponsePlayer `json:"player"`
+			}
+			for time.Now().Before(start.Add(time.Minute)) {
+				time.Sleep(time.Second)
+				req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, "https://bitjita.com/api/auth/chat/validate", bytes.NewBuffer(data))
+				if err != nil {
+					// TODO: Log or something
+					continue
 				}
-				// TODO: handle other errors
+				req.Header.Add("User-Agent", "SteloFinance/0.4.0")
+
+				resp, err := client.Do(req)
+				if err != nil {
+					// TODO: Log or something
+					continue
+				}
+				var data ValidateResponse
+				if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+					// TODO: Log or something
+					continue
+				}
+				resp.Body.Close()
+
+				if !data.Success {
+					continue
+				}
+
+				// Create login kv
+				bytes, err := json.Marshal(LoginKV{
+					Username: data.Player.Username,
+					PlayerId: data.Player.EntityId,
+				})
+				if err != nil {
+					// TODO: add log
+					continue
+				}
+				secretKey := uniuri.New()
+				_, err = sessionsKV.Create(r.Context(), "logins."+secretKey, bytes, jetstream.KeyTTL(time.Second*15))
+				if err != nil {
+					// TODO: add log
+					continue
+				}
+
+				// Redirect to secret auth endpoint
+				sse.Redirect("/auth/" + secretKey)
 				return
 			}
 
-			// Redirect to secret auth endpoint
-			sse.Redirect("/auth/" + string(msg.Data))
+			// TODO: Handle timeout better
+			return
 		} else {
 			tmplData := templates.DefaultLayoutPrimary
 			tmplData.PageData = templates.PageLogin{}
