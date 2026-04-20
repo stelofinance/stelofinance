@@ -108,12 +108,6 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 		return err
 	})
 
-	// Run migrations
-	err = database.RunMigrations(ctx, getenv)
-	if err != nil {
-		return err
-	}
-
 	// Connect up db and create db struct
 	dbConn, err := sql.Open("sqlite", getenv("DB_FILE"))
 	if err != nil {

@@ -5,11 +5,17 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/stelofinance/stelofinance/database"
 	"github.com/stelofinance/stelofinance/web"
 )
 
 func main() {
 	ctx := context.Background()
+	if err := database.RunMigrations(ctx, os.Getenv); err != nil {
+		fmt.Fprintf(os.Stderr, "%s\n", err)
+		os.Exit(1)
+	}
+
 	if err := web.Run(ctx, os.Getenv, os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintf(os.Stderr, "%s\n", err)
 		os.Exit(1)
