@@ -33,16 +33,54 @@ func AuthUser(lgr *logger.Logger, sessionsKV jetstream.KeyValue, authRequired bo
 
 			sid, found := strings.CutPrefix(cookie.Value, "stl_")
 			if !found {
-				w.WriteHeader(http.StatusBadRequest)
-				return
+				// Wipe their cookie and if auth not required, continue, otherwise redirect
+				c := &http.Cookie{
+					Name:     "sid",
+					Value:    "",
+					Path:     "/",
+					MaxAge:   -1,
+					HttpOnly: true,
+					Secure:   true,
+					SameSite: http.SameSiteLaxMode,
+				}
+				http.SetCookie(w, c)
+
+				if !authRequired {
+					next.ServeHTTP(w, r)
+					return
+				} else {
+					// Redirect to homepage
+					// TODO: Do proper auth redirect to login
+					http.Redirect(w, r, "/", http.StatusFound)
+					return
+				}
 			}
 
 			// Retrieve session data
 			sVal, err := getKeyValueWithPattern(r.Context(), sessionsKV, "users.*.sessions."+sid)
 			if err != nil {
 				if errors.Is(err, ErrKeyNotFound) {
-					w.WriteHeader(http.StatusBadRequest)
-					return
+					// Wipe their cookie and if auth not required, continue, otherwise redirect
+					c := &http.Cookie{
+						Name:     "sid",
+						Value:    "",
+						Path:     "/",
+						MaxAge:   -1,
+						HttpOnly: true,
+						Secure:   true,
+						SameSite: http.SameSiteLaxMode,
+					}
+					http.SetCookie(w, c)
+
+					if !authRequired {
+						next.ServeHTTP(w, r)
+						return
+					} else {
+						// Redirect to homepage
+						// TODO: Do proper auth redirect to login
+						http.Redirect(w, r, "/", http.StatusFound)
+						return
+					}
 				}
 				lgr.Log(logger.Log{
 					Message: "error retrieving session data kv",
