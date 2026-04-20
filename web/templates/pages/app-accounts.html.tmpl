@@ -29,7 +29,7 @@
 	        data-show="!$creatingAcc"
 	>Create Account</button>
 	<form data-show="$creatingAcc" style="display: none" class="bg-neutral-800 rounded w-full flex">
-		<select class="mr-auto" name="ledger">
+		<select class="mr-auto bg-neutral-800" name="ledger">
 			<option value="">-- Choose --</option>
 			{{range .Ledgers}}
 			<option value="{{.ID}}">{{.Name}}</option>
