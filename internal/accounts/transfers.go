@@ -74,6 +74,7 @@ var ErrInvalidBalance = errors.New("transfer: invalid balance")
 var ErrIncompatibleAccCodes = errors.New("transaction: incompatible account codes")
 var ErrIncompatibleLedgers = errors.New("transaction: incompatible account ledgers")
 var ErrMatchingSenderReceiver = errors.New("transaction: sender is receiver")
+var ErrMemoExceedsLimit = errors.New("transaction: memo exceeds length limit")
 
 type CreateTransferInput struct {
 	SendingId   int64
@@ -92,6 +93,10 @@ func CreateTransfer(ctx context.Context, q *gensql.Queries, nc *nats.Conn, input
 
 	if input.SendingId == input.ReceivingId {
 		return 0, ErrMatchingSenderReceiver
+	}
+
+	if input.Memo != nil && len(*input.Memo) > 50 {
+		return 0, ErrMemoExceedsLimit
 	}
 
 	// Query both wallets for types
