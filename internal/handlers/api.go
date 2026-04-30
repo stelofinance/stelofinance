@@ -342,7 +342,7 @@ func CreateTransfer(db *database.Database, nc *nats.Conn) http.HandlerFunc {
 		}
 		defer tx.Rollback()
 
-		_, err = accounts.CreateTransfer(r.Context(), db.Q.WithTx(tx), nc, accounts.CreateTransferInput{
+		_, sendEvents, err := accounts.CreateTransfer(r.Context(), db.Q.WithTx(tx), nc, accounts.CreateTransferInput{
 			SendingId:   accData.Id,
 			ReceivingId: body.ReceivingId,
 			Memo:        body.Memo,
@@ -359,6 +359,7 @@ func CreateTransfer(db *database.Database, nc *nats.Conn) http.HandlerFunc {
 		}
 
 		tx.Commit()
+		go sendEvents()
 
 		w.WriteHeader(http.StatusCreated)
 	}

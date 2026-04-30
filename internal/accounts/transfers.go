@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -85,39 +84,41 @@ type CreateTransferInput struct {
 	Amount   int64
 }
 
-func CreateTransfer(ctx context.Context, q *gensql.Queries, nc *nats.Conn, input CreateTransferInput) (int64, error) {
+func CreateTransfer(ctx context.Context, q *gensql.Queries, nc *nats.Conn, input CreateTransferInput) (int64, EventPublisher, error) {
+	publisher := func() error { return nil }
+
 	// Validate asset is >= 1 qty
 	if input.Amount < 1 {
-		return 0, ErrInvalidQuantity
+		return 0, publisher, ErrInvalidQuantity
 	}
 
 	if input.SendingId == input.ReceivingId {
-		return 0, ErrMatchingSenderReceiver
+		return 0, publisher, ErrMatchingSenderReceiver
 	}
 
 	if input.Memo != nil && len(*input.Memo) > 50 {
-		return 0, ErrMemoExceedsLimit
+		return 0, publisher, ErrMemoExceedsLimit
 	}
 
 	// Query both wallets for types
 	sendingAcc, err := q.GetAccountById(ctx, input.SendingId)
 	if err != nil {
-		return 0, err
+		return 0, publisher, err
 	}
 	receivingAcc, err := q.GetAccountById(ctx, input.ReceivingId)
 	if err != nil {
-		return 0, err
+		return 0, publisher, err
 	}
 
 	// Ensure both accounts are for same ledger
 	if sendingAcc.LedgerID != receivingAcc.LedgerID {
-		return 0, ErrIncompatibleLedgers
+		return 0, publisher, ErrIncompatibleLedgers
 	}
 
 	// Determine TxCode
 	trC := AccountCode(sendingAcc.Code).IdentifyTrCode(AccountCode(receivingAcc.Code))
 	if trC == -1 {
-		return 0, ErrIncompatibleAccCodes
+		return 0, publisher, ErrIncompatibleAccCodes
 	}
 
 	// Determine who's creditor/debitor
@@ -134,9 +135,9 @@ func CreateTransfer(ctx context.Context, q *gensql.Queries, nc *nats.Conn, input
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return 0, ErrInvalidBalance
+			return 0, publisher, ErrInvalidBalance
 		} else {
-			return 0, err
+			return 0, publisher, err
 		}
 	}
 	// Credit the credit account
@@ -146,9 +147,9 @@ func CreateTransfer(ctx context.Context, q *gensql.Queries, nc *nats.Conn, input
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return 0, ErrInvalidBalance
+			return 0, publisher, ErrInvalidBalance
 		} else {
-			return 0, err
+			return 0, publisher, err
 		}
 	}
 
@@ -165,79 +166,49 @@ func CreateTransfer(ctx context.Context, q *gensql.Queries, nc *nats.Conn, input
 		CreatedAt:       now,
 	})
 	if err != nil {
-		return 0, err
+		return 0, publisher, err
 	}
 
-	// Make types for sending to webhook
-	type Transfer struct {
-		ID int64 `json:"id"`
-
-		DebitAccId  int64  `json:"debitAccId"`
-		CreditAccId int64  `json:"creditAccId"`
-		DebitAddr   string `json:"debitAddr"`
-		CreditAddr  string `json:"creditAddr"`
-		Amount      int64  `json:"amount"`
-		LedgerID    int64  `json:"ledgerId"`
-
-		// Flags int64 `json:"flags"`
-		Code      int32     `json:"code"`
-		Memo      *string   `json:"memo,omitempty"`
-		CreatedAt time.Time `json:"createdAt"`
-	}
-
-	creditAddr, debitAddr := sendingAcc.Address, receivingAcc.Address
-	if sendingAcc.ID != creditId {
-		creditAddr, debitAddr = receivingAcc.Address, sendingAcc.Address
-	}
-	tx := struct {
-		ID          int64  `json:"id"`
-		DebitAccId  int64  `json:"debitAccId"`
-		CreditAccId int64  `json:"creditAccId"`
-		DebitAddr   string `json:"debitAddr"`
-		CreditAddr  string `json:"creditAddr"`
-		Amount      int64  `json:"amount"`
-		LedgerID    int64  `json:"ledgerId"`
-
-		// Flags int64 `json:"flags"`
-		Code      int32     `json:"code"`
-		Memo      *string   `json:"memo,omitempty"`
-		CreatedAt time.Time `json:"createdAt"`
-	}{
-		ID:          trId,
+	trEvnt := EventTransfer{
+		ID:          creditId,
 		DebitAccId:  debitId,
 		CreditAccId: creditId,
-		DebitAddr:   debitAddr,
-		CreditAddr:  creditAddr,
 		Amount:      input.Amount,
 		LedgerID:    input.LedgerId,
-
-		Code:      int32(trC),
-		Memo:      input.Memo,
-		CreatedAt: now,
+		Code:        trC,
+		Memo:        input.Memo,
+		CreatedAt:   now,
 	}
 
-	// Create json of tx
-	data, err := json.Marshal(tx)
+	// Create json bytes of tx
+	evntBytes, err := json.Marshal(trEvnt)
 	if err != nil {
-		return 0, err
+		return 0, publisher, err
 	}
 
-	// Send to NATS and webhook
-	go func() {
-		nc.Publish("accounts."+strconv.Itoa(int(sendingAcc.ID))+".transactions", data)
-		nc.Publish("accounts."+strconv.Itoa(int(receivingAcc.ID))+".transactions", data)
+	publisher = func() error {
+		errGrp := errors.Join(nil)
+		errors.Join(errGrp, PublishEvent(nc, trEvnt))
+		if err != nil {
+			return err
+		}
 
 		if sendingAcc.Webhook != nil {
-			resp, _ := http.Post(*sendingAcc.Webhook, "application/json", bytes.NewBuffer(data))
+			resp, err := http.Post(*sendingAcc.Webhook, "application/json", bytes.NewBuffer(evntBytes))
 			resp.Body.Close()
+			errors.Join(errGrp, err)
+
 		}
 		if receivingAcc.Webhook != nil {
-			resp, _ := http.Post(*receivingAcc.Webhook, "application/json", bytes.NewBuffer(data))
+			resp, _ := http.Post(*receivingAcc.Webhook, "application/json", bytes.NewBuffer(evntBytes))
 			resp.Body.Close()
+			errors.Join(errGrp, err)
 		}
-	}()
 
-	return trId, nil
+		return errGrp
+	}
+
+	return trId, publisher, nil
 }
 
 func determineCreditorDebitor(trC TrCode, sendingId, receivingId int64) (creditId, debitId int64) {

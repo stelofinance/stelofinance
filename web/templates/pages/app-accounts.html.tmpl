@@ -3,7 +3,7 @@
 {{end}}
 
 {{define "page-content"}}
-<main id="page-content" class="flex flex-col text-white px-2 py-4">
+<main id="page-content" data-init="@get('/app/accounts/updates')" class="flex flex-col text-white px-2 py-4">
 	{{range .Accounts}}
 	<a href="/app/accounts/{{.AccId}}"
 	   class="flex flex-col py-1 px-2 {{if and (ge .AccCode 0) (le .AccCode 99)}}border-l-4 border-red-600{{end}} bg-neutral-800 rounded mb-2 hover:shadow-lg hover:bg-neutral-700 transition-all"
@@ -35,8 +35,8 @@
 			<option value="{{.ID}}">{{.Name}}</option>
 			{{end}}
 		</select>
-		<button data-on:click="$creatingAcc = false" class="bg-red-700 px-2 rounded">Cancel</button>
-		<button data-on:click="@post('/app/accounts', {contentType: 'form'})" class="bg-anakiwa-900 px-2 rounded">Create</button>
+		<button type="button" data-on:click="$creatingAcc = false" class="bg-red-700 px-2 rounded">Cancel</button>
+		<button type="button" data-on:click="@post('/app/accounts', {contentType: 'form'})" class="bg-anakiwa-900 px-2 rounded">Create</button>
 	</form>
 	{{end}}
 </main>

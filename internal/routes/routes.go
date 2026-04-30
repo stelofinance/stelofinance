@@ -42,73 +42,25 @@ func AddRoutes(
 		mux.Handle("GET /", handlers.AppHome(tmpls, db))
 
 		mux.Handle("GET /accounts", handlers.AppAccounts(tmpls, db))
+		mux.Handle("GET /accounts/updates", handlers.AppAccountsUpdates(tmpls, db, nc))
 		mux.Handle("POST /accounts", handlers.AppCreateAccount(tmpls, db))
-		mux.With(midware.AuthUserAccount(db, accounts.PermAdmin)).Handle("GET /accounts/{account_id}", handlers.AppAccount(tmpls, db, sessionsKV))
-		mux.With(midware.AuthUserAccount(db, accounts.PermAdmin)).Handle("PUT /accounts/{account_id}/user-id", handlers.PutAccountUser(tmpls, db, sessionsKV))
-		mux.With(midware.AuthUserAccount(db, accounts.PermAdmin)).Handle("POST /accounts/{account_id}/users", handlers.PostAccountUser(tmpls, db, sessionsKV))
-		mux.With(midware.AuthUserAccount(db, accounts.PermAdmin)).Handle("DELETE /accounts/{account_id}/users/{user_id}", handlers.DeleteAccountUser(tmpls, db, sessionsKV))
-		mux.With(midware.AuthUserAccount(db, accounts.PermAdmin)).Handle("POST /accounts/{account_id}/tokens", handlers.PostAccountToken(tmpls, db, sessionsKV))
-		mux.With(midware.AuthUserAccount(db, accounts.PermAdmin)).Handle("DELETE /accounts/{account_id}/tokens", handlers.DeleteAccountTokens(tmpls, db, sessionsKV))
-		mux.With(midware.AuthUserAccount(db, accounts.PermAdmin)).Handle("POST /accounts/{account_id}/transfers", handlers.SubmitTransfer(tmpls, db, nc))
+
+		mux.Group(func(mux chi.Router) {
+			mux.Use(midware.AuthUserAccount(db, accounts.PermAdmin))
+
+			mux.Handle("GET /accounts/{account_id}", handlers.AppAccount(tmpls, db, sessionsKV))
+			mux.Handle("PUT /accounts/{account_id}/user-id", handlers.PutAccountUser(tmpls, db, sessionsKV))
+			mux.Handle("POST /accounts/{account_id}/users", handlers.PostAccountUser(tmpls, db, sessionsKV))
+			mux.Handle("DELETE /accounts/{account_id}/users/{user_id}", handlers.DeleteAccountUser(tmpls, db, sessionsKV))
+			mux.Handle("POST /accounts/{account_id}/tokens", handlers.PostAccountToken(tmpls, db, sessionsKV))
+			mux.Handle("DELETE /accounts/{account_id}/tokens", handlers.DeleteAccountTokens(tmpls, db, sessionsKV))
+			mux.Handle("POST /accounts/{account_id}/transfers", handlers.SubmitTransfer(tmpls, db, nc))
+		})
 
 		mux.Handle("GET /transfers", handlers.AppTransfers(tmpls, db))
+		mux.Handle("GET /transfers/updates", handlers.AppTransfersUpdates(tmpls, db, nc))
+
 		mux.Handle("GET /transfers/form-recipient", handlers.FormRecipient(tmpls, db))
-
-		// mux.Handle("GET /wallets", handlers.Wallets(tmpls, db))
-		// mux.Handle("POST /wallets", handlers.WalletsCreate(db))
-		// mux.Route("/wallets/{wallet_addr}", func(mux chi.Router) {
-		// 	mux.Group(func(mux chi.Router) {
-		// 		mux.Use(midware.AuthUserWallet(db, accounts.PermReadBal))
-
-		// 		mux.Handle("GET /", handlers.WalletHome(tmpls, db))
-		// 		mux.Handle("GET /updates", handlers.WalletHomeUpdates(tmpls, db, nc))
-
-		// 		mux.Handle("GET /assets", handlers.WalletAssets(tmpls, db))
-		// 		mux.Handle("GET /assets/updates", handlers.WalletAssetsUpdates(tmpls, db, nc))
-
-		// 		mux.Handle("GET /transactions", handlers.WalletTransactions(tmpls, db))
-		// 		mux.Handle("GET /transactions/updates", handlers.WalletTransactionsUpdates(tmpls, db, nc))
-
-		// 		mux.Handle("GET /market", handlers.WalletMarket(tmpls, db))
-		// 	})
-
-		// 	mux.Group(func(mux chi.Router) {
-		// 		mux.Use(midware.AuthUserWallet(db, accounts.PermAdmin))
-
-		// 		mux.Handle("GET /transact", handlers.WalletTransact(tmpls, db))
-		// 		mux.Handle("POST /transact", handlers.WalletCreateTransaction(tmpls, db, nc))
-		// 		mux.Handle("POST /withdraws/{withdraw_tx_id}/approve", handlers.WalletApproveWithdraw(tmpls, db, nc))
-
-		// 		mux.Handle("POST /market/coinswap", handlers.ExecuteCoinSwap(tmpls, db, nc))
-
-		// 		mux.Handle("GET /settings", handlers.WalletSettings(tmpls, db, sessionsKV))
-		// 		mux.Handle("POST /users", handlers.WalletAddUser(tmpls, db))
-		// 		mux.Handle("POST /tokens", handlers.WalletCreateToken(tmpls, db, sessionsKV))
-		// 		mux.Handle("DELETE /tokens", handlers.WalletDeleteTokens(tmpls, db, sessionsKV))
-
-		// 		mux.Handle("DELETE /users/{discord_username}", handlers.WalletRemoveUser(tmpls, db))
-		// 		mux.Handle("GET /users/{discord_username}", handlers.WalletUserSettings(tmpls, db))
-		// 		mux.Handle("PUT /users/{discord_username}/permissions", handlers.UpdateWalletUserSettings(tmpls, db))
-		// 	})
-		// })
-
-		// mux.Handle("GET /warehouses", handlers.Warehouses(tmpls, db))
-		// mux.Handle("POST /warehouses", handlers.CreateWarehouse(tmpls, db))
-		// mux.Route("/warehouses/{wallet_addr}", func(mux chi.Router) {
-		// 	mux.Group(func(mux chi.Router) {
-		// 		mux.Use(midware.AuthUserWallet(db, accounts.PermReadBal))
-
-		// 		mux.Handle("GET /", handlers.WarehouseHome(tmpls, db))
-		// 	})
-
-		// 	mux.Group(func(mux chi.Router) {
-		// 		mux.Use(midware.AuthUserWallet(db, accounts.PermAdmin))
-
-		// 		mux.Handle("GET /deposit-withdraw", handlers.WarehouseDepositWithdraw(tmpls, db))
-		// 		mux.Handle("POST /deposits/{deposit_tx_id}/approve", handlers.ApproveDeposit(tmpls, db))
-		// 		mux.Handle("POST /deposit-withdraw", handlers.CreateWithdraw(tmpls, db, nc))
-		// 	})
-		// })
 
 		mux.Handle("GET /logout", handlers.Logout(sessionsKV))
 	})

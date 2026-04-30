@@ -6,7 +6,16 @@
 <main id="page-content" class="flex flex-col text-white px-2 py-4">
 	<label class="">
 		<span class="text-sm text-neutral-300">Selected Account</span>
-		<select data-signals:acc-id="-1" data-bind:acc-id data-on:change="@get('/app/transfers')" class="bg-neutral-800 rounded w-full px-2 pt-0.5 pb-1 text-lg" name="account">
+		<select
+			data-signals:acc-id="-1"
+			data-bind:acc-id
+			data-init="@get('/app/transfers/updates', {
+				headers: { 'Data-Attr': 'Init' }
+			})"
+			data-on:change="@get('/app/transfers/updates')"
+			class="bg-neutral-800 rounded w-full px-2 pt-0.5 pb-1 text-lg"
+			name="account"
+		>
 			<option value="-1" {{if eq .SelectedAccount.Id -1}}selected{{end}}>All Accounts</option>
 			{{range .Accounts}}
 			<option value="{{.Id}}" {{if eq $.SelectedAccount.Id .Id}}selected{{end}}>{{.Label}}</option>
@@ -18,6 +27,7 @@
 	<h2 class="mt-4 text-lg">Send {{.SelectedAccount.LedgerName}}s <span id="bal" class="text-neutral-300 text-sm">(bal: {{.SelectedAccount.Balance}})</span></h2>
 	<form class="flex flex-col"
 	      id="transfer-form"
+				data-show="!$sentMessage"
 	      data-on:submit="@post('/app/accounts/{{.SelectedAccount.Id}}/transfers', {contentType: 'form'})"
 	      data-indicator:sending
 	      data-class="{'*:cursor-wait animate-pulse': $sending}"
@@ -39,6 +49,10 @@
 		</div>
 		<button data-attr:disabled="$sending" class="mt-2 w-full bg-neutral-800 rounded pt-0.5 pb-1 cursor-pointer">SEND</button>
 	</form>
+	<div data-show="$sentMessage" style="display: none;" class="flex justify-between bg-neutral-800 rounded px-2 pt-2 pb-3">
+		<p>Transfer Sent!</p>
+		<button class="underline text-anakiwa cursor-pointer" data-on:click="$sentMessage = false">Start Over</button>
+	</div>
 	{{end}}
 
 	<h2 class="mt-4 text-lg">Transfers</h2>
