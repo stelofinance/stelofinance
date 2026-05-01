@@ -6,7 +6,7 @@ UPDATE account
         credits_pending = credits_pending + sqlc.arg(credits_pending)
     WHERE id = sqlc.arg(account_id);
 
--- name: UpdateAccountBalance :exec
+-- name: UpdateAccountBalance :execrows
 -- SQLC doesn't recognize @field in the CASE, so I manually made it ?1 to match
 UPDATE account
 SET 
@@ -21,7 +21,7 @@ AND CASE
     ELSE TRUE
 END;
 
--- name: UpdateDebitsPosted :exec
+-- name: UpdateDebitsPosted :execrows
 UPDATE account
 SET debits_posted = debits_posted + @quantity
 WHERE id = @id
@@ -30,7 +30,7 @@ AND CASE
     ELSE TRUE
 END;
 
--- name: UpdateDebitsPending :exec
+-- name: UpdateDebitsPending :execrows
 UPDATE account
 SET debits_pending = debits_pending + @quantity
 WHERE id = @id
@@ -39,7 +39,7 @@ AND CASE
     ELSE TRUE
 END;
 
--- name: UpdateCreditsPosted :exec
+-- name: UpdateCreditsPosted :execrows
 UPDATE account
 SET credits_posted = credits_posted + @quantity
 WHERE id = @id
@@ -48,7 +48,7 @@ AND CASE
     ELSE TRUE
 END;
 
--- name: UpdateCreditsPending :exec
+-- name: UpdateCreditsPending :execrows
 UPDATE account
 SET credits_pending = credits_pending + @quantity
 WHERE id = @id

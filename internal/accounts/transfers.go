@@ -3,9 +3,9 @@ package accounts
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -129,28 +129,26 @@ func CreateTransfer(ctx context.Context, q *gensql.Queries, nc *nats.Conn, input
 	// TODO: implement pending if needed
 
 	// Debit the debit account
-	err = q.UpdateDebitsPosted(ctx, gensql.UpdateDebitsPostedParams{
+	rows, err := q.UpdateDebitsPosted(ctx, gensql.UpdateDebitsPostedParams{
 		Quantity: input.Amount,
 		ID:       debitId,
 	})
+	if rows == 0 {
+		return 0, publisher, ErrInvalidBalance
+	}
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return 0, publisher, ErrInvalidBalance
-		} else {
-			return 0, publisher, err
-		}
+		return 0, publisher, err
 	}
 	// Credit the credit account
-	err = q.UpdateCreditsPosted(ctx, gensql.UpdateCreditsPostedParams{
+	rows, err = q.UpdateCreditsPosted(ctx, gensql.UpdateCreditsPostedParams{
 		Quantity: input.Amount,
 		ID:       creditId,
 	})
+	if rows == 0 {
+		return 0, publisher, ErrInvalidBalance
+	}
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return 0, publisher, ErrInvalidBalance
-		} else {
-			return 0, publisher, err
-		}
+		return 0, publisher, err
 	}
 
 	// Create transfer record
