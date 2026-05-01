@@ -176,7 +176,7 @@ func Account(db *database.Database) http.HandlerFunc {
 			UserID:         acc.UserID,
 			Balance:        bal,
 			DebitsPending:  acc.DebitsPending,
-			DebitsPosted:   acc.DebitsPending,
+			DebitsPosted:   acc.DebitsPosted,
 			CreditsPending: acc.CreditsPending,
 			CreditsPosted:  acc.CreditsPosted,
 			LedgerID:       acc.LedgerID,
