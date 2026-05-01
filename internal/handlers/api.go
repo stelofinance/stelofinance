@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -92,6 +93,50 @@ func User(db *database.Database) http.HandlerFunc {
 		}
 
 		data, err := json.Marshal(user)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(data)
+	}
+}
+
+func Accounts(db *database.Database) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		searchTerm := r.URL.Query().Get("term")
+		ledgerIdStr := r.URL.Query().Get("ledgerid")
+		if searchTerm == "" || ledgerIdStr == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		ledgerId, err := strconv.ParseInt(ledgerIdStr, 10, 64)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		result, err := db.Q.SearchAccountsByAddrAndUsername(r.Context(), gensql.SearchAccountsByAddrAndUsernameParams{
+			SearchTerm:       "%" + strings.ToUpper(searchTerm) + "%",
+			ExcludeAccountID: -1,
+			LedgerID:         ledgerId,
+			Limit:            10,
+		})
+		if err != nil {
+			// if errors.Is(err, sql.ErrNoRows) {
+			// 	w.WriteHeader(http.StatusNotFound)
+			// 	return
+			// }
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		// So empty marshalls as empty array
+		if len(result) == 0 {
+			result = make([]gensql.SearchAccountsByAddrAndUsernameRow, 0)
+		}
+
+		data, err := json.Marshal(result)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
