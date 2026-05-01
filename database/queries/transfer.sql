@@ -13,6 +13,7 @@ JOIN
 JOIN
 	account AS ca ON ca.id = tr.credit_account_id
 WHERE debit_account_id = sqlc.arg(account_id) OR credit_account_id = sqlc.arg(account_id)
+ORDER BY datetime(tr.created_at) DESC
 LIMIT 250;
 
 -- name: GetTransferById :one
