@@ -82,7 +82,7 @@ func AddRoutes(
 
 		mux.With(midware.AuthAdmin(getenv)).Handle("POST /accounts", handlers.CreateAccount(db))
 		mux.With(midware.AuthAdmin(getenv)).Handle("PUT /accounts/{account_id}/address", handlers.UpdateAddress(db))
-		// Change balances route
+		mux.With(midware.AuthAdmin(getenv)).Handle("PATCH /accounts/{account_id}/balance", handlers.PatchBalance(db))
 
 		mux.Route("/accounts/{account_id}", func(mux chi.Router) {
 			mux.Use(midware.AuthAccountToken(sessionsKV))

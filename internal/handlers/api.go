@@ -234,7 +234,6 @@ func UpdateAddress(db *database.Database) http.HandlerFunc {
 			return
 		}
 		if err := validate.Struct(body); err != nil {
-			fmt.Println(err)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -249,6 +248,77 @@ func UpdateAddress(db *database.Database) http.HandlerFunc {
 		}
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+func PatchBalance(db *database.Database) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		accIdStr := chi.URLParam(r, "account_id")
+		accId, err := strconv.ParseInt(accIdStr, 10, 64)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		type Input struct {
+			AdjustBy int64 `json:"adjustBy"`
+		}
+		var body Input
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if body.AdjustBy == 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		acc, err := db.Q.GetAccountById(r.Context(), accId)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		var rows int64 = 0
+		if accounts.AccountCode(acc.Code).IsDebit() {
+			if body.AdjustBy > 0 {
+				rows, err = db.Q.UpdateDebitsPosted(r.Context(), gensql.UpdateDebitsPostedParams{
+					Quantity: body.AdjustBy,
+					ID:       accId,
+				})
+			} else {
+				rows, err = db.Q.UpdateCreditsPosted(r.Context(), gensql.UpdateCreditsPostedParams{
+					Quantity: -body.AdjustBy,
+					ID:       accId,
+				})
+			}
+		} else {
+			if body.AdjustBy > 0 {
+				rows, err = db.Q.UpdateCreditsPosted(r.Context(), gensql.UpdateCreditsPostedParams{
+					Quantity: body.AdjustBy,
+					ID:       accId,
+				})
+			} else {
+				rows, err = db.Q.UpdateDebitsPosted(r.Context(), gensql.UpdateDebitsPostedParams{
+					Quantity: -body.AdjustBy,
+					ID:       accId,
+				})
+			}
+		}
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if rows == 0 {
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 
