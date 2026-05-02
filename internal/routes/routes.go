@@ -81,8 +81,7 @@ func AddRoutes(
 		mux.Handle("GET /accounts", handlers.Accounts(db))
 
 		mux.With(midware.AuthAdmin(getenv)).Handle("POST /accounts", handlers.CreateAccount(db))
-
-		// Change address route
+		mux.With(midware.AuthAdmin(getenv)).Handle("PUT /accounts/{account_id}/address", handlers.UpdateAddress(db))
 		// Change balances route
 
 		mux.Route("/accounts/{account_id}", func(mux chi.Router) {

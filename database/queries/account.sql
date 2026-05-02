@@ -114,6 +114,11 @@ UPDATE account
 SET user_id = ?
 WHERE id = ?;
 
+-- name: UpdateAccountAddress :execrows
+UPDATE account
+SET address = ?
+WHERE id = ?;
+
 -- name: GetAccountsUserHasPerms :many
 SELECT
     a.id,

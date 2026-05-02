@@ -215,6 +215,47 @@ func CreateAccount(db *database.Database) http.HandlerFunc {
 		w.WriteHeader(http.StatusCreated)
 	}
 }
+
+func UpdateAddress(db *database.Database) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		accIdStr := chi.URLParam(r, "account_id")
+		accId, err := strconv.ParseInt(accIdStr, 10, 64)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		type Input struct {
+			Addr string `json:"addr" validate:"min=3"`
+		}
+		var body Input
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if err := validate.Struct(body); err != nil {
+			fmt.Println(err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		rows, err := db.Q.UpdateAccountAddress(r.Context(), gensql.UpdateAccountAddressParams{
+			Address: body.Addr,
+			ID:      accId,
+		})
+		if rows == 0 {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
 func Account(db *database.Database) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		aData := sessions.GetAccount(r.Context())
