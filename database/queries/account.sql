@@ -1,4 +1,4 @@
--- name: UpdateAccountBalances :exec
+-- name: UpdateAccountBalances :execrows
 UPDATE account
     SET debits_posted = debits_posted + sqlc.arg(debits_posted),
         debits_pending = debits_pending + sqlc.arg(debits_pending),
@@ -109,7 +109,7 @@ UPDATE account
 SET webhook = ?
 WHERE id = ?;
 
--- name: UpdateAccountUserId :exec
+-- name: UpdateAccountUserId :execrows
 UPDATE account
 SET user_id = ?
 WHERE id = ?;
@@ -148,3 +148,15 @@ WHERE
     AND a.id != sqlc.arg(exclude_account_id)
     AND a.ledger_id = sqlc.arg(ledger_id)
 LIMIT sqlc.arg(limit);
+
+-- name: LedgerBalanceAudit :one
+SELECT
+    SUM(CASE
+        WHEN a.code BETWEEN 100 AND 199
+        THEN a.debits_posted - a.credits_pending - a.credits_posted
+        ELSE 0 END) AS debits_net,
+    SUM(CASE WHEN a.code BETWEEN 0 AND 99
+        THEN a.credits_posted - a.debits_pending - a.debits_posted
+        ELSE 0 END) AS credits_net
+FROM account a
+WHERE ledger_id = ?;

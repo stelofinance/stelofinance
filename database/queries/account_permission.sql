@@ -30,11 +30,11 @@ INSERT
     VALUES (?, ?, ?, ?, ?)
 RETURNING id;
 
--- name: DeleteAccountPerm :exec
+-- name: DeleteAccountPerm :execrows
 DELETE FROM account_permission
 WHERE account_id = sqlc.arg(account_id) AND user_id = sqlc.arg(user_id);
 
--- name: DeleteAccountPermOLD :exec
+-- name: DeleteAccountPermOLD :execrows
 DELETE FROM account_permission AS ap
 WHERE ap.account_id = sqlc.arg(account_id) AND user_id IN (
 	SELECT id AS user_id
@@ -45,7 +45,7 @@ WHERE ap.account_id = sqlc.arg(account_id) AND user_id IN (
 -- UPDATE FROM is broken in SQLC, once this PR is merged, this can be fixed
 -- https://github.com/sqlc-dev/sqlc/pull/3610
 
--- name: UpdateAccountPerm :exec
+-- name: UpdateAccountPerm :execrows
 UPDATE account_permission
 SET permissions = ?
 WHERE id = ?;

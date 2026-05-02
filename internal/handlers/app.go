@@ -362,10 +362,14 @@ func PutAccountUser(tmpls *templates.Tmpls, db *database.Database, sessionsKV je
 			userId = &uData.Id
 		}
 
-		err = db.Q.WithTx(tx).UpdateAccountUserId(r.Context(), gensql.UpdateAccountUserIdParams{
+		rows, err := db.Q.WithTx(tx).UpdateAccountUserId(r.Context(), gensql.UpdateAccountUserIdParams{
 			UserID: userId,
 			ID:     int64(accId),
 		})
+		if rows == 0 {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -494,10 +498,14 @@ func DeleteAccountUser(tmpls *templates.Tmpls, db *database.Database, sessionsKV
 		defer tx.Rollback()
 
 		// Remove user's perms from account
-		err = db.Q.WithTx(tx).DeleteAccountPerm(r.Context(), gensql.DeleteAccountPermParams{
+		rows, err := db.Q.WithTx(tx).DeleteAccountPerm(r.Context(), gensql.DeleteAccountPermParams{
 			AccountID: int64(accId),
 			UserID:    int64(userId),
 		})
+		if rows == 0 {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -1046,12 +1054,14 @@ func SubmitTransfer(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn
 			Amount:      qtyInt,
 		})
 		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				w.WriteHeader(http.StatusNotFound)
+			switch err {
+			case accounts.ErrInvalidBalance:
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			default:
+				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
-			w.WriteHeader(http.StatusInternalServerError)
-			return
 		}
 		tx.Commit()
 		go sendEvents()

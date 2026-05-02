@@ -69,6 +69,7 @@ func AddRoutes(
 	mux.Route("/api", func(mux chi.Router) {
 		mux.Handle("GET /ledgers", handlers.Ledgers(db))
 		mux.With(midware.AuthAdmin(getenv)).Handle("POST /ledgers", handlers.CreateLedger(db))
+		mux.With(midware.AuthAdmin(getenv)).Handle("GET /ledgers/{ledger_id}/audit", handlers.LedgerAudit(db))
 
 		// Simple no-auth ping route
 		mux.Handle("GET /ping", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -80,6 +81,9 @@ func AddRoutes(
 		mux.Handle("GET /accounts", handlers.Accounts(db))
 
 		mux.With(midware.AuthAdmin(getenv)).Handle("POST /accounts", handlers.CreateAccount(db))
+
+		// Change address route
+		// Change balances route
 
 		mux.Route("/accounts/{account_id}", func(mux chi.Router) {
 			mux.Use(midware.AuthAccountToken(sessionsKV))

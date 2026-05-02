@@ -75,6 +75,30 @@ func Ledgers(db *database.Database) http.HandlerFunc {
 	}
 }
 
+func LedgerAudit(db *database.Database) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ledgerId, err := strconv.ParseInt(chi.URLParam(r, "ledger_id"), 10, 64)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		audit, err := db.Q.LedgerBalanceAudit(r.Context(), ledgerId)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		data, err := json.Marshal(audit)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(data)
+	}
+}
+
 func User(db *database.Database) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userId, err := strconv.ParseInt(chi.URLParam(r, "user_id"), 10, 64)
@@ -395,12 +419,14 @@ func CreateTransfer(db *database.Database, nc *nats.Conn) http.HandlerFunc {
 			Amount:      body.Amount,
 		})
 		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				w.WriteHeader(http.StatusNotFound)
+			switch err {
+			case accounts.ErrInvalidBalance:
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			default:
+				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
-			w.WriteHeader(http.StatusInternalServerError)
-			return
 		}
 
 		tx.Commit()
