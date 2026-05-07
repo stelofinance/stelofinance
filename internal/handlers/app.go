@@ -327,6 +327,130 @@ func AppAccount(tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstr
 	}
 }
 
+func AppPaymentRequest(tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstream.KeyValue) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uData := sessions.GetUser(r.Context())
+
+		ledgerIdStr := r.URL.Query().Get("ledgerid")
+		amountStr := r.URL.Query().Get("amount")
+		recipientIdStr := r.URL.Query().Get("recipientid")
+		memo := r.URL.Query().Get("memo")
+
+		if ledgerIdStr == "" || amountStr == "" || recipientIdStr == "" {
+			fmt.Println("test 1")
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		ledgerId, err := strconv.ParseInt(ledgerIdStr, 10, 64)
+		if err != nil {
+			fmt.Println("test 2")
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		amount, err := strconv.ParseInt(amountStr, 10, 64)
+		if err != nil {
+			fmt.Println("test 3")
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		recipientId, err := strconv.ParseInt(recipientIdStr, 10, 64)
+		if err != nil {
+			fmt.Println("test 4")
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		// Get ledger info
+		ledger, err := db.Q.GetLedger(r.Context(), ledgerId)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		// Get recipients account info to display
+		recipientAcc, err := db.Q.GetAccountWithUsernameById(r.Context(), recipientId)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		// Get and prepare all account info
+		accsResult, err := db.Q.GetAccountsUserHasPermsByLedger(r.Context(), gensql.GetAccountsUserHasPermsByLedgerParams{
+			UserID:   uData.Id,
+			LedgerID: ledgerId,
+		})
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		pageData := templates.PageAppRequest{
+			OnlyRenderPage: false,
+		}
+		var accs []templates.PageAppRequestAccount
+		for _, acc := range accsResult {
+			// Don't let requests happen to credit accounts
+			if accounts.AccountCode(acc.AccountCode).IsCredit() {
+				continue
+			}
+
+			if acc.PrimaryUserID != nil && *acc.PrimaryUserID == uData.Id {
+				pageData.PrimaryAccount = templates.PageAppRequestAccount{
+					Id:      acc.ID,
+					Address: acc.Address,
+				}
+				continue
+			}
+
+			accs = append(accs, templates.PageAppRequestAccount{
+				Id:      acc.ID,
+				Address: acc.Address,
+			})
+		}
+
+		pageData.Accounts = accs
+		pageData.RecipientFmtd = "#" + recipientAcc.Address
+		if recipientAcc.BitcraftUsername != nil {
+			pageData.RecipientFmtd = *recipientAcc.BitcraftUsername
+		}
+		pageData.Recipient = recipientId
+		pageData.LedgerName = ledger.Name
+		pageData.AmountFmtd = humanize.Commaf(float64(amount) / math.Pow(10, float64(ledger.AssetScale)))
+		pageData.Memo = memo
+
+		tmplData := templates.LayoutApp{
+			Title:       "Payment Request",
+			Description: "Request for a payment",
+			NavData: templates.ComponentAppNav{
+				Username: uData.BitCraftUsername,
+			},
+			MenuData: templates.ComponentAppMenu{
+				ActivePage: "request",
+			},
+			PageData: pageData,
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		err = tmpls.ExecuteTemplate(w, "pages/app-request", tmplData)
+		if err != nil {
+			panic(err)
+		}
+	}
+}
+
+func PostRequest(tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstream.KeyValue) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+
+	}
+}
+
 func PutAccountUser(tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstream.KeyValue) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uData := sessions.GetUser(r.Context())

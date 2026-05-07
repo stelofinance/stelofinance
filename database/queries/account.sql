@@ -140,6 +140,27 @@ INNER JOIN ledger l ON l.id = a.ledger_id
 INNER JOIN account_permission ap ON ap.account_id = a.id
 WHERE ap.user_id = ?;
 
+-- name: GetAccountsUserHasPermsByLedger :many
+SELECT
+    a.id,
+    a.address,
+
+    a.debits_pending,
+    a.debits_posted,
+    a.credits_pending,
+    a.credits_posted,
+
+    a.user_id AS primary_user_id,
+    l.name AS ledger_name,
+    l.asset_scale,
+    l.code AS ledger_code,
+    a.code AS account_code,
+    ap.permissions
+FROM account a
+INNER JOIN ledger l ON l.id = a.ledger_id
+INNER JOIN account_permission ap ON ap.account_id = a.id
+WHERE ap.user_id = ? AND a.ledger_id = ?;
+
 -- name: SearchAccountsByAddrAndUsername :many
 SELECT
     a.id,

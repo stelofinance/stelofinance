@@ -102,3 +102,20 @@ type PageAppTransfersTransfer struct {
 	LedgerName  string
 	Memo        string
 }
+
+type PageAppRequest struct {
+	OnlyRenderPage bool
+	LedgerName     string
+	AmountFmtd     string
+	Amount         int64
+	RecipientFmtd  string
+	Recipient      int64
+	Memo           string
+	PrimaryAccount PageAppRequestAccount
+	Accounts       []PageAppRequestAccount
+}
+
+type PageAppRequestAccount struct {
+	Id      int64
+	Address string
+}
