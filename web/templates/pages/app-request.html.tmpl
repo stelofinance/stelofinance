@@ -1,0 +1,43 @@
+{{if not .PageData.OnlyRenderPage}}
+{{template "layouts/app" .}}
+{{end}}
+
+{{define "page-content"}}
+<main id="page-content" class="flex flex-col text-white px-2 py-4">
+	<h1 class="text-xl font-bold text-center">Payment Request</h1>
+	<form id="request-form" class="mt-4 bg-neutral-800 rounded px-2 pt-0.5 pb-2 flex flex-col">
+		<label class="">
+			<span class="text-sm text-neutral-300">Send {{.AmountFmtd}} hexcoin from:</span>
+			<select class="bg-neutral-900 rounded w-full px-1 pt-0.5 pb-1 text-lg"
+			        name="account"
+			>
+				<option value="{{.PrimaryAccount}}" selected>Primary (#{{.PrimaryAccount.Address}})</option>
+				{{range .Accounts}}
+				<option value="{{.Id}}">#{{.Address}}</option>
+				{{end}}
+			</select>
+		</label>
+		<label class="mt-1">
+			<span class="">To: {{.RecipientFmtd}}</span>
+			<input type="hidden" name="recipient" value="{{.Recipient}}">
+		</label>
+		{{if .Memo}}
+		<hr class="mt-1">
+		<label class="mt-1 w-full flex">
+			<span class="bg-neutral-900 rounded text-sm w-full px-1">{{.Memo}}</span>
+			<input type="hidden" name="memo" value="{{.Recipient}}">
+		</label>
+		{{end}}
+	</form>
+
+	<button form="request-form"
+	        data-attr:disabled="$sending"
+	        data-on:click="@post('/app/request-transfer', {contentType: 'form'})"
+	        class="mt-2 w-full bg-neutral-800 rounded pt-0.5 pb-1 cursor-pointer"
+	>SEND</button>
+</main>
+{{end}}
+
+{{if .PageData.OnlyRenderPage}}
+{{template "page-content" .PageData}}
+{{end}}

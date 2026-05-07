@@ -45,6 +45,9 @@ func AddRoutes(
 		mux.Handle("GET /accounts/updates", handlers.AppAccountsUpdates(tmpls, db, nc))
 		mux.Handle("POST /accounts", handlers.AppCreateAccount(tmpls, db))
 
+		mux.Handle("GET /request", handlers.AppPaymentRequest(tmpls, db, sessionsKV))
+		mux.With(midware.AuthUserAccount(db, accounts.PermAdmin)).Handle("POST /request/{account_id}/transfers", handlers.PostRequest(tmpls, db, sessionsKV))
+
 		mux.Group(func(mux chi.Router) {
 			mux.Use(midware.AuthUserAccount(db, accounts.PermAdmin))
 
