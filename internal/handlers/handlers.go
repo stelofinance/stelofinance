@@ -127,6 +127,7 @@ func Login(tmpls *templates.Tmpls, sessionsKV jetstream.KeyValue) http.HandlerFu
 					continue
 				}
 				req.Header.Add("User-Agent", "SteloFinance/0.4.0")
+				req.Header.Add("Content-Type", "application/json")
 
 				resp, err := client.Do(req)
 				if err != nil {
