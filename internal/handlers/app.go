@@ -1247,6 +1247,14 @@ func SubmitTransfer(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn
 		}
 
 		acc, err := db.Q.GetAccountAndLedgerById(r.Context(), accId)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 
 		qtyFloat, err := strconv.ParseFloat(r.FormValue("qty"), 64)
 		if err != nil {

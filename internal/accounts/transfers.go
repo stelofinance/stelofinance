@@ -167,7 +167,7 @@ func CreateTransfer(ctx context.Context, q *gensql.Queries, nc *nats.Conn, input
 	}
 
 	trEvnt := EventTransfer{
-		ID:          creditId,
+		ID:          trId,
 		DebitAccId:  debitId,
 		CreditAccId: creditId,
 		Amount:      input.Amount,
@@ -192,13 +192,17 @@ func CreateTransfer(ctx context.Context, q *gensql.Queries, nc *nats.Conn, input
 
 		if sendingAcc.Webhook != nil {
 			resp, err := http.Post(*sendingAcc.Webhook, "application/json", bytes.NewBuffer(evntBytes))
-			resp.Body.Close()
+			if err == nil {
+				resp.Body.Close()
+			}
 			errors.Join(errGrp, err)
 
 		}
 		if receivingAcc.Webhook != nil {
-			resp, _ := http.Post(*receivingAcc.Webhook, "application/json", bytes.NewBuffer(evntBytes))
-			resp.Body.Close()
+			resp, err := http.Post(*receivingAcc.Webhook, "application/json", bytes.NewBuffer(evntBytes))
+			if err == nil {
+				resp.Body.Close()
+			}
 			errors.Join(errGrp, err)
 		}
 

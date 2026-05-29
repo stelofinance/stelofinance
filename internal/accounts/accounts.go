@@ -138,13 +138,16 @@ func CreateAccount(ctx context.Context, q *gensql.Queries, input CreateAccountIn
 	if err != nil {
 		return 0, err
 	}
-	q.InsertAccountPerm(ctx, gensql.InsertAccountPermParams{
+	_, err = q.InsertAccountPerm(ctx, gensql.InsertAccountPermParams{
 		AccountID:   accId,
 		UserID:      input.OwnerId,
 		Permissions: int64(PermAdmin),
 		UpdatedAt:   time.Now(),
 		CreatedAt:   time.Now(),
 	})
+	if err != nil {
+		return 0, err
+	}
 
 	return accId, nil
 }
