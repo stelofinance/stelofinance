@@ -5,13 +5,21 @@
 {{define "page-content"}}
 <main id="page-content" class="flex flex-col text-white px-2 py-4">
 	<h1 class="text-xl font-bold text-center">Payment Request</h1>
-	<form id="request-form" class="mt-4 bg-neutral-800 rounded px-2 pt-0.5 pb-2 flex flex-col">
+	<form id="request-form"
+	      class="mt-4 bg-neutral-800 rounded px-2 pt-0.5 pb-2 flex flex-col"
+	      data-signals="{accId: {{.PrimaryAccount.Id}}}"
+	      data-show="!$sentMessage"
+	      data-on:submit="@post('/app/request/' + $accId + '/transfers', {contentType: 'form'})"
+	      data-indicator:sending
+	      data-class="{'*:cursor-wait animate-pulse': $sending}"
+	>
 		<label class="">
 			<span class="text-sm text-neutral-300">Send {{.AmountFmtd}} hexcoin from:</span>
 			<select class="bg-neutral-900 rounded w-full px-1 pt-0.5 pb-1 text-lg"
 			        name="account"
+			        data-bind:acc-id
 			>
-				<option value="{{.PrimaryAccount}}" selected>Primary (#{{.PrimaryAccount.Address}})</option>
+				<option value="{{.PrimaryAccount.Id}}" selected>Primary (#{{.PrimaryAccount.Address}})</option>
 				{{range .Accounts}}
 				<option value="{{.Id}}">#{{.Address}}</option>
 				{{end}}
@@ -25,16 +33,23 @@
 		<hr class="mt-1">
 		<label class="mt-1 w-full flex">
 			<span class="bg-neutral-900 rounded text-sm w-full px-1">{{.Memo}}</span>
-			<input type="hidden" name="memo" value="{{.Recipient}}">
+			<input type="hidden" name="memo" value="{{.Memo}}">
 		</label>
 		{{end}}
+		<input type="hidden" name="amount" value="{{.Amount}}">
 	</form>
 
 	<button form="request-form"
+	        type="submit"
 	        data-attr:disabled="$sending"
-	        data-on:click="@post('/app/request-transfer', {contentType: 'form'})"
+	        data-show="!$sentMessage"
 	        class="mt-2 w-full bg-neutral-800 rounded pt-0.5 pb-1 cursor-pointer"
 	>SEND</button>
+
+	<p data-show="$sentMessage"
+	   style="display: none;"
+	   class="mt-4 bg-neutral-800 rounded px-2 pt-2 pb-3 w-full text-center"
+	>Payment Sent!</p>
 </main>
 {{end}}
 
