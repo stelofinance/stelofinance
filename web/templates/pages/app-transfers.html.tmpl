@@ -9,10 +9,10 @@
 		<select
 			data-signals:acc-id="-1"
 			data-bind:acc-id
-			data-init="@get('/app/transfers/updates', {
-				headers: { 'Data-Attr': 'Init' }
+			data-init="@get('/app/transfers/updates')"
+			data-on:change="@get('/app/transfers/updates', {
+				headers: { 'Send-Initial-State': 'true' }
 			})"
-			data-on:change="@get('/app/transfers/updates')"
 			class="bg-neutral-800 rounded w-full px-2 pt-0.5 pb-1 text-lg"
 			name="account"
 		>
