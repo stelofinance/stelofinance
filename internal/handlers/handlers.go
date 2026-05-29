@@ -144,8 +144,14 @@ func Login(tmpls *templates.Tmpls, sessionsKV jetstream.KeyValue) http.HandlerFu
 				Success bool                   `json:"success"`
 				Player  ValidateResponsePlayer `json:"player"`
 			}
+		loop:
 			for time.Now().Before(start.Add(time.Minute)) {
-				time.Sleep(time.Second)
+				select {
+				case <-r.Context().Done():
+					break loop
+				case <-time.After(time.Second):
+				}
+
 				req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, "https://bitjita.com/api/auth/chat/validate", bytes.NewBuffer(data))
 				if err != nil {
 					// TODO: Log or something
@@ -160,11 +166,12 @@ func Login(tmpls *templates.Tmpls, sessionsKV jetstream.KeyValue) http.HandlerFu
 					continue
 				}
 				var data ValidateResponse
-				if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+				decodeErr := json.NewDecoder(resp.Body).Decode(&data)
+				resp.Body.Close()
+				if decodeErr != nil {
 					// TODO: Log or something
 					continue
 				}
-				resp.Body.Close()
 
 				if !data.Success {
 					continue
