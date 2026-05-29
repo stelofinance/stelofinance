@@ -84,6 +84,31 @@ func Login(tmpls *templates.Tmpls, sessionsKV jetstream.KeyValue) http.HandlerFu
 			loggingIn = ds.LoggingIn
 		}
 
+		redirect := r.URL.Query().Get("redirect")
+		if redirect != "" && isValidRedirectURL(redirect) {
+			c := &http.Cookie{
+				Name:     "auth_redirect",
+				Value:    redirect,
+				Path:     "/",
+				MaxAge:   180,
+				HttpOnly: true,
+				Secure:   true,
+				SameSite: http.SameSiteLaxMode,
+			}
+			http.SetCookie(w, c)
+		} else if !loggingIn && !r.URL.Query().Has("redirect") {
+			c := &http.Cookie{
+				Name:     "auth_redirect",
+				Value:    "",
+				Path:     "/",
+				MaxAge:   -1,
+				HttpOnly: true,
+				Secure:   true,
+				SameSite: http.SameSiteLaxMode,
+			}
+			http.SetCookie(w, c)
+		}
+
 		if loggingIn {
 			publicCode := uniuri.NewLen(12)
 			tmplData := templates.DefaultLayoutPrimary

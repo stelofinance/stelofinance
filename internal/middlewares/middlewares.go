@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -27,7 +28,7 @@ func AuthUser(lgr *logger.Logger, sessionsKV jetstream.KeyValue, authRequired bo
 					next.ServeHTTP(w, r)
 					return
 				}
-				w.WriteHeader(http.StatusUnauthorized)
+				http.Redirect(w, r, "/login?redirect="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
 				return
 			}
 
@@ -48,12 +49,9 @@ func AuthUser(lgr *logger.Logger, sessionsKV jetstream.KeyValue, authRequired bo
 				if !authRequired {
 					next.ServeHTTP(w, r)
 					return
-				} else {
-					// Redirect to homepage
-					// TODO: Do proper auth redirect to login
-					http.Redirect(w, r, "/", http.StatusFound)
-					return
 				}
+				http.Redirect(w, r, "/login?redirect="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
+				return
 			}
 
 			// Retrieve session data
@@ -75,12 +73,9 @@ func AuthUser(lgr *logger.Logger, sessionsKV jetstream.KeyValue, authRequired bo
 					if !authRequired {
 						next.ServeHTTP(w, r)
 						return
-					} else {
-						// Redirect to homepage
-						// TODO: Do proper auth redirect to login
-						http.Redirect(w, r, "/", http.StatusFound)
-						return
 					}
+					http.Redirect(w, r, "/login?redirect="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
+					return
 				}
 				lgr.Log(logger.Log{
 					Message: "error retrieving session data kv",
