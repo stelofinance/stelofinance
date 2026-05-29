@@ -129,6 +129,22 @@ func Auth(lgr *logger.Logger, db *database.Database, sessionsKV jetstream.KeyVal
 		sessionsKV.Create(r.Context(), "users."+strconv.FormatInt(userId, 10)+".sessions."+sid, bytes)
 
 		http.SetCookie(w, &cookie)
-		http.Redirect(w, r, "/app", http.StatusFound)
+
+		redirect := "/app"
+		if c, err := r.Cookie("auth_redirect"); err == nil && isValidRedirectURL(c.Value) {
+			redirect = c.Value
+		}
+		// Always clear the redirect cookie
+		http.SetCookie(w, &http.Cookie{
+			Name:     "auth_redirect",
+			Value:    "",
+			Path:     "/",
+			MaxAge:   -1,
+			HttpOnly: true,
+			Secure:   true,
+			SameSite: http.SameSiteLaxMode,
+		})
+
+		http.Redirect(w, r, redirect, http.StatusFound)
 	}
 }
