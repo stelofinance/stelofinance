@@ -418,6 +418,7 @@ func AppPaymentRequest(tmpls *templates.Tmpls, db *database.Database, sessionsKV
 		}
 		pageData.Recipient = recipientId
 		pageData.LedgerName = ledger.Name
+		pageData.Amount = amount
 		pageData.AmountFmtd = humanize.Commaf(float64(amount) / math.Pow(10, float64(ledger.AssetScale)))
 		pageData.Memo = memo
 
@@ -441,9 +442,88 @@ func AppPaymentRequest(tmpls *templates.Tmpls, db *database.Database, sessionsKV
 	}
 }
 
-func PostRequest(tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstream.KeyValue) http.HandlerFunc {
+func PostRequest(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		err := r.ParseForm()
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 
+		accId, err := strconv.ParseInt(chi.URLParam(r, "account_id"), 10, 64)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		recipientId, err := strconv.ParseInt(r.FormValue("recipient"), 10, 64)
+		if err != nil || recipientId == accId {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		amount, err := strconv.ParseInt(r.FormValue("amount"), 10, 64)
+		if err != nil || amount < 1 {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		var memo *string
+		if r.FormValue("memo") != "" {
+			str := r.FormValue("memo")
+			memo = &str
+		}
+
+		acc, err := db.Q.GetAccountAndLedgerById(r.Context(), accId)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		tx, err := db.Pool.BeginTx(r.Context(), nil)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		defer tx.Rollback()
+
+		_, sendEvents, err := accounts.CreateTransfer(r.Context(), db.Q.WithTx(tx), nc, accounts.CreateTransferInput{
+			SendingId:   accId,
+			ReceivingId: recipientId,
+			Memo:        memo,
+			LedgerId:    acc.LedgerID,
+			Amount:      amount,
+		})
+		if err != nil {
+			switch err {
+			case accounts.ErrInvalidQuantity,
+				accounts.ErrMatchingSenderReceiver,
+				accounts.ErrInvalidBalance,
+				accounts.ErrIncompatibleAccCodes,
+				accounts.ErrIncompatibleLedgers,
+				accounts.ErrMemoExceedsLimit:
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			default:
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+		}
+
+		if err := tx.Commit(); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		go sendEvents()
+
+		sse := datastar.NewSSE(w, r)
+		sse.MarshalAndPatchSignals(map[string]any{
+			"sentMessage": true,
+		})
 	}
 }
 
