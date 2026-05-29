@@ -159,6 +159,21 @@ func AppAccountsUpdates(tmpls *templates.Tmpls, db *database.Database, nc *nats.
 		// TODO: Add new accounts when user gets added, and remove when they're removed
 
 		sse := datastar.NewSSE(w, r)
+		if r.Header.Get("Last-Event-Id") != "" {
+			tmplData, err := loadAppAccountsPageData(r.Context(), db, uData, true)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			buff := new(bytes.Buffer)
+			err = tmpls.ExecuteTemplate(buff, "pages/app-accounts", tmplData)
+			if err != nil {
+				panic(err)
+			}
+			sse.PatchElements(buff.String(), datastar.WithPatchElementsEventID(strconv.FormatInt(time.Now().UnixMilli(), 10)))
+		} else {
+			sse.PatchElements("", datastar.WithPatchElementsEventID(strconv.FormatInt(time.Now().UnixMilli(), 10)))
+		}
 
 	loop:
 		for {
@@ -175,7 +190,7 @@ func AppAccountsUpdates(tmpls *templates.Tmpls, db *database.Database, nc *nats.
 				if err != nil {
 					panic(err)
 				}
-				sse.PatchElements(buff.String())
+				sse.PatchElements(buff.String(), datastar.WithPatchElementsEventID(strconv.FormatInt(time.Now().UnixMilli(), 10)))
 			case <-r.Context().Done():
 				for _, s := range subs {
 					s.Unsubscribe()
@@ -1009,9 +1024,8 @@ func AppTransfersUpdates(tmpls *templates.Tmpls, db *database.Database, nc *nats
 			}
 		}
 
-		// Send initial update (if not from init attr)
 		sse := datastar.NewSSE(w, r)
-		if r.Header.Get("Data-Attr") != "Init" {
+		if r.Header.Get("Last-Event-Id") != "" || r.Header.Get("Send-Initial-State") == "true" {
 			tmplData, err := loadAppTransfersPageData(r.Context(), db, uData, ds.AccountId, true)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
@@ -1022,7 +1036,9 @@ func AppTransfersUpdates(tmpls *templates.Tmpls, db *database.Database, nc *nats
 			if err != nil {
 				panic(err)
 			}
-			sse.PatchElements(buff.String())
+			sse.PatchElements(buff.String(), datastar.WithPatchElementsEventID(strconv.FormatInt(time.Now().UnixMilli(), 10)))
+		} else {
+			sse.PatchElements("", datastar.WithPatchElementsEventID(strconv.FormatInt(time.Now().UnixMilli(), 10)))
 		}
 
 		trChan := make(chan *nats.Msg)
@@ -1083,7 +1099,7 @@ func AppTransfersUpdates(tmpls *templates.Tmpls, db *database.Database, nc *nats
 				if err != nil {
 					panic(err)
 				}
-				sse.PatchElements(buff.String())
+				sse.PatchElements(buff.String(), datastar.WithPatchElementsEventID(strconv.FormatInt(time.Now().UnixMilli(), 10)))
 			case <-r.Context().Done():
 				for _, s := range subs {
 					s.Unsubscribe()

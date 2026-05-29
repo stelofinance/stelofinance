@@ -47,9 +47,9 @@ type Config struct {
 func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writer) error {
 	// Create config
 	cfg := Config{
-		Port:         getenv("PORT"),
-		ReadTimeout:  time.Second * 5,
-		WriteTimeout: time.Second * 30,
+		Port:        getenv("PORT"),
+		ReadTimeout: time.Second * 5,
+		// WriteTimeout: time.Second * 30, // Causes SSE streams to get soft-nuked
 	}
 	if cfg.Port == "" {
 		cfg.Port = "8080"
