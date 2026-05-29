@@ -337,25 +337,21 @@ func AppPaymentRequest(tmpls *templates.Tmpls, db *database.Database, sessionsKV
 		memo := r.URL.Query().Get("memo")
 
 		if ledgerIdStr == "" || amountStr == "" || recipientIdStr == "" {
-			fmt.Println("test 1")
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		ledgerId, err := strconv.ParseInt(ledgerIdStr, 10, 64)
 		if err != nil {
-			fmt.Println("test 2")
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		amount, err := strconv.ParseInt(amountStr, 10, 64)
 		if err != nil {
-			fmt.Println("test 3")
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		recipientId, err := strconv.ParseInt(recipientIdStr, 10, 64)
 		if err != nil {
-			fmt.Println("test 4")
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
