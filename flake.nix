@@ -2,9 +2,21 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+
+    jail-nix.url = "sourcehut:~alexdavid/jail.nix";
+    llm-agents.url = "github:numtide/llm-agents.nix";
+    
+    jailed-agents = {
+      url = "github:andersonjoseph/jailed-agents";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.jail-nix.follows = "jail-nix";
+      inputs.llm-agents.follows = "llm-agents";
+      inputs.flake-utils.follows = "flake-utils";
+    };
+
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { nixpkgs, flake-utils, jailed-agents, ... }:
   flake-utils.lib.eachDefaultSystem (system:
     let
       pkgs = import nixpkgs { inherit system; };
@@ -56,6 +68,12 @@
       };
 
       devShells.default = with pkgs; mkShell {
+        packages = [
+          (jailed-agents.lib.${system}.makeJailedOpencode {
+            name = "opencode";
+            extraPkgs = [ gopls go ];
+          })
+        ];
         buildInputs = [
           tailwindcss_4
           go-task

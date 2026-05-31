@@ -1,6 +1,6 @@
 ---
 name: datastar
-description: Datastar framework patterns, gotchas, and conventions
+description: Datastar framework patterns, gotchas, and conventions. Use when working with HTML template files or backend endpoints that utilize the datastar sdk.
 ---
 
 ## When to use me
