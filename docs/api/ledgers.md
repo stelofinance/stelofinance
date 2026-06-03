@@ -20,18 +20,25 @@ Ledgers have "codes" that define what type of asset they are.
 <details>
 <summary><code>GET</code> <code><b>/ledgers</b></code> <code>(gets all ledgers)</code></summary>
 
-##### Responses
+##### Parameters
+No parameters required.
 
+##### Example
+```bash
+curl -X GET https://stelo.finance/api/ledgers
+```
+
+##### Responses
 http code `200` | Content-Type `application/json`
 ```jsonc
-  [
-    {
-      "id": 1, // Stelo's internal ID for this ledger
-      "name": "hexcoin", // Stelo's name for this ledger
-      "assetScale": 3, // Asset's "scale", 3 means it has 3 decimal places
-      "code": 0 // Type of ledger
-    }
-  ]
+[
+  {
+    "id": 1, // Stelo's internal ID for this ledger
+    "name": "hexcoin", // Stelo's name for this ledger
+    "assetScale": 3, // Asset's "scale", 3 means it has 3 decimal places
+    "code": 0 // Type of ledger
+  }
+]
 ```
 
 </details>

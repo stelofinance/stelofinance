@@ -3,8 +3,9 @@ Welcome to the Stelo Finance API docs.
 
 ## Directory
 - [Auth](./auth.md): Information about how to auth yourself for the API.
+- [General](./general.md): General utility endpoints (e.g., health check).
 - [Ledgers](./ledgers.md): All about Stelo Finance's ledgers.
-- [Wallets](./wallets.md): Read about the wallet API routes and how to use them.
+- [Accounts](./accounts.md): Account-scoped routes (account info, transfers, ping).
 - [Webhooks](./webhooks.md): Information about Stelo Finance's webhooks.
 
 ## Root URL

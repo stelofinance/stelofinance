@@ -1,6 +1,13 @@
 # Auth
-Auth is handled on Stelo in the `Authorization` header.
 
-| Auth Type | Description                                                                                                                                                                                                               |
-|-----------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Account   | Create an account token in your account settings on the app website. This token will have admin access to that specific account, so be careful with it. Attach this token to your request via the `Authorization` header. |
+## Account Token
+
+Account token auth is handled via the `Authorization` header.
+
+| Header          | Value        |
+|-----------------|--------------|
+| Authorization   | `<token>`    |
+
+Used by all routes under `/accounts/{account_id}/*` (e.g. transfers, webhooks, account info, ping).
+
+Create an account token in your account settings on the app website. This token will have admin access to that specific account, so be careful with it.
