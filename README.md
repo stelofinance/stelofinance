@@ -3,6 +3,9 @@
 - Transact with any other player, anytime, no matter where in-game they are (if they even are in-game)
 - Build financial applications and tools on top!
 
+## API Documentation
+For API documentation, see [here](docs/api)
+
 ## Development
 1. Use the Nix Flake shell
 2. Run `task live`. This will create a hot-reloading dev environment
