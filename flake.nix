@@ -73,6 +73,10 @@
             name = "opencode";
             extraPkgs = [ gopls go ];
           })
+          (jailed-agents.lib.${system}.makeJailedPi {
+            name = "pi";
+            extraPkgs = [ gopls go ];
+          })
         ];
         buildInputs = [
           tailwindcss_4
