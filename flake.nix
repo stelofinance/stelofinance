@@ -68,16 +68,6 @@
       };
 
       devShells.default = with pkgs; mkShell {
-        packages = [
-          (jailed-agents.lib.${system}.makeJailedOpencode {
-            name = "opencode";
-            extraPkgs = [ gopls go ];
-          })
-          (jailed-agents.lib.${system}.makeJailedPi {
-            name = "pi";
-            extraPkgs = [ gopls go ];
-          })
-        ];
         buildInputs = [
           tailwindcss_4
           go-task
