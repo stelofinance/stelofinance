@@ -39,7 +39,7 @@ func Index(tmpls *templates.Tmpls) http.Handler {
 			PageData: templates.PageIndex{
 				IsAuthed: sData != nil,
 				InfoCards: []templates.PageIndexInfoCard{{
-					Title: "From Physical to Digial",
+					Title: "From Physical to Digital",
 					Body:  "Assets on Stelo range from purely digital to 1:1 backed with real redeemable items in-game (and in-between)!",
 				}, {
 					Title: "Built to be Built Upon",

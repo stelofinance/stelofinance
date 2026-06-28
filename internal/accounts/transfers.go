@@ -184,26 +184,22 @@ func CreateTransfer(ctx context.Context, q *gensql.Queries, nc *nats.Conn, input
 	}
 
 	publisher = func() error {
-		errGrp := errors.Join(nil)
-		errors.Join(errGrp, PublishEvent(nc, trEvnt))
-		if err != nil {
-			return err
-		}
+		var errGrp error
+		errGrp = errors.Join(errGrp, PublishEvent(nc, trEvnt))
 
 		if sendingAcc.Webhook != nil {
 			resp, err := http.Post(*sendingAcc.Webhook, "application/json", bytes.NewBuffer(evntBytes))
 			if err == nil {
 				resp.Body.Close()
 			}
-			errors.Join(errGrp, err)
-
+			errGrp = errors.Join(errGrp, err)
 		}
 		if receivingAcc.Webhook != nil {
 			resp, err := http.Post(*receivingAcc.Webhook, "application/json", bytes.NewBuffer(evntBytes))
 			if err == nil {
 				resp.Body.Close()
 			}
-			errors.Join(errGrp, err)
+			errGrp = errors.Join(errGrp, err)
 		}
 
 		return errGrp

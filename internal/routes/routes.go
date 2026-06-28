@@ -31,7 +31,7 @@ func AddRoutes(
 	mux.With(midware.AuthUser(lgr, sessionsKV, false)).Handle("GET /", handlers.Index(tmpls))
 
 	// Login/Auth routes
-	// TODO: Thes routes should be guest protected
+	// TODO: These routes should be guest protected
 	mux.Handle("GET /login", handlers.Login(tmpls, sessionsKV))
 	mux.Handle("GET /auth/{key}", handlers.Auth(lgr, db, sessionsKV, getenv))
 

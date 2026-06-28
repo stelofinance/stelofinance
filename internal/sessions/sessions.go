@@ -55,7 +55,7 @@ func GetAccount(ctx context.Context) *AccountData {
 
 	data, ok := val.(*AccountData)
 	if !ok {
-		panic("sessions: wallet context value of wrong type")
+		panic("sessions: account context value of wrong type")
 	}
 	return data
 }

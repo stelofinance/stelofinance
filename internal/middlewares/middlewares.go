@@ -116,7 +116,7 @@ func AuthUserAccount(db *database.Database, perms ...accounts.Permission) func(h
 				return
 			}
 
-			// Check if they have the wallet permissions
+			// Check if they have the account permissions
 			permsResult, err := db.Q.GetAccountPermissions(r.Context(), gensql.GetAccountPermissionsParams{
 				UserID:    sData.Id,
 				AccountID: int64(accId),
@@ -187,7 +187,7 @@ func AuthAccountToken(sessionsKV jetstream.KeyValue) func(http.Handler) http.Han
 				return
 			}
 
-			// Unmarhsal key value
+			// Unmarshal key value
 			var accData sessions.AccountData
 			if err := json.Unmarshal(val, &accData); err != nil {
 				w.WriteHeader(http.StatusBadRequest)

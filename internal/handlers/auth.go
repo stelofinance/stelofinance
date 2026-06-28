@@ -78,7 +78,7 @@ func Auth(lgr *logger.Logger, db *database.Database, sessionsKV jetstream.KeyVal
 			return
 		}
 		userId = dbUser.ID
-		if errors.Is(sql.ErrNoRows, err) {
+		if errors.Is(err, sql.ErrNoRows) {
 			insertedId, err := db.Q.InsertUser(r.Context(), gensql.InsertUserParams{
 				BitcraftUsername: playerInfo.Username,
 				BitcraftID:       playerInfo.PlayerId,

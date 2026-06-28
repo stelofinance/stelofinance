@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -32,7 +31,6 @@ func CreateLedger(db *database.Database) http.HandlerFunc {
 			return
 		}
 		if err := validate.Struct(body); err != nil {
-			fmt.Println(err)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -186,7 +184,6 @@ func CreateAccount(db *database.Database) http.HandlerFunc {
 			return
 		}
 		if err := validate.Struct(body); err != nil {
-			fmt.Println(err)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}

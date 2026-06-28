@@ -6,7 +6,7 @@ const PermNone Permission = 0
 
 const (
 	// Account Management
-	// these permissions are for account managed related permissions
+	// these permissions are for account management related permissions
 
 	// Complete control of the account
 	PermAdmin Permission = 1 << iota
