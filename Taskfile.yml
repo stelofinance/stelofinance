@@ -1,7 +1,5 @@
 version: '3'
 
-interval: 150ms
-
 env:
   STATIC_DIR: "web/static"
 
@@ -9,11 +7,23 @@ dotenv: [".env"]
 
 tasks:
   live:
-    desc: Run live dev environment. (Currently a little buggy, runs task multiple times, sometimes)
-    deps: [build:go:app]
-    watch: true
+    desc: Run live dev environment (watchexec restarts on source changes)
     cmds:
-      - bin/app
+      # Task's built-in watch is a poor process supervisor for long-running servers.
+      # watchexec owns kill→wait→restart; Task owns the build graph via `run`.
+      - >
+        watchexec
+        --restart
+        --debounce=200ms
+        --stop-timeout=10s
+        --exts=go,tmpl,sql,yaml,css
+        --ignore='database/gensql/**'
+        --ignore='bin/**'
+        --ignore='tmp/**'
+        --ignore='.task/**'
+        --ignore='web/static/tw-output.css'
+        --
+        task run
 
   run:
     desc: Run Stelo Finance
