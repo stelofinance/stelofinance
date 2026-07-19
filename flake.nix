@@ -74,10 +74,22 @@
           sqlc
           go
         ] ++ (if builtins.getEnv "NIX_BUILD_SHELL" != "1" then [
-          # watchman # tailwind watch uses this
+          watchexec
           goose
-          turso
+          litecli
         ] else []);
+      };
+
+      devShells.agent = with pkgs; mkShell {
+        buildInputs = [
+          tailwindcss_4
+          go-task
+          sqlc
+          go
+          goose
+          watchexec
+          litecli
+        ];
       };
     });
 }
