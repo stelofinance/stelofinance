@@ -22,6 +22,7 @@ func AddRoutes(
 	db *database.Database,
 	sessionsKV jetstream.KeyValue,
 	nc *nats.Conn,
+	webhooks accounts.WebhookEnqueuer,
 	getenv func(string) string,
 ) {
 	assets.HttpHandler(mux)
@@ -46,7 +47,7 @@ func AddRoutes(
 		mux.Handle("POST /accounts", handlers.AppCreateAccount(tmpls, db))
 
 		mux.Handle("GET /request", handlers.AppPaymentRequest(tmpls, db, sessionsKV))
-		mux.With(midware.AuthUserAccount(db, accounts.PermAdmin)).Handle("POST /request/{account_id}/transfers", handlers.PostRequest(tmpls, db, nc))
+		mux.With(midware.AuthUserAccount(db, accounts.PermAdmin)).Handle("POST /request/{account_id}/transfers", handlers.PostRequest(tmpls, db, nc, webhooks))
 
 		mux.Group(func(mux chi.Router) {
 			mux.Use(midware.AuthUserAccount(db, accounts.PermAdmin))
@@ -57,7 +58,7 @@ func AddRoutes(
 			mux.Handle("DELETE /accounts/{account_id}/users/{user_id}", handlers.DeleteAccountUser(tmpls, db, sessionsKV))
 			mux.Handle("POST /accounts/{account_id}/tokens", handlers.PostAccountToken(tmpls, db, sessionsKV))
 			mux.Handle("DELETE /accounts/{account_id}/tokens", handlers.DeleteAccountTokens(tmpls, db, sessionsKV))
-			mux.Handle("POST /accounts/{account_id}/transfers", handlers.SubmitTransfer(tmpls, db, nc))
+			mux.Handle("POST /accounts/{account_id}/transfers", handlers.SubmitTransfer(tmpls, db, nc, webhooks))
 		})
 
 		mux.Handle("GET /transfers", handlers.AppTransfers(tmpls, db))
@@ -99,7 +100,7 @@ func AddRoutes(
 
 			mux.Handle("GET /transfers", handlers.Transfers(db))
 			mux.Handle("GET /transfers/{tr_id}", handlers.Transfer(db))
-			mux.Handle("POST /transfers", handlers.CreateTransfer(db, nc))
+			mux.Handle("POST /transfers", handlers.CreateTransfer(db, nc, webhooks))
 
 			mux.Handle("GET /webhook", handlers.GetWebhook(db))
 			mux.Handle("PUT /webhook", handlers.PutWebhook(db))

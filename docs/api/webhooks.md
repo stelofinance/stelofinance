@@ -2,17 +2,23 @@
 
 Any account can have a singular webhook set on it. If an account has a webhook set then any incoming or outgoing transfer is broadcast to that webhook.
 
+## Delivery semantics
+
+Webhooks are delivered **at least once**. Stelo enqueues each delivery on a durable queue and retries on failure (network errors or non-2xx HTTP responses), up to a maximum number of attempts.
+
+Because of retries, your endpoint may receive the same transfer more than once. **Treat the transfer `id` field as the idempotency key** in your application and ignore or no-op duplicate deliveries for an `id` you have already processed.
+
+Requests are `POST` with `Content-Type: application/json` and `User-Agent: Stelo-Webhooks/1.0`. Respond with a **2xx** status to acknowledge successful receipt; any other status (or a timeout/network failure) triggers a retry.
+
 ## Webhook Payload
 
 Your server (specified by the URL you've set) will be sent a POST request with a body such as the following:
 
 ```jsonc
 {
-    "id": 123, // transfer ID
+    "id": 123, // transfer ID — use as your idempotency key
     "debitAccId": 281,
     "creditAccId": 93,
-    "debitAddr": "RYALZU",
-    "creditAddr": "ZYURLF",
     "amount": 28308,
     "ledgerId": 2,
     "code": 1, // This is the type of transfer

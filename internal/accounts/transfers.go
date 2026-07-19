@@ -1,7 +1,6 @@
 package accounts
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -9,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
@@ -102,7 +100,7 @@ type CreateTransferResult struct {
 	Publish    EventPublisher
 }
 
-func CreateTransfer(ctx context.Context, q *gensql.Queries, nc *nats.Conn, input CreateTransferInput) (CreateTransferResult, error) {
+func CreateTransfer(ctx context.Context, q *gensql.Queries, nc *nats.Conn, webhooks WebhookEnqueuer, input CreateTransferInput) (CreateTransferResult, error) {
 	noop := func() error { return nil }
 	result := CreateTransferResult{Publish: noop}
 
@@ -240,29 +238,28 @@ func CreateTransfer(ctx context.Context, q *gensql.Queries, nc *nats.Conn, input
 		CreatedAt:   now,
 	}
 
-	// Create json bytes of tx
-	evntBytes, err := json.Marshal(trEvnt)
-	if err != nil {
-		return result, err
+	// Snapshot webhook URLs at commit time for durable delivery.
+	var sendWebhook, recvWebhook *string
+	if sendingAcc.Webhook != nil {
+		u := *sendingAcc.Webhook
+		sendWebhook = &u
+	}
+	if receivingAcc.Webhook != nil {
+		u := *receivingAcc.Webhook
+		recvWebhook = &u
 	}
 
 	publisher := func() error {
 		var errGrp error
 		errGrp = errors.Join(errGrp, PublishEvent(nc, trEvnt))
 
-		if sendingAcc.Webhook != nil {
-			resp, err := http.Post(*sendingAcc.Webhook, "application/json", bytes.NewBuffer(evntBytes))
-			if err == nil {
-				resp.Body.Close()
+		if webhooks != nil {
+			if sendWebhook != nil {
+				errGrp = errors.Join(errGrp, webhooks.EnqueueTransferWebhook(context.Background(), sendingAcc.ID, *sendWebhook, trEvnt))
 			}
-			errGrp = errors.Join(errGrp, err)
-		}
-		if receivingAcc.Webhook != nil {
-			resp, err := http.Post(*receivingAcc.Webhook, "application/json", bytes.NewBuffer(evntBytes))
-			if err == nil {
-				resp.Body.Close()
+			if recvWebhook != nil {
+				errGrp = errors.Join(errGrp, webhooks.EnqueueTransferWebhook(context.Background(), receivingAcc.ID, *recvWebhook, trEvnt))
 			}
-			errGrp = errors.Join(errGrp, err)
 		}
 
 		return errGrp

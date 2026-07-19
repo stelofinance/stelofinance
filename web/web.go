@@ -26,8 +26,10 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stelofinance/stelofinance/database"
 	"github.com/stelofinance/stelofinance/database/gensql"
+	"github.com/stelofinance/stelofinance/internal/accounts"
 	"github.com/stelofinance/stelofinance/internal/logger"
 	"github.com/stelofinance/stelofinance/internal/routes"
+	"github.com/stelofinance/stelofinance/internal/webhooks"
 	"github.com/stelofinance/stelofinance/web/templates"
 
 	_ "modernc.org/sqlite"
@@ -101,6 +103,13 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 		return err
 	}
 
+	// Durable transfer webhook delivery (JetStream work queue)
+	webhookSvc := webhooks.New(js, lgr)
+	if err := webhookSvc.Ensure(ctx); err != nil {
+		return err
+	}
+	go webhookSvc.RunWorker(ctx)
+
 	// Connect up db and create db struct
 	dbConn, err := sql.Open("sqlite", getenv("DB_FILE"))
 	if err != nil {
@@ -109,7 +118,7 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 	db := database.New(dbConn, gensql.New(dbConn))
 
 	// Create and run server
-	srv := NewServer(lgr, tmpls, db, sessionsKV, nc, getenv)
+	srv := NewServer(lgr, tmpls, db, sessionsKV, nc, webhookSvc, getenv)
 	httpServer := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      srv,
@@ -161,6 +170,7 @@ func NewServer(
 	db *database.Database,
 	sessionsKV jetstream.KeyValue,
 	nc *nats.Conn,
+	webhooks accounts.WebhookEnqueuer,
 	getenv func(string) string,
 ) http.Handler {
 	mux := chi.NewMux()
@@ -178,7 +188,7 @@ func NewServer(
 	mux.Use(middleware.Heartbeat("/heartbeat"))
 	mux.Use(Compressor(2))
 
-	routes.AddRoutes(mux, lgr, tmpls, db, sessionsKV, nc, getenv)
+	routes.AddRoutes(mux, lgr, tmpls, db, sessionsKV, nc, webhooks, getenv)
 
 	return mux
 }

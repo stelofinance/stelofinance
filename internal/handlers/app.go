@@ -459,7 +459,7 @@ func AppPaymentRequest(tmpls *templates.Tmpls, db *database.Database, sessionsKV
 	}
 }
 
-func PostRequest(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn) http.HandlerFunc {
+func PostRequest(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn, webhooks accounts.WebhookEnqueuer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		err := r.ParseForm()
 		if err != nil {
@@ -514,7 +514,7 @@ func PostRequest(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn) h
 		}
 		defer tx.Rollback()
 
-		trResult, err := accounts.CreateTransfer(r.Context(), db.Q.WithTx(tx), nc, accounts.CreateTransferInput{
+		trResult, err := accounts.CreateTransfer(r.Context(), db.Q.WithTx(tx), nc, webhooks, accounts.CreateTransferInput{
 			SendingId:      accId,
 			ReceivingId:    recipientId,
 			Memo:           memo,
@@ -1247,7 +1247,7 @@ func FormRecipient(tmpls *templates.Tmpls, db *database.Database) http.HandlerFu
 	}
 }
 
-func SubmitTransfer(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn) http.HandlerFunc {
+func SubmitTransfer(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn, webhooks accounts.WebhookEnqueuer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// TODO: Honestly, have the whole entire thing just be form data, then merge
 		// in a fragment of success. Or maybe fail message too?
@@ -1307,7 +1307,7 @@ func SubmitTransfer(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn
 		}
 		defer tx.Rollback()
 
-		trResult, err := accounts.CreateTransfer(r.Context(), db.Q.WithTx(tx), nc, accounts.CreateTransferInput{
+		trResult, err := accounts.CreateTransfer(r.Context(), db.Q.WithTx(tx), nc, webhooks, accounts.CreateTransferInput{
 			SendingId:      accId,
 			ReceivingId:    recipientId,
 			Memo:           memo,

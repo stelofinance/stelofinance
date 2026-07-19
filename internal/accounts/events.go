@@ -1,12 +1,19 @@
 package accounts
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
 )
 
 type EventPublisher func() error
+
+// WebhookEnqueuer enqueues a durable webhook delivery for a transfer event.
+// Implementations should persist the job (e.g. JetStream) before returning.
+type WebhookEnqueuer interface {
+	EnqueueTransferWebhook(ctx context.Context, accountID int64, url string, event EventTransfer) error
+}
 
 type Event interface {
 	Subject() string

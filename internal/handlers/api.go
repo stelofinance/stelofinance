@@ -492,7 +492,7 @@ func Transfer(db *database.Database) http.HandlerFunc {
 	}
 }
 
-func CreateTransfer(db *database.Database, nc *nats.Conn) http.HandlerFunc {
+func CreateTransfer(db *database.Database, nc *nats.Conn, webhooks accounts.WebhookEnqueuer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		accData := sessions.GetAccount(r.Context())
 
@@ -525,7 +525,7 @@ func CreateTransfer(db *database.Database, nc *nats.Conn) http.HandlerFunc {
 		}
 		defer tx.Rollback()
 
-		trResult, err := accounts.CreateTransfer(r.Context(), db.Q.WithTx(tx), nc, accounts.CreateTransferInput{
+		trResult, err := accounts.CreateTransfer(r.Context(), db.Q.WithTx(tx), nc, webhooks, accounts.CreateTransferInput{
 			SendingId:      accData.Id,
 			ReceivingId:    body.ReceivingId,
 			Memo:           body.Memo,
