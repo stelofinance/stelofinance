@@ -32,6 +32,7 @@
 	      data-indicator:sending
 	      data-class="{'*:cursor-wait animate-pulse': $sending}"
 	>
+		<input type="hidden" name="idempotencyKey" value="{{.IdempotencyKey}}">
 		<div class="flex flex-col gap-4 bg-neutral-800 rounded px-2 pt-2 pb-3">
 			<div class="flex gap-2">
 				{{template "components/transfer-recipient" .RecipientInput}}
@@ -51,7 +52,11 @@
 	</form>
 	<div data-show="$sentMessage" style="display: none;" class="flex justify-between bg-neutral-800 rounded px-2 pt-2 pb-3">
 		<p>Transfer Sent!</p>
-		<button class="underline text-anakiwa cursor-pointer" data-on:click="$sentMessage = false">Start Over</button>
+		{{/* Re-get state, since a duplicate idempotency TX wouldn't send a page update for new idem key */}}
+		<button
+			class="underline text-anakiwa cursor-pointer"
+			data-on:click="$sentMessage = false; @get('/app/transfers/updates', {headers: {'Send-Initial-State': 'true'}})"
+		>Start Over</button>
 	</div>
 	{{end}}
 

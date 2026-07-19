@@ -3,13 +3,20 @@ package accounts
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/stelofinance/stelofinance/database/gensql"
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 type TrCode int32 // Transfer Code
@@ -67,57 +74,97 @@ const (
 	// ...
 )
 
+const MaxIdempotencyKeyLen = 64
+
 var ErrInvalidQuantity = errors.New("transfer: invalid quantity")
 var ErrInvalidBalance = errors.New("transfer: invalid balance")
 var ErrIncompatibleAccCodes = errors.New("transaction: incompatible account codes")
 var ErrIncompatibleLedgers = errors.New("transaction: incompatible account ledgers")
 var ErrMatchingSenderReceiver = errors.New("transaction: sender is receiver")
 var ErrMemoExceedsLimit = errors.New("transaction: memo exceeds length limit")
+var ErrIdempotencyKeyRequired = errors.New("transfer: idempotency key required")
+var ErrIdempotencyKeyInvalid = errors.New("transfer: idempotency key invalid")
+var ErrIdempotencyConflict = errors.New("transfer: idempotency key conflict")
+var ErrIdempotencyRace = errors.New("transfer: idempotency key race")
 
 type CreateTransferInput struct {
-	SendingId   int64
-	ReceivingId int64
-
-	Memo     *string
-	LedgerId int64
-	Amount   int64
+	SendingId      int64
+	ReceivingId    int64
+	Memo           *string
+	LedgerId       int64
+	Amount         int64
+	IdempotencyKey string
 }
 
-func CreateTransfer(ctx context.Context, q *gensql.Queries, nc *nats.Conn, input CreateTransferInput) (int64, EventPublisher, error) {
-	publisher := func() error { return nil }
+type CreateTransferResult struct {
+	TransferID int64
+	Created    bool
+	Publish    EventPublisher
+}
+
+func CreateTransfer(ctx context.Context, q *gensql.Queries, nc *nats.Conn, input CreateTransferInput) (CreateTransferResult, error) {
+	noop := func() error { return nil }
+	result := CreateTransferResult{Publish: noop}
+
+	key := strings.TrimSpace(input.IdempotencyKey)
+	if key == "" {
+		return result, ErrIdempotencyKeyRequired
+	}
+	if len(key) > MaxIdempotencyKeyLen {
+		return result, ErrIdempotencyKeyInvalid
+	}
 
 	// Validate asset is >= 1 qty
 	if input.Amount < 1 {
-		return 0, publisher, ErrInvalidQuantity
+		return result, ErrInvalidQuantity
 	}
 
 	if input.SendingId == input.ReceivingId {
-		return 0, publisher, ErrMatchingSenderReceiver
+		return result, ErrMatchingSenderReceiver
 	}
 
 	if input.Memo != nil && len(*input.Memo) > 50 {
-		return 0, publisher, ErrMemoExceedsLimit
+		return result, ErrMemoExceedsLimit
+	}
+
+	reqHash := TransferRequestHash(input.ReceivingId, input.Amount, input.LedgerId, input.Memo)
+
+	// Idempotent replay / conflict check
+	existing, err := q.GetTransferIdempotency(ctx, gensql.GetTransferIdempotencyParams{
+		AccountID: input.SendingId,
+		Key:       key,
+	})
+	if err == nil {
+		if existing.RequestHash != reqHash {
+			return result, ErrIdempotencyConflict
+		}
+		result.TransferID = existing.TransferID
+		result.Created = false
+		return result, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return result, err
 	}
 
 	// Query both wallets for types
 	sendingAcc, err := q.GetAccountById(ctx, input.SendingId)
 	if err != nil {
-		return 0, publisher, err
+		return result, err
 	}
 	receivingAcc, err := q.GetAccountById(ctx, input.ReceivingId)
 	if err != nil {
-		return 0, publisher, err
+		return result, err
 	}
 
 	// Ensure both accounts are for same ledger
 	if sendingAcc.LedgerID != receivingAcc.LedgerID {
-		return 0, publisher, ErrIncompatibleLedgers
+		return result, ErrIncompatibleLedgers
 	}
 
 	// Determine TxCode
 	trC := AccountCode(sendingAcc.Code).IdentifyTrCode(AccountCode(receivingAcc.Code))
 	if trC == -1 {
-		return 0, publisher, ErrIncompatibleAccCodes
+		return result, ErrIncompatibleAccCodes
 	}
 
 	// Determine who's creditor/debitor
@@ -133,10 +180,10 @@ func CreateTransfer(ctx context.Context, q *gensql.Queries, nc *nats.Conn, input
 		ID:       debitId,
 	})
 	if rows == 0 {
-		return 0, publisher, ErrInvalidBalance
+		return result, ErrInvalidBalance
 	}
 	if err != nil {
-		return 0, publisher, err
+		return result, err
 	}
 	// Credit the credit account
 	rows, err = q.UpdateCreditsPosted(ctx, gensql.UpdateCreditsPostedParams{
@@ -144,10 +191,10 @@ func CreateTransfer(ctx context.Context, q *gensql.Queries, nc *nats.Conn, input
 		ID:       creditId,
 	})
 	if rows == 0 {
-		return 0, publisher, ErrInvalidBalance
+		return result, ErrInvalidBalance
 	}
 	if err != nil {
-		return 0, publisher, err
+		return result, err
 	}
 
 	// Create transfer record
@@ -163,7 +210,23 @@ func CreateTransfer(ctx context.Context, q *gensql.Queries, nc *nats.Conn, input
 		CreatedAt:       now,
 	})
 	if err != nil {
-		return 0, publisher, err
+		return result, err
+	}
+
+	err = q.InsertTransferIdempotency(ctx, gensql.InsertTransferIdempotencyParams{
+		AccountID:   input.SendingId,
+		Key:         key,
+		TransferID:  trId,
+		RequestHash: reqHash,
+		CreatedAt:   now,
+	})
+	if err != nil {
+		if isUniqueConstraintError(err) {
+			// Concurrent request claimed this key first; caller must roll back this txn
+			// and re-read the winning transfer.
+			return result, ErrIdempotencyRace
+		}
+		return result, err
 	}
 
 	trEvnt := EventTransfer{
@@ -180,10 +243,10 @@ func CreateTransfer(ctx context.Context, q *gensql.Queries, nc *nats.Conn, input
 	// Create json bytes of tx
 	evntBytes, err := json.Marshal(trEvnt)
 	if err != nil {
-		return 0, publisher, err
+		return result, err
 	}
 
-	publisher = func() error {
+	publisher := func() error {
 		var errGrp error
 		errGrp = errors.Join(errGrp, PublishEvent(nc, trEvnt))
 
@@ -205,7 +268,31 @@ func CreateTransfer(ctx context.Context, q *gensql.Queries, nc *nats.Conn, input
 		return errGrp
 	}
 
-	return trId, publisher, nil
+	result.TransferID = trId
+	result.Created = true
+	result.Publish = publisher
+	return result, nil
+}
+
+// TransferRequestHash is the stable fingerprint of a create-transfer intent.
+// Used for idempotency conflict detection (same key, different payload → 409).
+func TransferRequestHash(receivingId, amount, ledgerId int64, memo *string) string {
+	m := ""
+	if memo != nil {
+		m = *memo
+	}
+	sum := sha256.Sum256(fmt.Appendf(nil, "%d|%d|%d|%s", receivingId, amount, ledgerId, m))
+	return hex.EncodeToString(sum[:])
+}
+
+func isUniqueConstraintError(err error) bool {
+	var sqliteErr *sqlite.Error
+	if !errors.As(err, &sqliteErr) {
+		return false
+	}
+	// Primary result code is SQLITE_CONSTRAINT for unique/PK violations
+	// (extended codes still have low byte SQLITE_CONSTRAINT).
+	return sqliteErr.Code()&0xff == sqlite3.SQLITE_CONSTRAINT
 }
 
 func determineCreditorDebitor(trC TrCode, sendingId, receivingId int64) (creditId, debitId int64) {

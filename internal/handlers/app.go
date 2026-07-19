@@ -17,6 +17,7 @@ import (
 	"github.com/dchest/uniuri"
 	"github.com/dustin/go-humanize"
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/starfederation/datastar-go/datastar"
@@ -404,6 +405,7 @@ func AppPaymentRequest(tmpls *templates.Tmpls, db *database.Database, sessionsKV
 		}
 		pageData := templates.PageAppRequest{
 			OnlyRenderPage: false,
+			IdempotencyKey: uuid.NewString(),
 		}
 		var accs []templates.PageAppRequestAccount
 		for _, acc := range accsResult {
@@ -499,6 +501,12 @@ func PostRequest(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn) h
 			return
 		}
 
+		idemKey := strings.TrimSpace(r.FormValue("idempotencyKey"))
+		if idemKey == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
 		tx, err := db.Pool.BeginTx(r.Context(), nil)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -506,34 +514,56 @@ func PostRequest(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn) h
 		}
 		defer tx.Rollback()
 
-		_, sendEvents, err := accounts.CreateTransfer(r.Context(), db.Q.WithTx(tx), nc, accounts.CreateTransferInput{
-			SendingId:   accId,
-			ReceivingId: recipientId,
-			Memo:        memo,
-			LedgerId:    acc.LedgerID,
-			Amount:      amount,
+		trResult, err := accounts.CreateTransfer(r.Context(), db.Q.WithTx(tx), nc, accounts.CreateTransferInput{
+			SendingId:      accId,
+			ReceivingId:    recipientId,
+			Memo:           memo,
+			LedgerId:       acc.LedgerID,
+			Amount:         amount,
+			IdempotencyKey: idemKey,
 		})
 		if err != nil {
-			switch err {
-			case accounts.ErrInvalidQuantity,
-				accounts.ErrMatchingSenderReceiver,
-				accounts.ErrInvalidBalance,
-				accounts.ErrIncompatibleAccCodes,
-				accounts.ErrIncompatibleLedgers,
-				accounts.ErrMemoExceedsLimit:
+			switch {
+			case errors.Is(err, accounts.ErrIdempotencyConflict):
+				w.WriteHeader(http.StatusConflict)
+				return
+			case errors.Is(err, accounts.ErrIdempotencyRace):
+				_ = tx.Rollback()
+				existing, lookupErr := db.Q.GetTransferIdempotency(r.Context(), gensql.GetTransferIdempotencyParams{
+					AccountID: accId,
+					Key:       idemKey,
+				})
+				if lookupErr != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				if existing.RequestHash != accounts.TransferRequestHash(recipientId, amount, acc.LedgerID, memo) {
+					w.WriteHeader(http.StatusConflict)
+					return
+				}
+			case errors.Is(err, accounts.ErrInvalidQuantity),
+				errors.Is(err, accounts.ErrMatchingSenderReceiver),
+				errors.Is(err, accounts.ErrInvalidBalance),
+				errors.Is(err, accounts.ErrIncompatibleAccCodes),
+				errors.Is(err, accounts.ErrIncompatibleLedgers),
+				errors.Is(err, accounts.ErrMemoExceedsLimit),
+				errors.Is(err, accounts.ErrIdempotencyKeyRequired),
+				errors.Is(err, accounts.ErrIdempotencyKeyInvalid):
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			default:
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
+		} else {
+			if err := tx.Commit(); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			if trResult.Created {
+				go trResult.Publish()
+			}
 		}
-
-		if err := tx.Commit(); err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		go sendEvents()
 
 		sse := datastar.NewSSE(w, r)
 		sse.MarshalAndPatchSignals(map[string]any{
@@ -884,6 +914,7 @@ func loadAppTransfersPageData(ctx context.Context, db *database.Database, uData 
 
 	pageData := templates.PageAppTransfers{
 		OnlyRenderPage: onlyRenderPage,
+		IdempotencyKey: uuid.NewString(),
 	}
 	if accId == nil || *accId == -1 {
 		pageData.SelectedAccount.Id = -1
@@ -1263,6 +1294,12 @@ func SubmitTransfer(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn
 		}
 		qtyInt := int64(qtyFloat * math.Pow(10, float64(acc.AssetScale)))
 
+		idemKey := strings.TrimSpace(r.FormValue("idempotencyKey"))
+		if idemKey == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
 		tx, err := db.Pool.BeginTx(r.Context(), nil)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -1270,25 +1307,56 @@ func SubmitTransfer(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn
 		}
 		defer tx.Rollback()
 
-		_, sendEvents, err := accounts.CreateTransfer(r.Context(), db.Q.WithTx(tx), nc, accounts.CreateTransferInput{
-			SendingId:   accId,
-			ReceivingId: recipientId,
-			Memo:        memo,
-			LedgerId:    acc.LedgerID,
-			Amount:      qtyInt,
+		trResult, err := accounts.CreateTransfer(r.Context(), db.Q.WithTx(tx), nc, accounts.CreateTransferInput{
+			SendingId:      accId,
+			ReceivingId:    recipientId,
+			Memo:           memo,
+			LedgerId:       acc.LedgerID,
+			Amount:         qtyInt,
+			IdempotencyKey: idemKey,
 		})
 		if err != nil {
-			switch err {
-			case accounts.ErrInvalidBalance:
+			switch {
+			case errors.Is(err, accounts.ErrIdempotencyConflict):
+				w.WriteHeader(http.StatusConflict)
+				return
+			case errors.Is(err, accounts.ErrIdempotencyRace):
+				_ = tx.Rollback()
+				existing, lookupErr := db.Q.GetTransferIdempotency(r.Context(), gensql.GetTransferIdempotencyParams{
+					AccountID: accId,
+					Key:       idemKey,
+				})
+				if lookupErr != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				if existing.RequestHash != accounts.TransferRequestHash(recipientId, qtyInt, acc.LedgerID, memo) {
+					w.WriteHeader(http.StatusConflict)
+					return
+				}
+			case errors.Is(err, accounts.ErrInvalidBalance),
+				errors.Is(err, accounts.ErrInvalidQuantity),
+				errors.Is(err, accounts.ErrMatchingSenderReceiver),
+				errors.Is(err, accounts.ErrIncompatibleAccCodes),
+				errors.Is(err, accounts.ErrIncompatibleLedgers),
+				errors.Is(err, accounts.ErrMemoExceedsLimit),
+				errors.Is(err, accounts.ErrIdempotencyKeyRequired),
+				errors.Is(err, accounts.ErrIdempotencyKeyInvalid):
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			default:
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
+		} else {
+			if err := tx.Commit(); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			if trResult.Created {
+				go trResult.Publish()
+			}
 		}
-		tx.Commit()
-		go sendEvents()
 
 		sse := datastar.NewSSE(w, r)
 

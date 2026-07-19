@@ -37,6 +37,7 @@
 		</label>
 		{{end}}
 		<input type="hidden" name="amount" value="{{.Amount}}">
+		<input type="hidden" name="idempotencyKey" value="{{.IdempotencyKey}}">
 	</form>
 
 	<button form="request-form"

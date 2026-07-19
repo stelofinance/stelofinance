@@ -154,6 +154,8 @@ http code `404` | Returned when the transfer is not found.
 <summary><code>POST</code> <code><b>/accounts/{account_id}/transfers</b></code> <code>(create a transfer)</code></summary>
 
 ##### Parameters
+- Headers:
+  - `Idempotency-Key` (string, required) — client-generated key (max 64 chars) unique per intended transfer for this account. Retries with the same key and same body return the original transfer; same key with a different body returns `409`.
 - Body fields (JSON):
   - `receivingId` (int64, required) — destination account ID
   - `memo` (string, optional) — transfer memo
@@ -165,12 +167,31 @@ http code `404` | Returned when the transfer is not found.
 curl -X POST https://stelo.finance/api/accounts/42/transfers \
   -H "Authorization: <token>" \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 550e8400-e29b-41d4-a716-446655440000" \
   -d '{"receivingId":7,"ledgerId":1,"amount":250,"memo":"payment"}'
 ```
 
 ##### Responses
-http code `201` | Created — no response body.
+http code `201` | Content-Type `application/json` — transfer created
+```jsonc
+{
+  "id": 99,                  // int64 — transfer ID
+  "debitAccId": 42,          // int64
+  "creditAccId": 7,          // int64
+  "amount": 250,             // int64
+  "ledgerId": 1,             // int64
+  "debitAddr": "ANSYZS",     // string
+  "creditAddr": "QHCJYZ",    // string
+  "code": 1,                 // int32
+  "memo": "payment",         // string|null
+  "createdAt": "2024-01-15T11:00:00Z"  // RFC 3339 string
+}
+```
 
-http code `400` | Bad Request — invalid balance or validation failure.
+http code `200` | Content-Type `application/json` — same body as `201`, returned when replaying a prior successful request with the same `Idempotency-Key` and payload.
+
+http code `400` | Bad Request — missing/invalid idempotency key, invalid balance, or validation failure.
+
+http code `409` | Conflict — `Idempotency-Key` was already used with a different request payload.
 
 </details>

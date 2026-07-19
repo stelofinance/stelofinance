@@ -63,6 +63,7 @@ type PageAppAccountUser struct {
 
 type PageAppTransfers struct {
 	OnlyRenderPage  bool
+	IdempotencyKey  string
 	RecipientInput  PageAppTransfersRecipientInput
 	SelectedAccount PageAppTransfersSelectedAccount
 	Accounts        []PageAppTransfersAccount
@@ -105,6 +106,7 @@ type PageAppTransfersTransfer struct {
 
 type PageAppRequest struct {
 	OnlyRenderPage bool
+	IdempotencyKey string
 	LedgerName     string
 	AmountFmtd     string
 	Amount         int64

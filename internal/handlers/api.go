@@ -496,6 +496,12 @@ func CreateTransfer(db *database.Database, nc *nats.Conn) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		accData := sessions.GetAccount(r.Context())
 
+		idemKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+		if idemKey == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
 		type Input struct {
 			ReceivingId int64   `json:"receivingId" validate:"required"`
 			Memo        *string `json:"memo"`
@@ -519,16 +525,44 @@ func CreateTransfer(db *database.Database, nc *nats.Conn) http.HandlerFunc {
 		}
 		defer tx.Rollback()
 
-		_, sendEvents, err := accounts.CreateTransfer(r.Context(), db.Q.WithTx(tx), nc, accounts.CreateTransferInput{
-			SendingId:   accData.Id,
-			ReceivingId: body.ReceivingId,
-			Memo:        body.Memo,
-			LedgerId:    body.LedgerId,
-			Amount:      body.Amount,
+		trResult, err := accounts.CreateTransfer(r.Context(), db.Q.WithTx(tx), nc, accounts.CreateTransferInput{
+			SendingId:      accData.Id,
+			ReceivingId:    body.ReceivingId,
+			Memo:           body.Memo,
+			LedgerId:       body.LedgerId,
+			Amount:         body.Amount,
+			IdempotencyKey: idemKey,
 		})
 		if err != nil {
-			switch err {
-			case accounts.ErrInvalidBalance:
+			switch {
+			case errors.Is(err, accounts.ErrIdempotencyConflict):
+				w.WriteHeader(http.StatusConflict)
+				return
+			case errors.Is(err, accounts.ErrIdempotencyRace):
+				// Roll back our partial write, then resolve against the winning claim.
+				_ = tx.Rollback()
+				existing, lookupErr := db.Q.GetTransferIdempotency(r.Context(), gensql.GetTransferIdempotencyParams{
+					AccountID: accData.Id,
+					Key:       idemKey,
+				})
+				if lookupErr != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				if existing.RequestHash != accounts.TransferRequestHash(body.ReceivingId, body.Amount, body.LedgerId, body.Memo) {
+					w.WriteHeader(http.StatusConflict)
+					return
+				}
+				writeTransferJSON(w, db, r, existing.TransferID, http.StatusOK)
+				return
+			case errors.Is(err, accounts.ErrInvalidBalance),
+				errors.Is(err, accounts.ErrInvalidQuantity),
+				errors.Is(err, accounts.ErrMatchingSenderReceiver),
+				errors.Is(err, accounts.ErrIncompatibleAccCodes),
+				errors.Is(err, accounts.ErrIncompatibleLedgers),
+				errors.Is(err, accounts.ErrMemoExceedsLimit),
+				errors.Is(err, accounts.ErrIdempotencyKeyRequired),
+				errors.Is(err, accounts.ErrIdempotencyKeyInvalid):
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			default:
@@ -537,11 +571,64 @@ func CreateTransfer(db *database.Database, nc *nats.Conn) http.HandlerFunc {
 			}
 		}
 
-		tx.Commit()
-		go sendEvents()
+		if err := tx.Commit(); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if trResult.Created {
+			go trResult.Publish()
+		}
 
-		w.WriteHeader(http.StatusCreated)
+		status := http.StatusOK
+		if trResult.Created {
+			status = http.StatusCreated
+		}
+		writeTransferJSON(w, db, r, trResult.TransferID, status)
 	}
+}
+
+func writeTransferJSON(w http.ResponseWriter, db *database.Database, r *http.Request, trID int64, status int) {
+	tr, err := db.Q.GetTransferWithAddrsById(r.Context(), trID)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	type Response struct {
+		ID          int64     `json:"id"`
+		DebitAccId  int64     `json:"debitAccId"`
+		CreditAccId int64     `json:"creditAccId"`
+		Amount      int64     `json:"amount"`
+		LedgerID    int64     `json:"ledgerId"`
+		DebitAddr   string    `json:"debitAddr"`
+		CreditAddr  string    `json:"creditAddr"`
+		Code        int32     `json:"code"`
+		Memo        *string   `json:"memo,omitempty"`
+		CreatedAt   time.Time `json:"createdAt"`
+	}
+
+	rsp := Response{
+		ID:          tr.ID,
+		DebitAccId:  tr.DebitAccountID,
+		CreditAccId: tr.CreditAccountID,
+		Amount:      tr.Amount,
+		LedgerID:    tr.LedgerID,
+		DebitAddr:   tr.DebitAddress,
+		CreditAddr:  tr.CreditAddress,
+		Code:        int32(tr.Code),
+		Memo:        tr.Memo,
+		CreatedAt:   tr.CreatedAt,
+	}
+
+	data, err := json.Marshal(rsp)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	w.Write(data)
 }
 
 func GetWebhook(db *database.Database) http.HandlerFunc {

@@ -2,6 +2,15 @@
 INSERT INTO transfer (debit_account_id, credit_account_id, amount, pending_id, ledger_id, code, flags, memo, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) returning id;
 
+-- name: GetTransferIdempotency :one
+SELECT account_id, key, transfer_id, request_hash, created_at
+FROM transfer_idempotency
+WHERE account_id = ? AND key = ?;
+
+-- name: InsertTransferIdempotency :exec
+INSERT INTO transfer_idempotency (account_id, key, transfer_id, request_hash, created_at)
+VALUES (?, ?, ?, ?, ?);
+
 -- name: GetTransfersByAccountId :many
 SELECT
     tr.*,
