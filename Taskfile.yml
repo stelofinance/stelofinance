@@ -33,7 +33,7 @@ tasks:
 
   build:
     desc: Build all artifacts
-    deps: [build:go:app, build:go:migrate]
+    deps: [build:go:app]
 
   build:go:app:
     deps: [build:go:sqlc, build:styles]
@@ -48,20 +48,6 @@ tasks:
       - "**/*.html.tmpl"
     generates:
       - bin/app
-
-  build:go:migrate:
-    env:
-      GOARCH: amd64
-      GOOS: linux
-      CGO_ENABLED: 0
-    cmds:
-      - go build -o bin/migrate cmd/migrate/main.go
-    sources:
-      - "cmd/migrate/**/*.go"
-      - "database/database.go"
-      - "database/migrations/**/*.sql"
-    generates:
-      - bin/migrate
 
   build:go:sqlc:
     cmds:
