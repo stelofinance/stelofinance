@@ -30,25 +30,10 @@
         nativeBuildInputs = with pkgs; [ sqlc tailwindcss_4 ];
 
         env.CGO_ENABLED = 0;
-        vendorHash = "sha256-PR5JG4OTXYmhqlyXLkJclE2zAGDbHVOtfCgyvnbzZxg=";
+        vendorHash = "sha256-Y2XvAQsHz9FQv/x3zNwEOvEowpsUxnH4XnbVmPR+RIA=";
 
         postPatch = ''
           tailwindcss -i web/styles/tw-input.css -o web/static/tw-output.css --minify
-          sqlc generate
-        '';
-      };
-      migrate = pkgs.buildGoModule {
-        pname = "migrate";
-        version = "0.1.0";
-        src = ./.;
-        subPackages = [ "cmd/migrate" ];
-
-        nativeBuildInputs = [ pkgs.sqlc ];
-
-        env.CGO_ENABLED = 0;
-        vendorHash = "sha256-PR5JG4OTXYmhqlyXLkJclE2zAGDbHVOtfCgyvnbzZxg=";
-
-        postPatch = ''
           sqlc generate
         '';
       };
