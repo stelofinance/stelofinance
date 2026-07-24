@@ -25,24 +25,25 @@ func Index(env string) http.Handler {
 		sData := sessions.GetUser(r.Context())
 		page := templates.PageIndex{
 			IsAuthed: sData != nil,
-			InfoCards: []templates.PageIndexInfoCard{{
-				Title: "Physical to Digital",
-				Body:  "Assets on Stelo range from purely digital to 1:1 backed with real redeemable items in-game (and in-between)!",
+			Intro:    "Stelo keeps BitCraft assets in digital accounts so you can send, receive, and build with them whether you're online or not. Each asset has its own balance; transfers move value between accounts instantly.",
+			Steps: []templates.PageIndexStep{{
+				Number: "01",
+				Title:  "Get assets",
+				Body:   "Bring value onto Stelo through that asset's issuer, or receive a transfer from someone who already holds it.",
 			}, {
-				Title: "Built to be Built Upon",
-				Body:  "The Stelo platform enables you to create whatever financial product you can dream of, from loan services to nation state bonds.",
+				Number: "02",
+				Title:  "Send them",
+				Body:   "Move balances between accounts instantly. To friends, for settlements, or via payment links. No in-game proximity required.",
 			}, {
-				Title: "Permissioned Control",
-				Body:  "Stelo gives you a range of granular permissions, so you can be confident in managing and delegating your finances.",
-			}, {
-				Title: "An Open Platform",
-				Body:  "Stelo provides a public API so anyone can leverage the platform to build their idea. Need more functionality? Join the Discord and ask!",
-			}, {
-				Title: "Global Exchange",
-				Body:  "What good are all these assets if they can't be traded? That's why Stelo has a built in order-book global market, to maximize the liquidity of all your assets.",
-			}, {
-				Title: "Instantaneous",
-				Body:  "Trade at the speed of light. Whether you're in different towns, regions, or not even online, you can trade all your assets instantly with anyone.",
+				Number: "03",
+				Title:  "Cash out",
+				Body:   "For redeemable assets, return them to the issuer and take the items back into BitCraft.",
+			}},
+			Assets: []templates.PageIndexAsset{{
+				Name:        "Hexcoin",
+				Issuer:      "Stelo Bank",
+				Description: "BitCraft's hexcoin on Stelo. Deposit and redeem 1:1 through the official bank; transfer freely between accounts.",
+				TypeLabel:   "In-game item",
 			}},
 		}
 

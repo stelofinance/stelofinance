@@ -11,12 +11,23 @@ import (
 var tmplPageIndex string
 
 type PageIndex struct {
-	IsAuthed  bool
-	InfoCards []PageIndexInfoCard
+	IsAuthed bool
+	Intro    string
+	Steps    []PageIndexStep
+	Assets   []PageIndexAsset
 }
-type PageIndexInfoCard struct {
-	Title string
-	Body  string
+
+type PageIndexStep struct {
+	Number string
+	Title  string
+	Body   string
+}
+
+type PageIndexAsset struct {
+	Name        string
+	Issuer      string
+	Description string
+	TypeLabel   string
 }
 
 func (PageIndex) TemplateText() string { return tmplPageIndex }

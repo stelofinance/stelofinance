@@ -39,75 +39,42 @@
 			<p class="tracking-wider">THE STELO FINANCE PLATFORM</p>
 		</div>
 	</div>
-	{{/* Info Cards */}}
-	<div class="bg-linear-to-b from-anakiwa-300 to-melrose py-10 px-4 lg:py-16 lg:px-10">
-		<div class="mx-auto grid max-w-sm grid-cols-1 gap-4 sm:max-w-(--breakpoint-xl) sm:grid-cols-2 md:gap-6 lg:grid-cols-3 xl:gap-10">
-			{{range .InfoCards}}
-			<div class="flex flex-col rounded-lg bg-white/20 py-5 px-3 text-center shadow-md xl:p-8">
-				<h2 class="text-lg font-medium xl:text-2xl">{{.Title}}</h2>
-				<p class="mt-2 text-sm font-light xl:mt-6 xl:text-lg xl:leading-tight">{{.Body}}</p>
+	{{/* How Stelo works */}}
+	<section class="mx-auto max-w-(--breakpoint-xl) px-6 py-16 text-white md:py-20 lg:px-10 lg:py-24">
+		<h2 class="bg-linear-to-r from-anakiwa to-melrose bg-clip-text text-2xl font-medium text-transparent sm:text-3xl lg:text-4xl">How Stelo Works</h2>
+		<p class="mt-3 max-w-3xl text-sm text-neutral-100 sm:text-base lg:mt-5 lg:text-lg lg:leading-snug">
+			{{.Intro}}
+		</p>
+
+		<div class="mt-8 grid grid-cols-1 gap-6 sm:mt-10 sm:grid-cols-3 2xl:gap-8 lg:mt-14">
+			{{range .Steps}}
+			<div class="rounded-lg bg-neutral-950 p-5 sm:p-6">
+				<span class="text-sm font-medium text-anakiwa">{{.Number}}</span>
+				<h3 class="mt-1 text-lg font-medium sm:text-xl">{{.Title}}</h3>
+				<p class="mt-2 text-sm text-neutral-100 sm:text-base lg:leading-snug">{{.Body}}</p>
 			</div>
 			{{end}}
 		</div>
-	</div>
-	{{/* Walkthrough */}}
-	<div class="mx-auto flex max-w-(--breakpoint-md) flex-col py-10 px-6 text-white md:py-20 xl:max-w-(--breakpoint-lg) xl:py-28">
-		<h2 class="mx-auto text-lg uppercase tracking-wider text-anakiwa sm:text-2xl md:mb-4 lg:text-3xl xl:mb-12 xl:text-4xl">Getting started on Stelo</h2>
-		{{/* TODO: Could probably make this just a range statement */}}
-		<div class="group relative flex h-fit justify-between rounded-lg p-8 transition-colors xl:px-9 xl:pb-16 xl:hover:bg-neutral-950">
-			<div class="absolute top-10 left-0 h-full w-2 bg-neutral-800"></div>
-			<div class="absolute top-10 -left-1.5 h-5 w-5 rounded-full bg-neutral-800 transition-colors group-hover:bg-anakiwa"></div>
-			<div class="xl:w-1/2">
-				<h3 class="text-xl font-medium lg:text-2xl">Login/Register</h3>
-				<p class="mt-5 text-sm text-neutral-100 lg:text-base xl:text-lg">
-					You'll need to login/register first (through BitCraft) to use the Stelo platform. Once in, you'll have the whole platform at your fingertips.
-				</p>
-			</div>
-			<div class="hidden w-52 xl:block">
-				{{template "illustrations/account" `grayscale group-hover:grayscale-0`}}
-			</div>
-		</div>
-		<div class="group relative flex h-fit justify-between rounded-lg p-8 transition-colors xl:px-9 xl:pb-16 xl:hover:bg-neutral-950">
-			<div class="absolute top-0 left-0 h-full w-2 bg-neutral-800"></div>
-			<div class="absolute top-9 -left-1.5 h-5 w-5 rounded-full bg-neutral-800 transition-colors group-hover:bg-anakiwa"></div>
-			<div class="xl:w-1/2">
-				<h3 class="text-xl font-medium lg:text-2xl">Acquire Assets</h3>
-				<p class="mt-5 text-sm text-neutral-100 lg:text-base xl:text-lg">
-					Now that you're logged in, you'll want to get some items to trade with. Acquiring items on Stelo depends heavily on the specific asset.
-					The most common item you could get ahold on the platform are hexcoins. Either head to an Official Stelo Bank, or trade with someone in-game for Hexcoins on Stelo.
-				</p>
-			</div>
-			<div class="hidden w-52 xl:block">
-				{{template "illustrations/deposit" `grayscale group-hover:grayscale-0`}}
+
+		<div class="mt-14 sm:mt-16 lg:mt-20">
+			<h3 class="text-lg font-medium sm:text-xl lg:text-2xl">Assets on the platform</h3>
+			<div class="mt-5 flex flex-col gap-4 sm:mt-6">
+				{{range .Assets}}
+				<div class="rounded-lg border border-neutral-800 bg-neutral-950 p-5 sm:p-6">
+					<div class="flex flex-wrap items-center justify-between">
+						<p class="text-lg font-medium sm:text-xl">{{.Name}}</p>
+						<span class="rounded-full bg-anakiwa/15 px-3 py-0.5 text-xs text-anakiwa sm:text-sm">{{.TypeLabel}}</span>
+					</div>
+					<p class="mt-1 text-sm text-neutral-300 sm:text-base">
+						<span class="text-neutral-400">Issuer:</span>
+						{{.Issuer}}
+					</p>
+					<p class="mt-3 text-sm text-neutral-100 sm:text-base lg:leading-snug">{{.Description}}</p>
+				</div>
+				{{end}}
 			</div>
 		</div>
-		<div class="group relative flex h-fit justify-between rounded-lg p-8 transition-colors xl:px-9 xl:pb-16 xl:hover:bg-neutral-950">
-			<div class="absolute top-0 left-0 h-full w-2 bg-neutral-800"></div>
-			<div class="absolute top-9 -left-1.5 h-5 w-5 rounded-full bg-neutral-800 transition-colors group-hover:bg-anakiwa"></div>
-			<div class="xl:w-1/2">
-				<h3 class="text-xl font-medium lg:text-2xl">Trade Your Items</h3>
-				<p class="mt-5 text-sm text-neutral-100 lg:text-base xl:text-lg">
-					With assets in your account now, you can now do whatever you'd like with them on the Stelo platform! You can send them to a friend, sell them on an exchange, donate them to a cause, and much more!
-				</p>
-			</div>
-			<div class="hidden w-52 xl:block">
-				{{template "illustrations/trade" `grayscale group-hover:grayscale-0`}}
-			</div>
-		</div>
-		<div class="group relative flex h-fit justify-between rounded-lg p-8 transition-colors xl:px-9 xl:pb-16 xl:hover:bg-neutral-950">
-			<div class="absolute top-0 left-0 h-10 w-2 bg-neutral-800"></div>
-			<div class="absolute top-9 -left-1.5 h-5 w-5 rounded-full bg-neutral-800 transition-colors group-hover:bg-anakiwa"></div>
-			<div class="xl:w-1/2">
-				<h3 class="text-xl font-medium lg:text-2xl">Withdraw Items</h3>
-				<p class="mt-5 text-sm text-neutral-100 lg:text-base xl:text-lg">
-					Have any items that you want to withdraw back into the world of BitCraft? Depending on the asset, you can redeem the items at their issuer and receive your items in-game!
-				</p>
-			</div>
-			<div class="hidden w-60 items-center xl:flex">
-				{{template "illustrations/withdraw" `grayscale group-hover:grayscale-0`}}
-			</div>
-		</div>
-	</div>
+	</section>
 	{{/* Contribute */}}
 	<div class="my-10 mx-6 flex max-w-(--breakpoint-xl) gap-36 rounded-lg bg-linear-to-r from-melrose to-anakiwa p-4 lg:mx-16 lg:py-6 lg:px-10 xl:mx-auto">
 		<div class="flex flex-col">
