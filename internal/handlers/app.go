@@ -26,43 +26,39 @@ import (
 	"github.com/stelofinance/stelofinance/internal/accounts"
 	"github.com/stelofinance/stelofinance/internal/sessions"
 	"github.com/stelofinance/stelofinance/web/templates"
+	"github.com/tylermmorton/tmpl"
 )
 
-func AppHome(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
+func AppHome(env string, db *database.Database) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uData := sessions.GetUser(r.Context())
 
-		tmplData := templates.LayoutApp{
-			Title:       "Home",
-			Description: "App homepage",
-			NavData: templates.ComponentAppNav{
-				Username: uData.BitCraftUsername,
-			},
-			MenuData: templates.ComponentAppMenu{
-				ActivePage: "home",
-			},
-			PageData: templates.PageAppHome{
-				Username: uData.BitCraftUsername,
-			},
-		}
-
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		err := tmpls.ExecuteTemplate(w, "pages/app-home", tmplData)
+		err := templates.AppHome.Render(w, templates.AppLayout(
+			"Home",
+			"App homepage",
+			uData.BitCraftUsername,
+			"home",
+			env,
+			templates.PageAppHome{
+				Username: uData.BitCraftUsername,
+			},
+		))
 		if err != nil {
 			panic(err)
 		}
 	}
 }
 
-func loadAppAccountsPageData(ctx context.Context, db *database.Database, uData *sessions.UserData, onlyRenderPage bool) (templates.LayoutApp, error) {
+func loadAppAccountsPageData(ctx context.Context, db *database.Database, uData *sessions.UserData, env string) (*templates.LayoutPrimary[templates.PageAppAccounts], error) {
 	// Fetch data and render page
 	ldgrsResult, err := db.Q.GetAllLedgers(ctx)
 	if err != nil {
-		return templates.LayoutApp{}, err
+		return nil, err
 	}
 	accsResult, err := db.Q.GetAccountsUserHasPerms(ctx, uData.Id)
 	if err != nil {
-		return templates.LayoutApp{}, err
+		return nil, err
 	}
 
 	var accs []templates.PageAppAccountsAccount
@@ -93,41 +89,37 @@ func loadAppAccountsPageData(ctx context.Context, db *database.Database, uData *
 		})
 	}
 
-	return templates.LayoutApp{
-		Title:       "Home",
-		Description: "App homepage",
-		NavData: templates.ComponentAppNav{
-			Username: uData.BitCraftUsername,
+	return templates.AppLayout(
+		"Home",
+		"App homepage",
+		uData.BitCraftUsername,
+		"accounts",
+		env,
+		templates.PageAppAccounts{
+			Ledgers:  ldgrs,
+			Accounts: accs,
 		},
-		MenuData: templates.ComponentAppMenu{
-			ActivePage: "accounts",
-		},
-		PageData: templates.PageAppAccounts{
-			OnlyRenderPage: onlyRenderPage,
-			Ledgers:        ldgrs,
-			Accounts:       accs,
-		},
-	}, nil
+	), nil
 }
 
-func AppAccounts(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
+func AppAccounts(env string, db *database.Database) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uData := sessions.GetUser(r.Context())
 
-		tmplData, err := loadAppAccountsPageData(r.Context(), db, uData, false)
+		tmplData, err := loadAppAccountsPageData(r.Context(), db, uData, env)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		err = tmpls.ExecuteTemplate(w, "pages/app-accounts", tmplData)
+		err = templates.AppAccounts.Render(w, tmplData)
 		if err != nil {
 			panic(err)
 		}
 	}
 }
 
-func AppAccountsUpdates(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn) http.HandlerFunc {
+func AppAccountsUpdates(env string, db *database.Database, nc *nats.Conn) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uData := sessions.GetUser(r.Context())
 
@@ -161,13 +153,13 @@ func AppAccountsUpdates(tmpls *templates.Tmpls, db *database.Database, nc *nats.
 
 		sse := datastar.NewSSE(w, r)
 		if r.Header.Get("Last-Event-Id") != "" {
-			tmplData, err := loadAppAccountsPageData(r.Context(), db, uData, true)
+			tmplData, err := loadAppAccountsPageData(r.Context(), db, uData, env)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
 			buff := new(bytes.Buffer)
-			err = tmpls.ExecuteTemplate(buff, "pages/app-accounts", tmplData)
+			err = templates.AppAccounts.Render(buff, tmplData, tmpl.WithTarget("page-content"))
 			if err != nil {
 				panic(err)
 			}
@@ -180,14 +172,14 @@ func AppAccountsUpdates(tmpls *templates.Tmpls, db *database.Database, nc *nats.
 		for {
 			select {
 			case <-trChan:
-				tmplData, err := loadAppAccountsPageData(r.Context(), db, uData, true)
+				tmplData, err := loadAppAccountsPageData(r.Context(), db, uData, env)
 				if err != nil {
 					// TODO: uhhh
 					continue
 				}
 
 				buff := new(bytes.Buffer)
-				err = tmpls.ExecuteTemplate(buff, "pages/app-accounts", tmplData)
+				err = templates.AppAccounts.Render(buff, tmplData, tmpl.WithTarget("page-content"))
 				if err != nil {
 					panic(err)
 				}
@@ -203,7 +195,7 @@ func AppAccountsUpdates(tmpls *templates.Tmpls, db *database.Database, nc *nats.
 	}
 }
 
-func AppCreateAccount(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
+func AppCreateAccount(env string, db *database.Database) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uData := sessions.GetUser(r.Context())
 
@@ -232,7 +224,7 @@ func AppCreateAccount(tmpls *templates.Tmpls, db *database.Database) http.Handle
 
 		tx.Commit()
 
-		tmplData, err := loadAppAccountsPageData(r.Context(), db, uData, true)
+		tmplData, err := loadAppAccountsPageData(r.Context(), db, uData, env)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -240,7 +232,7 @@ func AppCreateAccount(tmpls *templates.Tmpls, db *database.Database) http.Handle
 		sse := datastar.NewSSE(w, r)
 
 		buff := new(bytes.Buffer)
-		err = tmpls.ExecuteTemplate(buff, "pages/app-accounts", tmplData)
+		err = templates.AppAccounts.Render(buff, tmplData, tmpl.WithTarget("page-content"))
 		if err != nil {
 			panic(err)
 		}
@@ -248,15 +240,15 @@ func AppCreateAccount(tmpls *templates.Tmpls, db *database.Database) http.Handle
 	}
 }
 
-func loadAppAccountPageData(ctx context.Context, db *database.Database, sessionsKV jetstream.KeyValue, uData *sessions.UserData, accId int64, onlyPage bool) (templates.LayoutApp, error) {
+func loadAppAccountPageData(ctx context.Context, db *database.Database, sessionsKV jetstream.KeyValue, uData *sessions.UserData, accId int64, env string) (*templates.LayoutPrimary[templates.PageAppAccount], error) {
 	acc, err := db.Q.GetAccountAndLedgerById(ctx, accId)
 	if err != nil {
-		return templates.LayoutApp{}, err
+		return nil, err
 	}
 
 	permsResults, err := db.Q.GetUsersOnAccount(ctx, int64(accId))
 	if err != nil {
-		return templates.LayoutApp{}, err
+		return nil, err
 	}
 
 	var userPerms accounts.Permission
@@ -280,7 +272,7 @@ func loadAppAccountPageData(ctx context.Context, db *database.Database, sessions
 	// Count tokens
 	keyLstnr, err := sessionsKV.ListKeysFiltered(ctx, "accounts."+strconv.Itoa(int(accId))+".sessions.*")
 	if err != nil {
-		return templates.LayoutApp{}, err
+		return nil, err
 	}
 	defer keyLstnr.Stop()
 	tknQty := 0
@@ -289,30 +281,26 @@ func loadAppAccountPageData(ctx context.Context, db *database.Database, sessions
 		tknQty++
 	}
 
-	return templates.LayoutApp{
-		Title:       fmt.Sprintf("#%s / %s", acc.Address, acc.LedgerName),
-		Description: "Account configuration",
-		NavData: templates.ComponentAppNav{
-			Username: uData.BitCraftUsername,
+	return templates.AppLayout(
+		fmt.Sprintf("#%s / %s", acc.Address, acc.LedgerName),
+		"Account configuration",
+		uData.BitCraftUsername,
+		"account",
+		env,
+		templates.PageAppAccount{
+			AccountId:   acc.ID,
+			Address:     acc.Address,
+			LedgerName:  acc.LedgerName,
+			IsAdmin:     userPerms.HasPerms(accounts.PermAdmin),
+			IsPrimary:   isPrimary,
+			UserId:      uData.Id,
+			Users:       users,
+			TotalTokens: tknQty,
 		},
-		MenuData: templates.ComponentAppMenu{
-			ActivePage: "account",
-		},
-		PageData: templates.PageAppAccount{
-			OnlyRenderPage: onlyPage,
-			AccountId:      acc.ID,
-			Address:        acc.Address,
-			LedgerName:     acc.LedgerName,
-			IsAdmin:        userPerms.HasPerms(accounts.PermAdmin),
-			IsPrimary:      isPrimary,
-			UserId:         uData.Id,
-			Users:          users,
-			TotalTokens:    tknQty,
-		},
-	}, nil
+	), nil
 }
 
-func AppAccount(tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstream.KeyValue) http.HandlerFunc {
+func AppAccount(env string, db *database.Database, sessionsKV jetstream.KeyValue) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uData := sessions.GetUser(r.Context())
 		accIdStr := chi.URLParam(r, "account_id")
@@ -322,28 +310,21 @@ func AppAccount(tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstr
 			return
 		}
 
-		tmplData, err := loadAppAccountPageData(
-			r.Context(),
-			db,
-			sessionsKV,
-			uData,
-			int64(accId),
-			false,
-		)
+		tmplData, err := loadAppAccountPageData(r.Context(), db, sessionsKV, uData, int64(accId), env)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		err = tmpls.ExecuteTemplate(w, "pages/app-account", tmplData)
+		err = templates.AppAccount.Render(w, tmplData)
 		if err != nil {
 			panic(err)
 		}
 	}
 }
 
-func AppPaymentRequest(tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstream.KeyValue) http.HandlerFunc {
+func AppPaymentRequest(env string, db *database.Database, sessionsKV jetstream.KeyValue) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uData := sessions.GetUser(r.Context())
 
@@ -404,7 +385,6 @@ func AppPaymentRequest(tmpls *templates.Tmpls, db *database.Database, sessionsKV
 			return
 		}
 		pageData := templates.PageAppRequest{
-			OnlyRenderPage: false,
 			IdempotencyKey: uuid.NewString(),
 		}
 		var accs []templates.PageAppRequestAccount
@@ -439,27 +419,22 @@ func AppPaymentRequest(tmpls *templates.Tmpls, db *database.Database, sessionsKV
 		pageData.AmountFmtd = humanize.Commaf(float64(amount) / math.Pow(10, float64(ledger.AssetScale)))
 		pageData.Memo = memo
 
-		tmplData := templates.LayoutApp{
-			Title:       "Payment Request",
-			Description: "Request for a payment",
-			NavData: templates.ComponentAppNav{
-				Username: uData.BitCraftUsername,
-			},
-			MenuData: templates.ComponentAppMenu{
-				ActivePage: "request",
-			},
-			PageData: pageData,
-		}
-
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		err = tmpls.ExecuteTemplate(w, "pages/app-request", tmplData)
+		err = templates.AppRequest.Render(w, templates.AppLayout(
+			"Payment Request",
+			"Request for a payment",
+			uData.BitCraftUsername,
+			"request",
+			env,
+			pageData,
+		))
 		if err != nil {
 			panic(err)
 		}
 	}
 }
 
-func PostRequest(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn, webhooks accounts.WebhookEnqueuer) http.HandlerFunc {
+func PostRequest(db *database.Database, nc *nats.Conn, webhooks accounts.WebhookEnqueuer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		err := r.ParseForm()
 		if err != nil {
@@ -572,7 +547,7 @@ func PostRequest(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn, w
 	}
 }
 
-func PutAccountUser(tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstream.KeyValue) http.HandlerFunc {
+func PutAccountUser(env string, db *database.Database, sessionsKV jetstream.KeyValue) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uData := sessions.GetUser(r.Context())
 		accIdStr := chi.URLParam(r, "account_id")
@@ -623,14 +598,7 @@ func PutAccountUser(tmpls *templates.Tmpls, db *database.Database, sessionsKV je
 		tx.Commit()
 
 		// Update page
-		tmplData, err := loadAppAccountPageData(
-			r.Context(),
-			db,
-			sessionsKV,
-			uData,
-			int64(accId),
-			true,
-		)
+		tmplData, err := loadAppAccountPageData(r.Context(), db, sessionsKV, uData, int64(accId), env)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -638,7 +606,7 @@ func PutAccountUser(tmpls *templates.Tmpls, db *database.Database, sessionsKV je
 		sse := datastar.NewSSE(w, r)
 
 		buff := new(bytes.Buffer)
-		err = tmpls.ExecuteTemplate(buff, "pages/app-account", tmplData)
+		err = templates.AppAccount.Render(buff, tmplData, tmpl.WithTarget("page-content"))
 		if err != nil {
 			panic(err)
 		}
@@ -646,7 +614,7 @@ func PutAccountUser(tmpls *templates.Tmpls, db *database.Database, sessionsKV je
 	}
 }
 
-func PostAccountUser(tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstream.KeyValue) http.HandlerFunc {
+func PostAccountUser(env string, db *database.Database, sessionsKV jetstream.KeyValue) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uData := sessions.GetUser(r.Context())
 		accId, err := strconv.Atoi(chi.URLParam(r, "account_id"))
@@ -697,14 +665,7 @@ func PostAccountUser(tmpls *templates.Tmpls, db *database.Database, sessionsKV j
 		tx.Commit()
 
 		// Update page
-		tmplData, err := loadAppAccountPageData(
-			r.Context(),
-			db,
-			sessionsKV,
-			uData,
-			int64(accId),
-			true,
-		)
+		tmplData, err := loadAppAccountPageData(r.Context(), db, sessionsKV, uData, int64(accId), env)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -712,7 +673,7 @@ func PostAccountUser(tmpls *templates.Tmpls, db *database.Database, sessionsKV j
 		sse := datastar.NewSSE(w, r)
 
 		buff := new(bytes.Buffer)
-		err = tmpls.ExecuteTemplate(buff, "pages/app-account", tmplData)
+		err = templates.AppAccount.Render(buff, tmplData, tmpl.WithTarget("page-content"))
 		if err != nil {
 			panic(err)
 		}
@@ -720,7 +681,7 @@ func PostAccountUser(tmpls *templates.Tmpls, db *database.Database, sessionsKV j
 	}
 }
 
-func DeleteAccountUser(tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstream.KeyValue) http.HandlerFunc {
+func DeleteAccountUser(env string, db *database.Database, sessionsKV jetstream.KeyValue) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uData := sessions.GetUser(r.Context())
 		accId, err := strconv.Atoi(chi.URLParam(r, "account_id"))
@@ -759,14 +720,7 @@ func DeleteAccountUser(tmpls *templates.Tmpls, db *database.Database, sessionsKV
 		tx.Commit()
 
 		// Update page
-		tmplData, err := loadAppAccountPageData(
-			r.Context(),
-			db,
-			sessionsKV,
-			uData,
-			int64(accId),
-			true,
-		)
+		tmplData, err := loadAppAccountPageData(r.Context(), db, sessionsKV, uData, int64(accId), env)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -774,7 +728,7 @@ func DeleteAccountUser(tmpls *templates.Tmpls, db *database.Database, sessionsKV
 		sse := datastar.NewSSE(w, r)
 
 		buff := new(bytes.Buffer)
-		err = tmpls.ExecuteTemplate(buff, "pages/app-account", tmplData)
+		err = templates.AppAccount.Render(buff, tmplData, tmpl.WithTarget("page-content"))
 		if err != nil {
 			panic(err)
 		}
@@ -782,7 +736,7 @@ func DeleteAccountUser(tmpls *templates.Tmpls, db *database.Database, sessionsKV
 	}
 }
 
-func PostAccountToken(tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstream.KeyValue) http.HandlerFunc {
+func PostAccountToken(env string, db *database.Database, sessionsKV jetstream.KeyValue) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uData := sessions.GetUser(r.Context())
 		accId, err := strconv.Atoi(chi.URLParam(r, "account_id"))
@@ -808,14 +762,7 @@ func PostAccountToken(tmpls *templates.Tmpls, db *database.Database, sessionsKV 
 		}
 
 		// Update page
-		tmplData, err := loadAppAccountPageData(
-			r.Context(),
-			db,
-			sessionsKV,
-			uData,
-			int64(accId),
-			true,
-		)
+		tmplData, err := loadAppAccountPageData(r.Context(), db, sessionsKV, uData, int64(accId), env)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -823,16 +770,10 @@ func PostAccountToken(tmpls *templates.Tmpls, db *database.Database, sessionsKV 
 		sse := datastar.NewSSE(w, r)
 
 		// Add token data
-		pageData, ok := tmplData.PageData.(templates.PageAppAccount)
-		if !ok {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		pageData.Token = "stla_" + sid
-		tmplData.PageData = pageData
+		tmplData.Content.Token = "stla_" + sid
 
 		buff := new(bytes.Buffer)
-		err = tmpls.ExecuteTemplate(buff, "pages/app-account", tmplData)
+		err = templates.AppAccount.Render(buff, tmplData, tmpl.WithTarget("page-content"))
 		if err != nil {
 			panic(err)
 		}
@@ -840,7 +781,7 @@ func PostAccountToken(tmpls *templates.Tmpls, db *database.Database, sessionsKV 
 	}
 }
 
-func DeleteAccountTokens(tmpls *templates.Tmpls, db *database.Database, sessionsKV jetstream.KeyValue) http.HandlerFunc {
+func DeleteAccountTokens(env string, db *database.Database, sessionsKV jetstream.KeyValue) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uData := sessions.GetUser(r.Context())
 		accId, err := strconv.Atoi(chi.URLParam(r, "account_id"))
@@ -861,14 +802,7 @@ func DeleteAccountTokens(tmpls *templates.Tmpls, db *database.Database, sessions
 		}
 
 		// Update page
-		tmplData, err := loadAppAccountPageData(
-			r.Context(),
-			db,
-			sessionsKV,
-			uData,
-			int64(accId),
-			true,
-		)
+		tmplData, err := loadAppAccountPageData(r.Context(), db, sessionsKV, uData, int64(accId), env)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -876,7 +810,7 @@ func DeleteAccountTokens(tmpls *templates.Tmpls, db *database.Database, sessions
 		sse := datastar.NewSSE(w, r)
 
 		buff := new(bytes.Buffer)
-		err = tmpls.ExecuteTemplate(buff, "pages/app-account", tmplData)
+		err = templates.AppAccount.Render(buff, tmplData, tmpl.WithTarget("page-content"))
 		if err != nil {
 			panic(err)
 		}
@@ -892,11 +826,11 @@ func derefOrFallback[T any](ref *T, fallback T) T {
 
 }
 
-func loadAppTransfersPageData(ctx context.Context, db *database.Database, uData *sessions.UserData, accId *int64, onlyRenderPage bool) (templates.LayoutApp, error) {
+func loadAppTransfersPageData(ctx context.Context, db *database.Database, uData *sessions.UserData, accId *int64, env string) (*templates.LayoutPrimary[templates.PageAppTransfers], error) {
 	accsResult, err := db.Q.GetAccountsUserHasPerms(ctx, uData.Id)
 	if err != nil {
 		// TODO: do something here?
-		return templates.LayoutApp{}, err
+		return nil, err
 	}
 	// If there is an account input, filter by that
 	var filterId *int64
@@ -909,11 +843,10 @@ func loadAppTransfersPageData(ctx context.Context, db *database.Database, uData 
 	})
 	if err != nil {
 		// TODO: do something here?
-		return templates.LayoutApp{}, err
+		return nil, err
 	}
 
 	pageData := templates.PageAppTransfers{
-		OnlyRenderPage: onlyRenderPage,
 		IdempotencyKey: uuid.NewString(),
 	}
 	if accId == nil || *accId == -1 {
@@ -924,7 +857,7 @@ func loadAppTransfersPageData(ctx context.Context, db *database.Database, uData 
 		accResult, err := db.Q.GetAccountAndLedgerById(ctx, *accId)
 		if err != nil {
 			// TODO: do something here?
-			return templates.LayoutApp{}, err
+			return nil, err
 		}
 		pageData.SelectedAccount.LedgerName = accResult.LedgerName
 		var bal int64 = 0
@@ -1004,41 +937,36 @@ func loadAppTransfersPageData(ctx context.Context, db *database.Database, uData 
 		existingTransfers[trn.ID] = struct{}{}
 	}
 
-	tmplData := templates.LayoutApp{
-		Title:       "Transfers",
-		Description: "All transfers on your accounts or selected account",
-		NavData: templates.ComponentAppNav{
-			Username: uData.BitCraftUsername,
-		},
-		MenuData: templates.ComponentAppMenu{
-			ActivePage: "transfers",
-		},
-		PageData: pageData,
-	}
-
-	return tmplData, nil
+	return templates.AppLayout(
+		"Transfers",
+		"All transfers on your accounts or selected account",
+		uData.BitCraftUsername,
+		"transfers",
+		env,
+		pageData,
+	), nil
 }
 
-func AppTransfers(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
+func AppTransfers(env string, db *database.Database) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uData := sessions.GetUser(r.Context())
 
 		// Load template data
-		tmplData, err := loadAppTransfersPageData(r.Context(), db, uData, nil, false)
+		tmplData, err := loadAppTransfersPageData(r.Context(), db, uData, nil, env)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		err = tmpls.ExecuteTemplate(w, "pages/app-transfers", tmplData)
+		err = templates.AppTransfers.Render(w, tmplData)
 		if err != nil {
 			panic(err)
 		}
 	}
 }
 
-func AppTransfersUpdates(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn) http.HandlerFunc {
+func AppTransfersUpdates(env string, db *database.Database, nc *nats.Conn) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uData := sessions.GetUser(r.Context())
 
@@ -1057,13 +985,13 @@ func AppTransfersUpdates(tmpls *templates.Tmpls, db *database.Database, nc *nats
 
 		sse := datastar.NewSSE(w, r)
 		if r.Header.Get("Last-Event-Id") != "" || r.Header.Get("Send-Initial-State") == "true" {
-			tmplData, err := loadAppTransfersPageData(r.Context(), db, uData, ds.AccountId, true)
+			tmplData, err := loadAppTransfersPageData(r.Context(), db, uData, ds.AccountId, env)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
 			buff := new(bytes.Buffer)
-			err = tmpls.ExecuteTemplate(buff, "pages/app-transfers", tmplData)
+			err = templates.AppTransfers.Render(buff, tmplData, tmpl.WithTarget("page-content"))
 			if err != nil {
 				panic(err)
 			}
@@ -1119,14 +1047,14 @@ func AppTransfersUpdates(tmpls *templates.Tmpls, db *database.Database, nc *nats
 		for {
 			select {
 			case <-trChan:
-				tmplData, err := loadAppTransfersPageData(r.Context(), db, uData, ds.AccountId, true)
+				tmplData, err := loadAppTransfersPageData(r.Context(), db, uData, ds.AccountId, env)
 				if err != nil {
 					// TODO: uhhh
 					continue
 				}
 
 				buff := new(bytes.Buffer)
-				err = tmpls.ExecuteTemplate(buff, "pages/app-transfers", tmplData)
+				err = templates.AppTransfers.Render(buff, tmplData, tmpl.WithTarget("page-content"))
 				if err != nil {
 					panic(err)
 				}
@@ -1142,7 +1070,7 @@ func AppTransfersUpdates(tmpls *templates.Tmpls, db *database.Database, nc *nats
 	}
 }
 
-func FormRecipient(tmpls *templates.Tmpls, db *database.Database) http.HandlerFunc {
+func FormRecipient(db *database.Database) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		type input struct {
 			AccountId       *int64 `json:"accId"`
@@ -1174,14 +1102,14 @@ func FormRecipient(tmpls *templates.Tmpls, db *database.Database) http.HandlerFu
 			if acc.BitcraftUsername != nil {
 				label = *acc.BitcraftUsername
 			}
-			data := templates.PageAppTransfersRecipientInput{
+			data := templates.ComponentTransferRecipient{
 				RecipientLabel:  label,
 				RecipientAddrId: *ds.RecipientAccId,
 			}
 
 			sse := datastar.NewSSE(w, r)
 			buff := new(bytes.Buffer)
-			err = tmpls.ExecuteTemplate(buff, "components/transfer-recipient", data)
+			err = templates.TransferRecipientTmpl.Render(buff, &data)
 			if err != nil {
 				panic(err)
 			}
@@ -1193,7 +1121,7 @@ func FormRecipient(tmpls *templates.Tmpls, db *database.Database) http.HandlerFu
 		if ds.AccountId == nil || ds.RecipientSearch == "" {
 			sse := datastar.NewSSE(w, r)
 			buff := new(bytes.Buffer)
-			err = tmpls.ExecuteTemplate(buff, "components/transfer-recipient", nil)
+			err = templates.TransferRecipientTmpl.Render(buff, &templates.ComponentTransferRecipient{})
 			if err != nil {
 				panic(err)
 			}
@@ -1220,17 +1148,17 @@ func FormRecipient(tmpls *templates.Tmpls, db *database.Database) http.HandlerFu
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		data := templates.PageAppTransfersRecipientInput{
+		data := templates.ComponentTransferRecipient{
 			RecipientLabel:  "",
 			RecipientAddrId: 0,
-			Recipients:      make([]templates.PageAppTransfersRecipients, 0, len(results)),
+			Recipients:      make([]templates.TransferRecipientOption, 0, len(results)),
 		}
 		for _, r := range results {
 			label := "#" + r.Address
 			if r.BitcraftUsername != nil {
 				label = *r.BitcraftUsername
 			}
-			data.Recipients = append(data.Recipients, templates.PageAppTransfersRecipients{
+			data.Recipients = append(data.Recipients, templates.TransferRecipientOption{
 				AccountId: r.ID,
 				Label:     label,
 			})
@@ -1239,7 +1167,7 @@ func FormRecipient(tmpls *templates.Tmpls, db *database.Database) http.HandlerFu
 		// Merge in recipients
 		sse := datastar.NewSSE(w, r)
 		buff := new(bytes.Buffer)
-		err = tmpls.ExecuteTemplate(buff, "components/transfer-recipient", data)
+		err = templates.TransferRecipientTmpl.Render(buff, &data)
 		if err != nil {
 			panic(err)
 		}
@@ -1247,7 +1175,7 @@ func FormRecipient(tmpls *templates.Tmpls, db *database.Database) http.HandlerFu
 	}
 }
 
-func SubmitTransfer(tmpls *templates.Tmpls, db *database.Database, nc *nats.Conn, webhooks accounts.WebhookEnqueuer) http.HandlerFunc {
+func SubmitTransfer(db *database.Database, nc *nats.Conn, webhooks accounts.WebhookEnqueuer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// TODO: Honestly, have the whole entire thing just be form data, then merge
 		// in a fragment of success. Or maybe fail message too?

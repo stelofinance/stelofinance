@@ -3,8 +3,6 @@ package web
 import (
 	"context"
 	"database/sql"
-	"embed"
-	_ "embed"
 	"errors"
 	"fmt"
 	"io"
@@ -30,13 +28,9 @@ import (
 	"github.com/stelofinance/stelofinance/internal/logger"
 	"github.com/stelofinance/stelofinance/internal/routes"
 	"github.com/stelofinance/stelofinance/internal/webhooks"
-	"github.com/stelofinance/stelofinance/web/templates"
 
 	_ "modernc.org/sqlite"
 )
-
-//go:embed templates/*/*.html.tmpl
-var templatesFS embed.FS
 
 type Config struct {
 	Port         string
@@ -55,12 +49,6 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 	}
 	if cfg.Port == "" {
 		cfg.Port = "8080"
-	}
-
-	// Parse templates
-	tmpls, err := templates.LoadTemplates(templatesFS, "templates/", ".html.tmpl", getenv)
-	if err != nil {
-		return err
 	}
 
 	// Start embedded NATS server
@@ -118,7 +106,7 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 	db := database.New(dbConn, gensql.New(dbConn))
 
 	// Create and run server
-	srv := NewServer(lgr, tmpls, db, sessionsKV, nc, webhookSvc, getenv)
+	srv := NewServer(lgr, db, sessionsKV, nc, webhookSvc, getenv)
 	httpServer := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      srv,
@@ -166,7 +154,6 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 
 func NewServer(
 	lgr *logger.Logger,
-	tmpls *templates.Tmpls,
 	db *database.Database,
 	sessionsKV jetstream.KeyValue,
 	nc *nats.Conn,
@@ -188,7 +175,7 @@ func NewServer(
 	mux.Use(middleware.Heartbeat("/heartbeat"))
 	mux.Use(Compressor(2))
 
-	routes.AddRoutes(mux, lgr, tmpls, db, sessionsKV, nc, webhooks, getenv)
+	routes.AddRoutes(mux, lgr, db, sessionsKV, nc, webhooks, getenv)
 
 	return mux
 }

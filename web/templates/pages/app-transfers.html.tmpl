@@ -1,8 +1,5 @@
-{{if not .PageData.OnlyRenderPage}}
-{{template "layouts/app" .}}
-{{end}}
-
-{{define "page-content"}}
+{{with .Content}}
+{{$selectedId := .SelectedAccount.Id}}
 <main id="page-content" class="flex flex-col text-white px-2 py-4">
 	<label class="">
 		<span class="text-sm text-neutral-300">Selected Account</span>
@@ -18,7 +15,7 @@
 		>
 			<option value="-1" {{if eq .SelectedAccount.Id -1}}selected{{end}}>All Accounts</option>
 			{{range .Accounts}}
-			<option value="{{.Id}}" {{if eq $.SelectedAccount.Id .Id}}selected{{end}}>{{.Label}}</option>
+			<option value="{{.Id}}" {{if eq $selectedId .Id}}selected{{end}}>{{.Label}}</option>
 			{{end}}
 		</select>
 	</label>
@@ -73,19 +70,15 @@
 		</div>
 
 		<div class="mt-1 flex justify-between">
-			<p class="">{{.From}}{{if .To}} -&gt; {{.To}}{{end}}</p>
+			<p class="">{{.From}}{{if ne .To ""}} -&gt; {{.To}}{{end}}</p>
 			<p class="text-lg">{{.QtyFmtd}}<span class="text-base">{{.LedgerName}}</span></p>
 		</div>
 
-		{{if .Memo}}
+		{{if ne .Memo ""}}
 		<hr class="my-0.5">
 		<p class="text-sm text-neutral-300">{{.Memo}}</p>
 		{{end}}
 	</div>
 	{{end}}
 </main>
-{{end}}
-
-{{if .PageData.OnlyRenderPage}}
-{{template "page-content" .PageData}}
 {{end}}

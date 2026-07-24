@@ -15,60 +15,46 @@ import (
 	"github.com/starfederation/datastar-go/datastar"
 	"github.com/stelofinance/stelofinance/internal/sessions"
 	"github.com/stelofinance/stelofinance/web/templates"
+	"github.com/tylermmorton/tmpl"
 )
 
 var validate = validator.New(validator.WithRequiredStructEnabled())
 
-func Index(tmpls *templates.Tmpls) http.Handler {
+func Index(env string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		sData := sessions.GetUser(r.Context())
-		tmplData := templates.LayoutPrimary{
-			NavData: templates.ComponentNav{},
-			FooterData: templates.ComponentFooter{
-				Links: []templates.ComponentFooterLink{{
-					Href: "https://discord.gg/t6gM7v7V7T",
-					Text: "Discord",
-				}, {
-					Href: "https://github.com/stelofinance/stelofinance/tree/main/docs",
-					Text: "Docs",
-				}, {
-					Href: "https://github.com/stelofinance",
-					Text: "GitHub",
-				}},
-			},
-			PageData: templates.PageIndex{
-				IsAuthed: sData != nil,
-				InfoCards: []templates.PageIndexInfoCard{{
-					Title: "Physical to Digital",
-					Body:  "Assets on Stelo range from purely digital to 1:1 backed with real redeemable items in-game (and in-between)!",
-				}, {
-					Title: "Built to be Built Upon",
-					Body:  "The Stelo platform enables you to create whatever financial product you can dream of, from loan services to nation state bonds.",
-				}, {
-					Title: "Permissioned Control",
-					Body:  "Stelo gives you a range of granular permissions, so you can be confident in managing and delegating your finances.",
-				}, {
-					Title: "An Open Platform",
-					Body:  "Stelo provides a public API so anyone can leverage the platform to build their idea. Need more functionality? Join the Discord and ask!",
-				}, {
-					Title: "Global Exchange",
-					Body:  "What good are all these assets if they can't be traded? That's why Stelo has a built in order-book global market, to maximize the liquidity of all your assets.",
-				}, {
-					Title: "Instantaneous",
-					Body:  "Trade at the speed of light. Whether you're in different towns, regions, or not even online, you can trade all your assets instantly with anyone.",
-				}},
-			},
+		page := templates.PageIndex{
+			IsAuthed: sData != nil,
+			InfoCards: []templates.PageIndexInfoCard{{
+				Title: "Physical to Digital",
+				Body:  "Assets on Stelo range from purely digital to 1:1 backed with real redeemable items in-game (and in-between)!",
+			}, {
+				Title: "Built to be Built Upon",
+				Body:  "The Stelo platform enables you to create whatever financial product you can dream of, from loan services to nation state bonds.",
+			}, {
+				Title: "Permissioned Control",
+				Body:  "Stelo gives you a range of granular permissions, so you can be confident in managing and delegating your finances.",
+			}, {
+				Title: "An Open Platform",
+				Body:  "Stelo provides a public API so anyone can leverage the platform to build their idea. Need more functionality? Join the Discord and ask!",
+			}, {
+				Title: "Global Exchange",
+				Body:  "What good are all these assets if they can't be traded? That's why Stelo has a built in order-book global market, to maximize the liquidity of all your assets.",
+			}, {
+				Title: "Instantaneous",
+				Body:  "Trade at the speed of light. Whether you're in different towns, regions, or not even online, you can trade all your assets instantly with anyone.",
+			}},
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		err := tmpls.ExecuteTemplate(w, "pages/index", tmplData)
+		err := templates.Index.Render(w, templates.PublicLayout(page, env))
 		if err != nil {
 			panic(err)
 		}
 	})
 }
 
-func Login(tmpls *templates.Tmpls, sessionsKV jetstream.KeyValue) http.HandlerFunc {
+func Login(env string, sessionsKV jetstream.KeyValue) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		loggingIn := false
 		if r.URL.Query().Has("datastar") {
@@ -111,15 +97,12 @@ func Login(tmpls *templates.Tmpls, sessionsKV jetstream.KeyValue) http.HandlerFu
 
 		if loggingIn {
 			publicCode := uniuri.NewLen(12)
-			tmplData := templates.DefaultLayoutPrimary
-			tmplData.PageData = templates.PageLogin{
-				OnlyRenderPage: true,
-				Code:           publicCode,
-			}
 			sse := datastar.NewSSE(w, r)
 
 			buff := new(bytes.Buffer)
-			err := tmpls.ExecuteTemplate(buff, "pages/login", tmplData)
+			err := templates.Login.Render(buff, templates.PublicLayout(templates.PageLogin{
+				Code: publicCode,
+			}, env), tmpl.WithTarget("page-content"))
 			if err != nil {
 				panic(err)
 			}
@@ -201,11 +184,8 @@ func Login(tmpls *templates.Tmpls, sessionsKV jetstream.KeyValue) http.HandlerFu
 			// TODO: Handle timeout better
 			return
 		} else {
-			tmplData := templates.DefaultLayoutPrimary
-			tmplData.PageData = templates.PageLogin{}
-
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			err := tmpls.ExecuteTemplate(w, "pages/login", tmplData)
+			err := templates.Login.Render(w, templates.PublicLayout(templates.PageLogin{}, env))
 			if err != nil {
 				panic(err)
 			}

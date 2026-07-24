@@ -1,6 +1,4 @@
-{{template "layouts/app" .}}
-
-{{define "page-content"}}
+{{with .Content}}
 <main class="flex flex-col items-center justify-center text-white text-center px-2 py-4">
 	Hey {{.Username}}, <span class="text-nowrap">welcome to Stelo Finance ^-^</span>
 </main>

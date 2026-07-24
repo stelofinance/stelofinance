@@ -18,7 +18,7 @@
 	<a href="/app" aria-label="Go to wallets" class="flex justify-center">
 		{{template "icons/logo-full" `w-24 h-auto 2xl:w-32`}}
 	</a>
-	{{if .Username}}
+	{{if ne .Username ""}}
 	<div class="flex items-center ml-auto">
 		<p class="text-sm text-gray-400 lg:text-lg 2xl:text-xl">{{.Username}}</p>
 	</div>

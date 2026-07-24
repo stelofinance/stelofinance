@@ -1,8 +1,4 @@
-{{if not .PageData.OnlyRenderPage}}
-{{template "layouts/app" .}}
-{{end}}
-
-{{define "page-content"}}
+{{with .Content}}
 <main id="page-content" data-init="@get('/app/accounts/updates')" class="flex flex-col text-white px-2 py-4">
 	{{range .Accounts}}
 	<a href="/app/accounts/{{.AccId}}"
@@ -23,7 +19,7 @@
 		</div>
 	</a>
 	{{end}}
-	{{if len .Ledgers}}
+	{{if gt (len .Ledgers) 0}}
 	<button class="bg-anakiwa-900 px-4 pt-0.5 pb-1 rounded cursor-pointer hover:bg-anakiwa-800 transition-all hover:shadow-lg"
 	        data-on:click="$creatingAcc = true"
 	        data-show="!$creatingAcc"
@@ -40,8 +36,4 @@
 	</form>
 	{{end}}
 </main>
-{{end}}
-
-{{if .PageData.OnlyRenderPage}}
-{{template "page-content" .PageData}}
 {{end}}

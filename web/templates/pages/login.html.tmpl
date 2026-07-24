@@ -1,11 +1,7 @@
-{{if not .PageData.OnlyRenderPage}}
-{{template "layouts/primary" .}}
-{{end}}
-
-{{define "page-content"}}
+{{with .Content}}
 <main id="page-content" class="flex flex-col h-screen-available items-center justify-center text-white px-4">
 	<h1 class="font-medium text-4xl">Login</h1>
-	{{if not .Code}}
+	{{if eq .Code ""}}
 	<button class="mt-16 flex items-center gap-2 rounded-md py-2 px-3 text-white hover:shadow-md lg:text-lg lg:py-3 lg:px-6"
 	        style="background-color: #15567E;"
 	        data-on:click="$loggingIn = true; @get('/login', { openWhenHidden: true })"
@@ -32,8 +28,4 @@
 	</div>
 	{{end}}
 </main>
-{{end}}
-
-{{if .PageData.OnlyRenderPage}}
-{{template "page-content" .PageData}}
 {{end}}

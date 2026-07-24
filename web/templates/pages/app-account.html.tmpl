@@ -1,8 +1,6 @@
-{{if not .PageData.OnlyRenderPage}}
-{{template "layouts/app" .}}
-{{end}}
-
-{{define "page-content"}}
+{{with .Content}}
+{{$accountId := .AccountId}}
+{{$userId := .UserId}}
 <main id="page-content" class="flex flex-col text-white px-2 py-4">
 	<h1 class="text-xl font-bold mt-2">Account</h1>
 	<nav class="text-xs">
@@ -50,9 +48,9 @@
 	<div class="mt-2 bg-neutral-800 rounded flex flex-col py-1 px-2">
 		<div class="flex justify-between">
 			<p>{{.Username}}</p>
-			{{if ne .UserId $.UserId}}
+			{{if ne .UserId $userId}}
 			<button class="text-red-600 cursor-pointer"
-			        data-on:click="@delete('/app/accounts/{{$.AccountId}}/users/{{.UserId}}')"
+			        data-on:click="@delete('/app/accounts/{{$accountId}}/users/{{.UserId}}')"
 			>remove</button>
 			{{end}}
 		</div>
@@ -70,7 +68,7 @@
 		<button class="text-red-600 underline cursor-pointer" data-on:click="@delete('/app/accounts/{{.AccountId}}/tokens')">Revoke All</button>
 	</div>
 	{{end}}
-	{{if .Token}}
+	{{if ne .Token ""}}
 	<div class="mt-2 flex flex-col bg-neutral-800 rounded px-2 pt-1.5 pb-2 overflow-auto">
 		<p class="">{{.Token}}</p>
 		<p class="text-sm text-neutral-400">Save this token! It won't be shown again.</p>
@@ -81,8 +79,4 @@
 	>Create</button>
 	{{end}}
 </main>
-{{end}}
-
-{{if .PageData.OnlyRenderPage}}
-{{template "page-content" .PageData}}
 {{end}}

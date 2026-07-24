@@ -12,13 +12,11 @@ import (
 	"github.com/stelofinance/stelofinance/internal/handlers"
 	"github.com/stelofinance/stelofinance/internal/logger"
 	midware "github.com/stelofinance/stelofinance/internal/middlewares"
-	"github.com/stelofinance/stelofinance/web/templates"
 )
 
 func AddRoutes(
 	mux *chi.Mux,
 	lgr *logger.Logger,
-	tmpls *templates.Tmpls,
 	db *database.Database,
 	sessionsKV jetstream.KeyValue,
 	nc *nats.Conn,
@@ -27,44 +25,46 @@ func AddRoutes(
 ) {
 	assets.HttpHandler(mux)
 
+	env := getenv("ENV")
+
 	mux.Handle("GET /hotreload", handlers.HotReload())
 
-	mux.With(midware.AuthUser(lgr, sessionsKV, false)).Handle("GET /", handlers.Index(tmpls))
+	mux.With(midware.AuthUser(lgr, sessionsKV, false)).Handle("GET /", handlers.Index(env))
 
 	// Login/Auth routes
 	// TODO: These routes should be guest protected
-	mux.Handle("GET /login", handlers.Login(tmpls, sessionsKV))
+	mux.Handle("GET /login", handlers.Login(env, sessionsKV))
 	mux.Handle("GET /auth/{key}", handlers.Auth(lgr, db, sessionsKV, getenv))
 
 	// App related routes
 	mux.Route("/app", func(mux chi.Router) {
 		mux.Use(midware.AuthUser(lgr, sessionsKV, true))
 
-		mux.Handle("GET /", handlers.AppHome(tmpls, db))
+		mux.Handle("GET /", handlers.AppHome(env, db))
 
-		mux.Handle("GET /accounts", handlers.AppAccounts(tmpls, db))
-		mux.Handle("GET /accounts/updates", handlers.AppAccountsUpdates(tmpls, db, nc))
-		mux.Handle("POST /accounts", handlers.AppCreateAccount(tmpls, db))
+		mux.Handle("GET /accounts", handlers.AppAccounts(env, db))
+		mux.Handle("GET /accounts/updates", handlers.AppAccountsUpdates(env, db, nc))
+		mux.Handle("POST /accounts", handlers.AppCreateAccount(env, db))
 
-		mux.Handle("GET /request", handlers.AppPaymentRequest(tmpls, db, sessionsKV))
-		mux.With(midware.AuthUserAccount(db, accounts.PermAdmin)).Handle("POST /request/{account_id}/transfers", handlers.PostRequest(tmpls, db, nc, webhooks))
+		mux.Handle("GET /request", handlers.AppPaymentRequest(env, db, sessionsKV))
+		mux.With(midware.AuthUserAccount(db, accounts.PermAdmin)).Handle("POST /request/{account_id}/transfers", handlers.PostRequest(db, nc, webhooks))
 
 		mux.Group(func(mux chi.Router) {
 			mux.Use(midware.AuthUserAccount(db, accounts.PermAdmin))
 
-			mux.Handle("GET /accounts/{account_id}", handlers.AppAccount(tmpls, db, sessionsKV))
-			mux.Handle("PUT /accounts/{account_id}/user-id", handlers.PutAccountUser(tmpls, db, sessionsKV))
-			mux.Handle("POST /accounts/{account_id}/users", handlers.PostAccountUser(tmpls, db, sessionsKV))
-			mux.Handle("DELETE /accounts/{account_id}/users/{user_id}", handlers.DeleteAccountUser(tmpls, db, sessionsKV))
-			mux.Handle("POST /accounts/{account_id}/tokens", handlers.PostAccountToken(tmpls, db, sessionsKV))
-			mux.Handle("DELETE /accounts/{account_id}/tokens", handlers.DeleteAccountTokens(tmpls, db, sessionsKV))
-			mux.Handle("POST /accounts/{account_id}/transfers", handlers.SubmitTransfer(tmpls, db, nc, webhooks))
+			mux.Handle("GET /accounts/{account_id}", handlers.AppAccount(env, db, sessionsKV))
+			mux.Handle("PUT /accounts/{account_id}/user-id", handlers.PutAccountUser(env, db, sessionsKV))
+			mux.Handle("POST /accounts/{account_id}/users", handlers.PostAccountUser(env, db, sessionsKV))
+			mux.Handle("DELETE /accounts/{account_id}/users/{user_id}", handlers.DeleteAccountUser(env, db, sessionsKV))
+			mux.Handle("POST /accounts/{account_id}/tokens", handlers.PostAccountToken(env, db, sessionsKV))
+			mux.Handle("DELETE /accounts/{account_id}/tokens", handlers.DeleteAccountTokens(env, db, sessionsKV))
+			mux.Handle("POST /accounts/{account_id}/transfers", handlers.SubmitTransfer(db, nc, webhooks))
 		})
 
-		mux.Handle("GET /transfers", handlers.AppTransfers(tmpls, db))
-		mux.Handle("GET /transfers/updates", handlers.AppTransfersUpdates(tmpls, db, nc))
+		mux.Handle("GET /transfers", handlers.AppTransfers(env, db))
+		mux.Handle("GET /transfers/updates", handlers.AppTransfersUpdates(env, db, nc))
 
-		mux.Handle("GET /transfers/form-recipient", handlers.FormRecipient(tmpls, db))
+		mux.Handle("GET /transfers/form-recipient", handlers.FormRecipient(db))
 
 		mux.Handle("GET /logout", handlers.Logout(sessionsKV))
 	})

@@ -3,19 +3,25 @@
 	<head>
 		<meta charset="UTF-8">
 		<meta name="viewport" content="width=device-width, initial-scale=1.0">
-		<title>Stelo Finance</title>
-		<meta name="description" content="A finance platform for the game BitCraft. Free for any to use or even build apps on through our API.">
+		<title>{{if eq .Shell "app"}}{{.Title}} - Stelo Finance{{else}}Stelo Finance{{end}}</title>
+		<meta name="description" content="{{if eq .Shell "app"}}{{.Description}}{{else}}A finance platform for the game BitCraft. Free for any to use or even build apps on through our API.{{end}}">
 		<link rel="icon" href="{{ `/assets/favicon.png` | hash_asset_path }}">
 		<style>{{ `tw-output.css` | raw_asset_string "CSS" }}</style>
 		<script type="module" src="{{ `/assets/datastar-1-0-0-rc-8.js` | hash_asset_path }}"></script>
 	</head>
-	<body class="bg-neutral-900 font-source-code-pro">
-		{{template "components/nav" .NavData}}
-		{{block "page-content" .PageData}}
-		<p>No content</p>
+	<body class="bg-neutral-900 font-source-code-pro{{if eq .Shell "app"}} pb-14{{end}}">
+		{{if eq .Shell "app"}}
+		{{template "components/app-nav" .AppNav}}
+		<div class="max-w-screen-md mx-auto">
+			{{template "page-content" .}}
+		</div>
+		{{template "components/app-menu" .Menu}}
+		{{else}}
+		{{template "components/nav" .Nav}}
+		{{template "page-content" .}}
+		{{template "components/footer" .Footer}}
 		{{end}}
-		{{template "components/footer" .FooterData}}
-		{{if get_env "ENV" | eq "dev"}}
+		{{if eq .Env "dev"}}
 		<div data-init="@get('/hotreload', {retryInterval: 100, retryScaler: 1, retryMaxCount: 200})"></div>
 		{{end}}
 	</body>
