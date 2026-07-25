@@ -1,0 +1,4 @@
+{
+  "database": "stelofinance",
+  "module-path": "./spacetimedb"
+}

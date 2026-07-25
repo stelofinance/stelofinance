@@ -116,6 +116,10 @@
 
         # Rust (stable + wasm32) for SpacetimeDB modules
         rustToolchain
+        # Build-script crates need a host linker even when targeting wasm32.
+        stdenv.cc
+        # spacetimedb-lib build.rs runs `git rev-parse HEAD` outside Nix package builds.
+        git
         pkg-config
         openssl
 

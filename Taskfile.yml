@@ -2,6 +2,9 @@ version: '3'
 
 env:
   STATIC_DIR: "web/static"
+  # Local SpacetimeDB standalone data
+  STDB_DATA_DIR: "tmp/spacetimedb"
+  STDB_DATABASE: "stelofinance"
 
 dotenv: [".env"]
 
@@ -67,3 +70,45 @@ tasks:
       - web/styles/tw-input.css
     generates:
       - web/static/tw-output.css
+
+  stdb:start:
+    desc: Start local SpacetimeDB (data under tmp/spacetimedb)
+    cmds:
+      - mkdir -p {{.STDB_DATA_DIR}}
+      - spacetime start --non-interactive --data-dir {{.STDB_DATA_DIR}}
+
+  stdb:build:
+    desc: Build SpacetimeDB module WASM (release)
+    cmds:
+      - spacetime build -p spacetimedb
+
+  stdb:build:debug:
+    desc: Build SpacetimeDB module WASM (debug, faster iteration)
+    cmds:
+      - spacetime build -p spacetimedb --debug
+
+  stdb:publish:
+    desc: Build and publish module to local DB (stelofinance)
+    cmds:
+      - spacetime publish --env dev -y
+
+  stdb:reset:
+    desc: Publish module and wipe DB data (destructive; use when schema thrashing)
+    cmds:
+      - spacetime publish --env dev -y --delete-data=always
+
+  stdb:dev:
+    desc: Watch module source; rebuild + republish on change (requires stdb:start)
+    cmds:
+      # --server-only: no client app; --skip-generate: no client bindings yet
+      - spacetime dev --server-only --skip-generate -y
+
+  stdb:live:
+    desc: Module live reload (alias for stdb:dev; run stdb:start in another terminal)
+    cmds:
+      - task stdb:dev
+
+  stdb:logs:
+    desc: Follow module logs from local stelofinance DB
+    cmds:
+      - spacetime logs -f -s local -y {{.STDB_DATABASE}}

@@ -8,3 +8,8 @@ web/static/tw-output.css
 .task/
 bin/
 result
+
+# SpacetimeDB / Rust module
+spacetimedb/target/
+spacetime.local.json
+spacetime.*.local.json

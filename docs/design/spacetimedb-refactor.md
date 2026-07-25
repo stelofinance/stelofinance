@@ -166,6 +166,19 @@ All core tables **private** unless noted.
 
 Naming note: final snake_case table/reducer/view names are TBD; the above mirrors current domain language.
 
+**SpacetimeDB constraint limits (module `spacetimedb/src/tables.rs`):** STDB 2.7 does not support multi-column unique or composite primary keys. SQLite composites are mapped as:
+
+| SQLite constraint | Module approach |
+|-------------------|-----------------|
+| `UNIQUE (address, ledger_id)` on `account` | Synthetic unique `address_ledger_key` = `"{ledger_id}\0{address}"` |
+| `UNIQUE (user_id, ledger_id)` on `account` | Multi-column btree `by_user_ledger`; uniqueness enforced in reducers when added (nullable `user_id` complicates a synthetic unique) |
+| `PRIMARY KEY (account_id, key)` on `transfer_idempotency` | Auto-inc PK + synthetic unique `account_key` = `"{account_id}\0{key}"` |
+| Logical one-row-per `(account_id, user_id)` on `account_permission` | Synthetic unique `account_user_key` = `"{account_id}\0{user_id}"` |
+
+Helpers: `address_ledger_key`, `account_user_key`, `idempotency_account_key` in the same file. No DB-level foreign keys; referential integrity is reducer-enforced later.
+
+Also on `user`: unique `identity` (`Identity`) for `ctx.sender()` linkage (in addition to BitCraft fields).
+
 ### 7.2 Identity & user linking
 
 ```text
@@ -495,9 +508,11 @@ Preserve fields from current `EventTransfer` JSON where possible so existing int
 
 ```text
 stelofinance/
-  module/                 # Rust SpacetimeDB module
+  spacetimedb/            # Rust SpacetimeDB module (CLI default path)
     src/
     Cargo.toml
+  spacetime.json          # project defaults (database, module-path)
+  spacetime.dev.json      # shared dev env (server: local)
   # existing Go module becomes the lite edge
   cmd/app/
   internal/handlers/      # thin adapters only
@@ -517,7 +532,7 @@ stelofinance/
 
 Use this to validate the design before full port:
 
-- [ ] Publish local Rust module with private `user` / `account` / `transfer`
+- [x] Publish local Rust module with private `user` / `ledger` / `account` / `account_permission` / `transfer` / `transfer_idempotency` (indexes + unique constraints; seed deferred)
 - [ ] `create_transfer` reducer + idempotency
 - [ ] `my_accounts` / `my_transfers` views filtered by sender
 - [ ] Go edge: connect with token, one-off query views, render one app page
@@ -562,7 +577,7 @@ Any admin balance patch must either:
 
 1. Review this outline; freeze **D1–D11** or amend.
 2. Resolve **Q2–Q5** enough to start P0 spike.
-3. Create `module/` Rust crate and wire local `spacetime dev`.
+3. Create `spacetimedb/` Rust crate and wire local `spacetime dev`.
 4. Spike OIDC with BitCraft (claims dump) in a branch.
 5. After P0, expand this doc from **outline** to **implementation spec** (exact schemas, reducer signatures, error codes, cookie RFC).
 
