@@ -5,6 +5,7 @@ go 1.25.7
 require (
 	github.com/Nintron27/pillow v0.11.0
 	github.com/andybalholm/brotli v1.2.0
+	github.com/coreos/go-oidc/v3 v3.20.0
 	github.com/dchest/uniuri v1.2.0
 	github.com/dustin/go-humanize v1.0.1
 	github.com/go-chi/chi/v5 v5.2.5
@@ -16,6 +17,7 @@ require (
 	github.com/pressly/goose/v3 v3.27.0
 	github.com/starfederation/datastar-go v1.1.0
 	github.com/tylermmorton/tmpl v1.1.0
+	golang.org/x/oauth2 v0.36.0
 	modernc.org/sqlite v1.49.1
 )
 
@@ -24,6 +26,7 @@ require (
 	github.com/antithesishq/antithesis-sdk-go v0.6.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/gabriel-vasile/mimetype v1.4.13 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/google/go-tpm v0.9.8 // indirect

@@ -1,22 +1,23 @@
 use spacetimedb::{Identity, SpacetimeType, Timestamp, table};
 
+#[table(accessor = config)]
+pub struct Config {
+    #[primary_key]
+    pub owner: Identity,
+}
+
 #[table(accessor = user)]
+#[derive(Clone, Debug)]
 pub struct User {
     #[primary_key]
-    #[auto_inc]
-    id: u64, // Maybe just Identity as primary key?
-
-    /// SpacetimeDB client identity for this user. Lookup via `ctx.sender()`.
-    #[unique]
-    owner: Identity,
+    pub id: Identity,
 
     #[unique]
-    bitcraft_username: String,
+    pub bitcraft_username: String,
 
-    #[unique]
-    bitcraft_id: String, // Might not be needed
-
-    created_at: Timestamp,
+    pub created_at: Timestamp,
+    #[default(false)]
+    pub is_admin: bool,
 }
 
 #[derive(SpacetimeType)]
@@ -57,9 +58,9 @@ pub struct Account {
 
     webhook: Option<String>,
 
-    /// Primary owner user id, if any. Indexed with ledger via `by_user_ledger`.
+    /// Primary owner user id, if any
     #[index(btree)]
-    user_id: Option<u64>, // Could this be to the Identity instead?
+    user_id: Option<Identity>,
 
     debits_pending: u64,
     debits_posted: u64,
@@ -88,7 +89,7 @@ pub struct AccountUser {
     #[index(btree)]
     account_id: u64,
     #[index(btree)]
-    user_id: u64,
+    user_id: Identity,
     role: UserRole,
     updated_at: Timestamp,
     created_at: Timestamp,
