@@ -1,5 +1,6 @@
 mod tables;
 mod transfers;
+mod views;
 
 pub use tables::*;
 
@@ -191,6 +192,11 @@ pub fn create_account(
     Ok(())
 }
 
+/// Whether a user row has the app-admin flag (`User.is_admin`).
+pub(crate) fn is_admin(user: &User) -> bool {
+    user.is_admin
+}
+
 /// App admin check for privileged reducers (ledgers, issuer accounts, audit, …).
 pub(crate) fn require_admin(ctx: &ReducerContext) -> Result<(), String> {
     let user = ctx
@@ -199,7 +205,7 @@ pub(crate) fn require_admin(ctx: &ReducerContext) -> Result<(), String> {
         .id()
         .find(&ctx.sender())
         .ok_or_else(|| "not a registered user".to_string())?;
-    if !user.is_admin {
+    if !is_admin(&user) {
         return Err("admin required".to_string());
     }
     Ok(())
