@@ -1,6 +1,7 @@
 use crate::require_registered_user;
 use crate::role_rank;
 use crate::tables::*;
+use crate::webhooks::enqueue_transfer_webhooks;
 use spacetimedb::{ReducerContext, Table, reducer};
 
 const MAX_IDEMPOTENCY_KEY_LEN: usize = 64;
@@ -72,7 +73,8 @@ pub fn create_transfer(
     let debit_account_id = debit_acc_id(kind, sending_account_id, receiving_account_id);
     let credit_account_id = credit_acc_id(kind, sending_account_id, receiving_account_id);
 
-    let (mut credit_acc, mut debit_acc) = credit_debit_accounts(kind, sending, receiving);
+    let (mut credit_acc, mut debit_acc) =
+        credit_debit_accounts(kind, sending.clone(), receiving.clone());
 
     if pending {
         add_debits_pending(ctx, &mut debit_acc, amount)?;
@@ -108,6 +110,8 @@ pub fn create_transfer(
         request_hash: req_hash,
         created_at: ctx.timestamp,
     });
+
+    enqueue_transfer_webhooks(ctx, &transfer, &sending, &receiving);
 
     log::info!(
         "create_transfer id={} kind={:?} pending={} amount={} by={}",
@@ -165,6 +169,15 @@ pub fn finalize_transfer(
     let mut debit_acc = load_account(ctx, transfer.debit_account_id)?;
     let mut credit_acc = load_account(ctx, transfer.credit_account_id)?;
 
+    // Snapshot accounts before balance updates for webhook URL capture.
+    let (sending_id, receiving_id) = sender_receiver_ids(
+        transfer.kind,
+        transfer.credit_account_id,
+        transfer.debit_account_id,
+    );
+    let sending_snap = load_account(ctx, sending_id)?;
+    let receiving_snap = load_account(ctx, receiving_id)?;
+
     if amount == 0 {
         // Unlock full hold; historical pending_amount unchanged.
         sub_debits_pending(ctx, &mut debit_acc, held)?;
@@ -174,7 +187,9 @@ pub fn finalize_transfer(
         t.posted_amount = Some(0);
         t.state = TransferState::VoidPending;
         t.finalized_at = Some(ctx.timestamp);
-        ctx.db.transfer().id().update(t);
+        ctx.db.transfer().id().update(t.clone());
+
+        enqueue_transfer_webhooks(ctx, &t, &sending_snap, &receiving_snap);
 
         log::info!(
             "finalize_transfer id={} voided held={} by={}",
@@ -202,7 +217,9 @@ pub fn finalize_transfer(
     t.posted_amount = Some(amount);
     t.state = TransferState::PostPending;
     t.finalized_at = Some(ctx.timestamp);
-    ctx.db.transfer().id().update(t);
+    ctx.db.transfer().id().update(t.clone());
+
+    enqueue_transfer_webhooks(ctx, &t, &sending_snap, &receiving_snap);
 
     log::info!(
         "finalize_transfer id={} posted={} refunded={} by={}",

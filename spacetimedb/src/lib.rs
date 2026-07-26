@@ -2,6 +2,7 @@ mod acl;
 mod tables;
 mod transfers;
 mod views;
+mod webhooks;
 
 pub use tables::*;
 
