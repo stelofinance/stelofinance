@@ -1,3 +1,4 @@
+mod acl;
 mod tables;
 mod transfers;
 mod views;
@@ -195,6 +196,16 @@ pub fn create_account(
 /// Whether a user row has the app-admin flag (`User.is_admin`).
 pub(crate) fn is_admin(user: &User) -> bool {
     user.is_admin
+}
+
+/// Ordering for `UserRole` comparisons (Read < Write < Admin < Owner).
+pub(crate) fn role_rank(role: UserRole) -> u8 {
+    match role {
+        UserRole::Read => 1,
+        UserRole::Write => 2,
+        UserRole::Admin => 3,
+        UserRole::Owner => 4,
+    }
 }
 
 /// App admin check for privileged reducers (ledgers, issuer accounts, audit, …).

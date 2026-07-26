@@ -1,4 +1,5 @@
 use crate::require_registered_user;
+use crate::role_rank;
 use crate::tables::*;
 use spacetimedb::{ReducerContext, Table, reducer};
 
@@ -279,15 +280,6 @@ fn authorize_finalize_transfer(ctx: &ReducerContext, transfer: &Transfer) -> Res
         TransferKind::Asset | TransferKind::Liability => {
             Err("only issue/redeem pending transfers can be finalized".to_string())
         }
-    }
-}
-
-fn role_rank(role: UserRole) -> u8 {
-    match role {
-        UserRole::Read => 1,
-        UserRole::Write => 2,
-        UserRole::Admin => 3,
-        UserRole::Owner => 4,
     }
 }
 
