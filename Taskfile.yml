@@ -112,3 +112,10 @@ tasks:
     desc: Follow module logs from local stelofinance DB
     cmds:
       - spacetime logs -f -s local -y {{.STDB_DATABASE}}
+
+  stdb:seed-hexcoin:
+    desc: Seed hexcoin ledger + STELOBANK + 10 debits + issue 100k each (env STDB_TOKEN=admin JWT; spacetime CLI must be DB owner for private SQL)
+    env:
+      CGO_ENABLED: "0"
+    cmds:
+      - go run ./scripts/seed-hexcoin -database {{.STDB_DATABASE}}
