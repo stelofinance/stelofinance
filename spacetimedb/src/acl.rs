@@ -1,3 +1,4 @@
+use crate::normalize_webhook;
 use crate::require_registered_user;
 use crate::role_rank;
 use crate::tables::*;
@@ -198,6 +199,36 @@ pub fn set_account_primary(
         );
     }
 
+    Ok(())
+}
+
+/// Set or clear the account webhook URL. `None` (or blank after trim) clears.
+/// Caller must be Admin+ on the account.
+#[reducer]
+pub fn set_account_webhook(
+    ctx: &ReducerContext,
+    account_id: u64,
+    webhook: Option<String>,
+) -> Result<(), String> {
+    require_registered_user(ctx)?;
+
+    let mut account = load_account(ctx, account_id)?;
+    let caller_role = caller_role_on(ctx, account_id)?;
+    if role_rank(caller_role) < role_rank(UserRole::Admin) {
+        return Err("admin or owner required".to_string());
+    }
+
+    let webhook = normalize_webhook(webhook)?;
+    let cleared = webhook.is_none();
+    account.webhook = webhook;
+    ctx.db.account().id().update(account);
+
+    log::info!(
+        "set_account_webhook account={} cleared={} by={}",
+        account_id,
+        cleared,
+        ctx.sender()
+    );
     Ok(())
 }
 

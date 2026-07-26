@@ -340,7 +340,8 @@ fn generate_address(ctx: &ReducerContext) -> String {
         .collect()
 }
 
-fn normalize_webhook(webhook: Option<String>) -> Result<Option<String>, String> {
+/// Validate webhook URL: `None`/blank clears; otherwise require absolute `http(s)://…`.
+pub(crate) fn normalize_webhook(webhook: Option<String>) -> Result<Option<String>, String> {
     let Some(raw) = webhook else {
         return Ok(None);
     };
