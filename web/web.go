@@ -25,6 +25,7 @@ import (
 	"github.com/stelofinance/stelofinance/database"
 	"github.com/stelofinance/stelofinance/database/gensql"
 	"github.com/stelofinance/stelofinance/internal/accounts"
+	"github.com/stelofinance/stelofinance/internal/bitauth"
 	"github.com/stelofinance/stelofinance/internal/logger"
 	"github.com/stelofinance/stelofinance/internal/routes"
 	"github.com/stelofinance/stelofinance/internal/webhooks"
@@ -105,8 +106,30 @@ func Run(ctx context.Context, getenv func(string) string, stdout, stderr io.Writ
 	}
 	db := database.New(dbConn, gensql.New(dbConn))
 
+	// Optional BitAuth OIDC client (STDB login path). Nil if BITAUTH_CLIENT_ID unset.
+	var bitAuthClient *bitauth.Client
+	bitCfg, err := bitauth.ConfigFromEnv(getenv)
+	if err != nil {
+		return err
+	}
+	if bitCfg != nil {
+		bitAuthClient, err = bitauth.New(ctx, *bitCfg)
+		if err != nil {
+			return err
+		}
+		lgr.Log(logger.Log{
+			Message: "bitauth oidc client ready",
+			Data: map[string]any{
+				"issuer":   bitCfg.Issuer,
+				"client":   bitCfg.ClientID,
+				"redirect": bitCfg.RedirectURL,
+			},
+			Level: logger.InfoLevel,
+		})
+	}
+
 	// Create and run server
-	srv := NewServer(lgr, db, sessionsKV, nc, webhookSvc, getenv)
+	srv := NewServer(lgr, db, sessionsKV, nc, webhookSvc, bitAuthClient, getenv)
 	httpServer := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      srv,
@@ -158,6 +181,7 @@ func NewServer(
 	sessionsKV jetstream.KeyValue,
 	nc *nats.Conn,
 	webhooks accounts.WebhookEnqueuer,
+	bitAuth *bitauth.Client,
 	getenv func(string) string,
 ) http.Handler {
 	mux := chi.NewMux()
@@ -175,7 +199,7 @@ func NewServer(
 	mux.Use(middleware.Heartbeat("/heartbeat"))
 	mux.Use(Compressor(2))
 
-	routes.AddRoutes(mux, lgr, db, sessionsKV, nc, webhooks, getenv)
+	routes.AddRoutes(mux, lgr, db, sessionsKV, nc, webhooks, bitAuth, getenv)
 
 	return mux
 }

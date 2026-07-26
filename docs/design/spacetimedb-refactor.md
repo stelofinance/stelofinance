@@ -605,7 +605,7 @@ Use this to validate the design before full port:
 - [x] Document OIDC claims + cookie names (this section / §5.2 / §7.2)
 - [x] `create_ledger` (admin) + `create_account` (debit any user; credit admin)
 - [x] `create_transfer` + idempotency + pending; `finalize_transfer` (void / post)
-- [ ] Seed / bootstrap script (ledgers + issuer + sample wallets via reducers)
+- [x] Seed script `scripts/seed-hexcoin` (admin JWT reducers + owner SQL for private IDs)
 - [ ] `my_user` / `my_accounts` / `my_transfers` views filtered by sender
 - [ ] Go edge: one-off query views / reducer call beyond smoke
 - [ ] One app page rendered from STDB (parallel to legacy `/app`)
@@ -650,7 +650,7 @@ Any admin balance patch must either:
 1. ~~Create `spacetimedb/` + local publish/dev loop~~ **done**.
 2. ~~BitAuth OIDC + cookie + `client_connected` + owner/admin model~~ **done** (parallel path; legacy login remains).
 3. ~~`create_ledger` + `create_account` (credit admin / debit open)~~ **done**.
-4. **Next:** seed script; then multi-tenant views; wire one Go page off STDB; Datastar subscribe.
+4. **Next:** multi-tenant views; wire one Go page off STDB; Datastar subscribe.
 5. Cut over `/app` session from JetStream `sid` to BitAuth/STDB when ready (P1).
 6. After fuller P0, expand this doc into an **implementation spec** (exact reducer signatures, error codes, cookie RFC polish).
 
@@ -669,6 +669,7 @@ Any admin balance patch must either:
 | 2026-07-25 | `create_ledger` (admin); `create_account` (debit = any user, credit = admin; Owner perm; address/webhook rules ported from Go) |
 | 2026-07-25 | `create_account`: `address: Option` (Some = admin); primary via `user_id` index (`Identity::ZERO` if not primary) |
 | 2026-07-25 | `create_transfer` / `finalize_transfer`: pending path; Write+ authz; memo max 32; hash `send\|recv\|amt\|memo\|pending` |
+| 2026-07-26 | Seed script `scripts/seed-hexcoin` (hexcoin ×3 Physical, STELOBANK + 10 debits, issue 100_000 each) |
 
 ---
 

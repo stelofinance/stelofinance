@@ -17,6 +17,7 @@ require (
 	github.com/pressly/goose/v3 v3.27.0
 	github.com/starfederation/datastar-go v1.1.0
 	github.com/tylermmorton/tmpl v1.1.0
+	go.digitalxero.dev/spacetimedb-client v0.6.0
 	golang.org/x/oauth2 v0.36.0
 	modernc.org/sqlite v1.49.1
 )
@@ -24,6 +25,7 @@ require (
 require (
 	github.com/CAFxX/httpcompression v0.0.9 // indirect
 	github.com/antithesishq/antithesis-sdk-go v0.6.0 // indirect
+	github.com/coder/websocket v1.8.14 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/gabriel-vasile/mimetype v1.4.13 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
@@ -40,6 +42,7 @@ require (
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
+	github.com/puzpuzpuz/xsync/v4 v4.1.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/sethvargo/go-retry v0.3.0 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
