@@ -1,9 +1,9 @@
 # Design Doc: SpacetimeDB Refactor
 
-**Status:** Outline / decisions captured  
-**Date:** 2026-07-24  
+**Status:** Outline + **P0 domain reducers in progress** (auth skeleton done; ledger/account create landed — see §22)  
+**Date:** 2026-07-24 (updated 2026-07-25)  
 **Author:** Stelo maintainers + design discussion  
-**Related:** Current stack is Go + SQLite (sqlc/goose) + embedded NATS/JetStream + Datastar
+**Related:** Current stack is Go + SQLite (sqlc/goose) + embedded NATS/JetStream + Datastar; STDB module + BitAuth OIDC path land in parallel
 
 ---
 
@@ -100,20 +100,33 @@ Static assets (CSS/JS)
 
 ### 5.2 “Edge as the user” (session model — preferred)
 
-**Decision:** Prefer **BitCraft OIDC** over BitJita-style login calls. Store a **SpacetimeDB client token** in an HTTP-only cookie. The lite webserver uses that cookie on each request to open (or later pool) an STDB connection **as that identity**.
+**Decision:** Prefer **BitAuth OIDC** (`https://auth.trinit.is/`, BitCraft sign-in) over BitJita-style login. Store the OIDC **ID token** in an HTTP-only cookie. The lite webserver uses that cookie on each request to open (or later pool) an STDB connection **as that identity** via `WithToken`.
 
 Desired properties:
 
 - Edge is **not** a god-mode service identity for user reads/writes.
-- Module authorization is based on `ctx.sender()` (STDB identity), so later direct clients reuse the same reducers/views.
+- Module authorization is based on `ctx.sender()` (STDB `Identity`), so later direct clients reuse the same reducers/views.
 - Page render path: **one STDB session / identity context** loads the data needed for the template (via one-off queries or short-lived subscribe), rather than many ad-hoc SQLite round-trips scattered through handlers. Goal: avoid “N independent DB calls per render” as a pattern; batch via views where possible.
 
-**Open implementation details (see §13):**
+**Implemented (spike — parallel routes, legacy login still live):**
 
-- Exact cookie names, Secure/SameSite, TTL vs STDB token lifetime.
-- Whether STDB token is the long-lived server-issued token vs short-lived websocket token (must not overwrite long-lived with short-lived).
-- First-time link: OIDC subject → `user` row (`client_connected` / `link_bitcraft_user` reducer).
+| Item | Choice |
+|------|--------|
+| IdP | BitAuth — `https://auth.trinit.is/` (OIDC Auth Code + PKCE, confidential client) |
+| Edge OIDC library | `github.com/coreos/go-oidc/v3` + `golang.org/x/oauth2` |
+| Cookie (ID token for STDB) | `stdb_id_token` (HttpOnly, SameSite=Lax; Max-Age from JWT `exp`) |
+| Cookie (refresh) | `stdb_refresh_token` when `offline_access` granted (~14d BitAuth) |
+| Cookie Secure flag | `BITAUTH_SECURE_COOKIES` / prod; local HTTP often `false` |
+| Login routes | `GET /auth/bitauth/login`, `/callback`, `/logout`, `/session` |
+| STDB smoke | `GET /auth/bitauth/stdb-connect` — digitalxero client, no codegen |
+| STDB client | `go.digitalxero.dev/spacetimedb-client` |
+| Do not | Overwrite `stdb_id_token` with short-lived websocket tokens returned on connect |
+
+**Still open / later:**
+
 - Account API tokens for `/api/accounts/{id}/*` remain a separate mechanism (capability tokens), not the browser cookie.
+- Legacy `/login` + `sid` JetStream session path remains until cutover.
+- Connection pooling by Identity (v1 = per-request connect).
 
 ### 5.3 Connection model
 
@@ -141,62 +154,104 @@ JSON API: **one-off queries / reducer calls** first; identity-based pooling late
 | D9 | Migration | **Manual/import cutover OK** | Tester-scale production data |
 | D10 | Go queries | **SQL/view name strings + community codegen for types** | No official Go query builder; keep edge queries simple |
 | D11 | Typed query builder | **Not a reason to rewrite edge** | Module + views carry correctness |
+| D12 | Module path | **`spacetimedb/`** (CLI default) | Not `module/`; `spacetime.json` `module-path` |
+| D13 | Local STDB config | **`spacetime.json` + `spacetime.dev.json`** | Dev: `server: local`, DB name `stelofinance`; data dir `tmp/spacetimedb` |
+| D14 | Browser IdP | **BitAuth** (`auth.trinit.is`) | Auth Code + PKCE; confidential client secret on Go only |
+| D15 | STDB principal | **`Identity` = f(iss, sub)** as `User` PK | BitAuth `sub` is stable numeric player id; username is `preferred_username` |
+| D16 | User bootstrap | **`client_connected` only** (no separate `ensure_user`) | Upsert on connect; no JWT → reject (except owner) |
+| D17 | App admin | **`User.is_admin: bool`** + `require_admin` | Bootstrap first admin via owner SQL; not SpacetimeAuth/JWT roles for now |
+| D18 | DB owner / CLI | **Store owner in `config` at `init`** | Owner may connect for SQL without BitAuth; not product admin |
+| D19 | Private tables | **Default private; public only `ledger` (catalog)** | Host enforces client visibility; owner SQL can read private |
+| D20 | Composite uniqueness | **Reducer-enforced** (STDB 2.7 has no multi-col unique) | Indexes for lookup (e.g. idempotency `by_account_and_key`) |
+| D21 | Idempotency storage | **Separate `transfer_idempotency` table** | Scope `(account_id, key)` → transfer + request_hash |
+| D22 | Go STDB client | **digitalxero** `go.digitalxero.dev/spacetimedb-client` | Codegen not required for connect-only smoke |
+| D23 | Connection pooling | **Deferred** | v1 per-request connect with cookie token |
+| D24 | Account create authz | **Debit open; Credit admin-only; custom address admin-only** | Maps former GA vs SRA/PRA; owner is always `ctx.sender()` |
+| D25 | Primary account `user_id` | **`Identity` + `ZERO` sentinel** (not `Option`) | Enables `user_id` index filter for “one primary per user per ledger” |
 
 ---
 
 ## 7. Module design (Rust)
 
-### 7.1 Table inventory (proposal — names open to revision)
+**Code location:** `spacetimedb/` (`tables.rs`, `lib.rs`). Source of truth for live schema is the Rust module; this section summarizes decisions.
 
-All core tables **private** unless noted.
+### 7.1 Table inventory (current spike schema)
 
-| Table | Purpose | Notes |
-|-------|---------|--------|
-| `user` | Stelo user profile | Keyed by auto id; unique on BitCraft id / OIDC subject / STDB `Identity` |
-| `ledger` | Asset type / scale / code | Admin-managed |
-| `account` | Wallet / balance container | Balances: debits/credits pending/posted; address; code; flags; optional `user_id`; webhook URL |
-| `account_permission` | User ↔ account ACL | Bitflags (`PermAdmin`, `PermReadBal`, …) |
-| `transfer` | Immutable-ish transfer records | Debit/credit accounts, amount, ledger, code, flags, memo, timestamps |
-| `transfer_idempotency` | `(account_id, key) → transfer_id + request_hash` | Preserve conflict vs replay semantics |
-| `account_token` | Hashed API tokens for account-scoped HTTP API | Never store raw token; store hash + metadata |
-| `webhook_outbox` | Durable delivery jobs | Schedule column → procedure; status, attempts, next_run |
-| *(optional)* `admin_audit` | Admin mutations log | If needed beyond transfer history |
+All core tables **private** unless noted. Enums used instead of opaque integer codes where practical.
 
-**Public surface:** prefer **views**, not public base tables, for anything with balances or PII.
+| Table | Accessor | Purpose | Notes |
+|-------|----------|---------|--------|
+| `config` | `config` | Singleton owner Identity | Written in `init` from `ctx.sender()` (publisher). PK = `owner` |
+| `user` | `user` | Stelo user profile | **PK = `Identity`**. Unique `bitcraft_username`. `is_admin` (default false) |
+| `ledger` | `ledger` | Asset type / scale / kind | **Public** catalog. `LedgerKind`: Digital / Derivation / Physical |
+| `account` | `account` | Wallet / balances | `AccountKind` Credit/Debit; `user_id` = primary or **`Identity::ZERO`**; multi-col index `by_user_and_ledger`; single-col `ledger_id` + `address` |
+| `account_permission` | `account_permission` (`AccountUser`) | User ↔ account ACL | `UserRole`: Read / Write / Admin / Owner; `user_id: Identity` |
+| `transfer` | `transfer` | Transfer records | `TransferKind` + `TransferState`; optional pending/posted amounts; `finalized_at` optional |
+| `transfer_idempotency` | `transfer_idempotency` | Idempotency map | Auto-inc PK; index `by_account_and_key` on `(account_id, key)` |
+| `account_token` | — | API tokens (not yet) | Hashed only; later |
+| `webhook_outbox` | — | Webhook jobs (not yet) | Later |
 
-Naming note: final snake_case table/reducer/view names are TBD; the above mirrors current domain language.
+**Public surface:** prefer **views** for balances/PII; public base tables only when intentionally world-readable (`ledger`).
 
-**SpacetimeDB constraint limits (module `spacetimedb/src/tables.rs`):** STDB 2.7 does not support multi-column unique or composite primary keys. SQLite composites are mapped as:
+**Private table visibility (platform, not app code):**
 
-| SQLite constraint | Module approach |
-|-------------------|-----------------|
-| `UNIQUE (address, ledger_id)` on `account` | Synthetic unique `address_ledger_key` = `"{ledger_id}\0{address}"` |
-| `UNIQUE (user_id, ledger_id)` on `account` | Multi-column btree `by_user_ledger`; uniqueness enforced in reducers when added (nullable `user_id` complicates a synthetic unique) |
-| `PRIMARY KEY (account_id, key)` on `transfer_idempotency` | Auto-inc PK + synthetic unique `account_key` = `"{account_id}\0{key}"` |
-| Logical one-row-per `(account_id, user_id)` on `account_permission` | Synthetic unique `account_user_key` = `"{account_id}\0{user_id}"` |
+- Normal clients (including BitAuth) **cannot** query private tables directly.
+- Reducers/views on the server **can** read/write private tables.
+- **Database owner** (publisher Identity) may read private tables via `spacetime sql` for debugging.
+- `spacetime sql --anonymous` respects client visibility (use to simulate unprivileged clients).
 
-Helpers: `address_ledger_key`, `account_user_key`, `idempotency_account_key` in the same file. No DB-level foreign keys; referential integrity is reducer-enforced later.
+**STDB constraints:** no multi-column unique / composite PK in 2.7; no foreign keys. Uniqueness of composites (address+ledger, account+key, etc.) is **enforced in reducers** when those paths land. Btree indexes support lookups.
 
-Also on `user`: unique `identity` (`Identity`) for `ctx.sender()` linkage (in addition to BitCraft fields).
-
-### 7.2 Identity & user linking
+### 7.2 Identity, connect policy & admin
 
 ```text
-BitCraft OIDC login (browser)
-    → edge completes OIDC
-    → STDB connection with OIDC JWT (or exchange to STDB token)
-    → module client_connected / ensure_user:
-         - validate issuer + audience
-         - upsert user row linked to Identity + bitcraft claims
-    → edge stores STDB access token in HttpOnly cookie
+BitAuth OIDC (browser)
+    → Go /auth/bitauth/* (PKCE + client secret)
+    → cookie stdb_id_token = OIDC ID token
+    → Go connects STDB WithToken(id_token)
+    → host verifies JWT, Identity = f(iss, sub)
+    → client_connected:
+         - if sender == config.owner → allow (ops CLI), no User row
+         - else require BitAuth iss + aud
+         - upsert User { id: sender, bitcraft_username from preferred_username, is_admin: false }
 ```
+
+**BitAuth claims (observed in dev):**
+
+| Claim | Use |
+|-------|-----|
+| `iss` | Must be `https://auth.trinit.is/` |
+| `aud` / `azp` | App client id (e.g. `nintron-stelofinance`) — must match module constant / `BITAUTH_CLIENT_ID` |
+| `sub` | **Stable** BitCraft player id (numeric string) — basis of STDB `Identity` |
+| `preferred_username` | Display name stored on `User` (required; connect fails if missing) |
+| `name` | Display only (not used for principal) |
+
+Note: BitAuth marketing text may say `sub` is username; **live tokens use stable numeric `sub`**. Trust observed tokens; do not use username as principal.
+
+**Principals:**
+
+| Role | Mechanism |
+|------|-----------|
+| **Player** | BitAuth JWT → `Identity` → `User` row |
+| **App admin** | `User.is_admin == true`; `require_admin(ctx)` on privileged reducers |
+| **DB owner** | `config.owner` from `init`; CLI SQL / connect for ops; **not** automatic product admin |
+| **Module identity** | `ctx.database_identity()` — scheduling / “is this the module?”, not the publisher |
+
+**Admin bootstrap (chicken-and-egg):**
+
+1. Publish module (`init` stores owner).
+2. Player logs in via BitAuth → `User` created with `is_admin = false`.
+3. Owner runs SQL once:  
+   `UPDATE user SET is_admin = true WHERE bitcraft_username = '…';`
+4. Later: admin-only reducers may `grant_admin` / `revoke_admin`.
+
+STDB docs’ JWT `roles` claim pattern is preferred if BitAuth ever issues roles; until then **DB flag on `User`**.
 
 Reducers must treat `ctx.sender()` as the principal. Map:
 
-`Identity` → `user` → permissions on `account`.
+`Identity` → `user` → `account_permission` / ownership on `account`.
 
-Admin operations: OIDC claims and/or a dedicated admin identity list / role claim — **not** a long-term shared `ADMIN_KEY` env for module logic (edge may keep a break-glass path during migration only).
-
+Edge `ADMIN_KEY` remains temporary break-glass for legacy HTTP only — not module authz long-term.
 ### 7.3 Views (multi-tenant, caller-dependent)
 
 Views use `ViewContext` and filter by `ctx.sender()`. Prefer indexed lookups; use query-builder views where joins/filters are declarative.
@@ -220,15 +275,17 @@ All reducers: validate sender, load permission, enforce domain rules, mutate onl
 
 | Reducer (proposal) | Responsibility |
 |--------------------|----------------|
-| `ensure_user` / lifecycle connect | Link identity ↔ user |
-| `create_account` | Create account + owner permission |
+| `client_connected` (**done**) | Owner bypass; BitAuth iss/aud; upsert `User` (no separate `ensure_user`) |
+| `require_admin` (**helper done**) | Gate admin reducers on `User.is_admin` |
+| `create_account` (**done**) | Owner = `ctx.sender()`. **Debit** open; **Credit** admin; **custom `address: Some`** admin; `None` auto-generates |
 | `update_account_address` | Admin/system |
 | `set_account_user` | Link/unlink primary user |
 | `grant_permission` / `revoke_permission` | Account ACL |
 | `create_transfer` | Full transfer path + idempotency + enqueue webhook outbox |
 | `set_webhook` / `clear_webhook` | Account webhook URL |
 | `create_account_token` / `revoke_account_token` | API tokens (return raw token **once** to caller) |
-| `create_ledger` | Admin |
+| `create_ledger` (**done**) | **`require_admin`**; public catalog row |
+| `grant_admin` / `revoke_admin` | Admin-only (after first owner-SQL bootstrap) |
 | `admin_patch_balance` | Admin only; auditable; must preserve or deliberately break invariant with care |
 | `admin_import_*` | One-shot migration helpers (optional; can be CLI + publish instead) |
 
@@ -284,19 +341,24 @@ Enforcement options (pick during implementation):
 
 ### 8.2 Auth & cookies
 
-**Browser flow (target):**
+**Browser flow (BitAuth — implemented on parallel routes):**
 
-1. User hits login → redirect to **BitCraft OIDC**.
-2. Callback on lite server validates OIDC tokens.
-3. Edge connects to STDB with OIDC JWT (or performs identity/token handshake per STDB docs).
-4. Module ensures `user` exists for that identity.
-5. Edge sets **HttpOnly Secure cookie** with STDB access token (long-lived identity token; do not confuse with short-lived websocket tokens).
-6. Subsequent requests: read cookie → STDB client `WithToken` → act as user.
+1. `GET /auth/bitauth/login` → BitAuth authorize (PKCE S256, scopes `openid profile` [+ `offline_access`]).
+2. `GET /auth/bitauth/callback` → code exchange with client secret; verify ID token (iss/aud/nonce).
+3. Set cookies: `stdb_id_token` (raw ID token), optional `stdb_refresh_token`.
+4. On demand / later every page: `WithToken(stdb_id_token)` → STDB connect → `client_connected` upserts `User`.
+5. `GET /auth/bitauth/stdb-connect` — smoke JSON with identity (digitalxero; no table codegen).
+6. `GET /auth/bitauth/session` — JSON claims from cookie (no raw token returned).
+7. `GET /auth/bitauth/logout` — clear cookies; optional BitAuth end_session.
+
+**Env (placeholders in `.env`):**  
+`BITAUTH_ISSUER`, `BITAUTH_CLIENT_ID`, `BITAUTH_CLIENT_SECRET`, `BITAUTH_REDIRECT_URL`, `BITAUTH_LOGOUT_REDIRECT_URL`, `BITAUTH_OFFLINE_ACCESS`, `BITAUTH_SECURE_COOKIES`, `STDB_HOST`, `STDB_DATABASE`.
+
+**Packages:** `internal/bitauth`, `internal/stdb`, handlers under `internal/handlers/bitauth.go`.
 
 **Account token API (third party):**
 
-- Header `Authorization: <token>` as today.
-- Edge hashes token, looks up via one-off query or dedicated reducer/view, **or** better: call reducers that accept the capability only after module validates the hash.
+- Header `Authorization: <token>` as today (legacy).
 - Preferred end state: module stores only hashes; edge never reconstructs god rights from KV.
 
 ### 8.3 Request handling patterns
@@ -427,8 +489,8 @@ Preserve fields from current `EventTransfer` JSON where possible so existing int
 
 | Phase | Work | Exit criteria |
 |-------|------|----------------|
-| **P0 — Spike** | Rust module skeleton: user, account, transfer, one view, create_transfer; Go edge connect + cookie token + one Datastar page | End-to-end transfer visible in UI via STDB |
-| **P1 — Auth** | BitCraft OIDC + STDB token cookie; ensure_user; issuer/aud checks | Login works without BitJita/JetStream login KV |
+| **P0 — Spike** | Module skeleton + BitAuth connect + tables; then create_transfer, views, one page/Datastar | End-to-end transfer visible in UI via STDB |
+| **P1 — Auth** | BitAuth OIDC + cookie + `client_connected` (largely done in P0 parallel path); cut over `/app` off JetStream `sid` | Login works without BitJita/JetStream login KV |
 | **P2 — Domain complete** | Permissions, idempotency, ledgers, tokens, audit | Parity with current `internal/accounts` behavior |
 | **P3 — Webhooks** | Outbox + scheduled procedure | Delivery + retries without NATS |
 | **P4 — API façade** | Port `/api` routes to STDB | Docs still valid; integration tests pass |
@@ -451,16 +513,16 @@ Preserve fields from current `EventTransfer` JSON where possible so existing int
 
 | ID | Topic | Status | Notes |
 |----|-------|--------|-------|
-| Q1 | Full threat model (abuse, spam transfers, energy, anonymous connect policy) | **Follow up later** | Module is public; need issuer allowlists, rate limits, connect policy |
-| Q2 | Cookie details: name, Max-Age, rotation, logout (token revoke?) | Open | Align with STDB token lifecycle docs |
-| Q3 | OIDC claim mapping (BitCraft subject → bitcraft_id / username) | Open | Inspect real BitCraft OIDC claims |
+| Q1 | Full threat model (abuse, spam transfers, energy, anonymous connect policy) | **Follow up later** | Issuer/aud gate exists for BitAuth; expand rate limits etc. |
+| Q2 | Cookie details: name, Max-Age, rotation, logout | **Mostly decided** | `stdb_id_token` / `stdb_refresh_token`; refresh rotation & revoke TBD |
+| Q3 | OIDC claim mapping | **Decided (dev)** | Stable `sub` = player id; `preferred_username` = display; see §7.2 |
 | Q4 | Account API token validation path (edge hash lookup vs pure reducer) | Open | Prefer module-side verification |
-| Q5 | Exact table/view/reducer names | Open | Owner may revise naming |
-| Q6 | Pending transfer flags (schema supports; logic incomplete today) | Open | Implement or explicitly defer |
-| Q7 | digitalxero vs STDB protocol drift process | Monitor | Pin versions; CI smoke test |
-| Q8 | Admin auth long-term (claims vs allowlist identities) | Open | Replace env `ADMIN_KEY` for module ops |
+| Q5 | Exact table/view/reducer names | **In flux** | Live schema in `spacetimedb/src/tables.rs` |
+| Q6 | Pending transfer flags / states | Open | Schema has `TransferState` + optional amounts; logic incomplete |
+| Q7 | digitalxero vs STDB protocol drift process | Monitor | Pinned `v0.6.0` for smoke; CI later |
+| Q8 | Admin auth | **Decided for spike** | `User.is_admin` + owner SQL bootstrap; JWT roles if BitAuth adds them later |
 | Q9 | Backups / PITR / disaster recovery on mainnet | Open | Ops runbook |
-| Q10 | Connection pooling by identity | Deferred | v1 per-request OK |
+| Q10 | Connection pooling by identity | Deferred | v1 per-request OK; pool by **user Identity**, not OIDC client_id |
 | Q11 | Whether import recomputes balances from transfers vs copies balances | Open | Recompute is safer if history complete |
 
 ---
@@ -509,22 +571,22 @@ Preserve fields from current `EventTransfer` JSON where possible so existing int
 ```text
 stelofinance/
   spacetimedb/            # Rust SpacetimeDB module (CLI default path)
-    src/
+    src/lib.rs            # init, client_connected, require_admin
+    src/tables.rs         # schema
     Cargo.toml
-  spacetime.json          # project defaults (database, module-path)
-  spacetime.dev.json      # shared dev env (server: local)
-  # existing Go module becomes the lite edge
+  spacetime.json          # database + module-path
+  spacetime.dev.json      # server: local (committed shared dev)
+  # spacetime.local.json  # personal overrides — gitignored
   cmd/app/
-  internal/handlers/      # thin adapters only
-  internal/stdb/          # connection helpers, generated bindings
-  web/templates/
-  docs/
-    api/                  # external HTTP docs (façade)
-    design/
-      spacetimedb-refactor.md
-  scripts/
-    import_from_sqlite.py # or .go / .rs
+  internal/bitauth/       # OIDC client (go-oidc)
+  internal/stdb/          # ConnectOnce helper (digitalxero)
+  internal/handlers/      # bitauth routes + legacy
+  Taskfile.yml            # stdb:start | publish | live | logs | reset
+  tmp/spacetimedb/        # local STDB data-dir (gitignored via tmp/)
+  docs/design/spacetimedb-refactor.md
 ```
+
+**Local module workflow:** `task stdb:start` (one terminal) + `task stdb:live` (watch rebuild/publish). Wipe inconsistent local state with `rm -rf tmp/spacetimedb` if snapshot/identity errors appear.
 
 ---
 
@@ -532,14 +594,22 @@ stelofinance/
 
 Use this to validate the design before full port:
 
-- [x] Publish local Rust module with private `user` / `ledger` / `account` / `account_permission` / `transfer` / `transfer_idempotency` (indexes + unique constraints; seed deferred)
+- [x] Module crate + `spacetime.json` / `.dev.json` + Taskfile `stdb:*`
+- [x] Private domain tables (+ public `ledger`); enums; idempotency table + index
+- [x] `config.owner` at init; owner connect for CLI SQL
+- [x] `client_connected`: BitAuth iss/aud + User upsert (`Identity` PK, `preferred_username`)
+- [x] `User.is_admin` + `require_admin` helper (admin reducers TBD)
+- [x] BitAuth OIDC parallel routes + cookies (`stdb_id_token`)
+- [x] Go STDB connect smoke (`/auth/bitauth/stdb-connect`) — no codegen
+- [x] Document OIDC claims + cookie names (this section / §5.2 / §7.2)
+- [x] `create_ledger` (admin) + `create_account` (debit any user; credit admin)
+- [ ] Seed / bootstrap ledgers + issuer & player accounts (via reducers above / admin scripts)
 - [ ] `create_transfer` reducer + idempotency
-- [ ] `my_accounts` / `my_transfers` views filtered by sender
-- [ ] Go edge: connect with token, one-off query views, render one app page
-- [ ] Go edge: SSE + subscribe → Datastar patch on transfer
+- [ ] `my_user` / `my_accounts` / `my_transfers` views filtered by sender
+- [ ] Go edge: one-off query views / reducer call beyond smoke
+- [ ] One app page rendered from STDB (parallel to legacy `/app`)
+- [ ] SSE + subscribe → Datastar patch on transfer
 - [ ] Prove a second identity cannot read the first identity’s view data
-- [ ] Document BitCraft OIDC claim fields actually received
-- [ ] Decision memo: cookie name + token persistence rules
 
 ---
 
@@ -554,9 +624,10 @@ Use this to validate the design before full port:
 | JetStream account tokens | `account_token` table |
 | JetStream webhook stream | `webhook_outbox` + procedure |
 | `AppAccountsUpdates` NATS subs | STDB subscribe on views |
-| `ADMIN_KEY` middleware | Temporary edge break-glass → module admin claims |
+| `ADMIN_KEY` middleware | Temporary edge break-glass → `User.is_admin` + admin reducers |
 | Goose migrations | `spacetime publish` module versioning |
 | sqlc | Module query builder / views |
+| BitJita-style login KV | BitAuth OIDC + `stdb_id_token` cookie |
 
 ## 20. Appendix B — Invariant reference
 
@@ -575,11 +646,30 @@ Any admin balance patch must either:
 
 ## 21. Next actions
 
-1. Review this outline; freeze **D1–D11** or amend.
-2. Resolve **Q2–Q5** enough to start P0 spike.
-3. Create `spacetimedb/` Rust crate and wire local `spacetime dev`.
-4. Spike OIDC with BitCraft (claims dump) in a branch.
-5. After P0, expand this doc from **outline** to **implementation spec** (exact schemas, reducer signatures, error codes, cookie RFC).
+1. ~~Create `spacetimedb/` + local publish/dev loop~~ **done**.
+2. ~~BitAuth OIDC + cookie + `client_connected` + owner/admin model~~ **done** (parallel path; legacy login remains).
+3. ~~`create_ledger` + `create_account` (credit admin / debit open)~~ **done**.
+4. **Next:** `create_transfer` + idempotency; then multi-tenant views; wire one Go page off STDB; Datastar subscribe.
+5. Cut over `/app` session from JetStream `sid` to BitAuth/STDB when ready (P1).
+6. After fuller P0, expand this doc into an **implementation spec** (exact reducer signatures, error codes, cookie RFC polish).
+
+---
+
+## 22. Progress log (auth & skeleton)
+
+| When | Accomplishment |
+|------|----------------|
+| 2026-07 | Module path `spacetimedb/`, flake Rust+wasm+spacetime, Taskfile `stdb:*`, local data under `tmp/spacetimedb` |
+| 2026-07 | Domain tables + enums; public `ledger`; separate idempotency table |
+| 2026-07 | BitAuth OIDC on Go (`/auth/bitauth/*`); cookies; digitalxero connect smoke |
+| 2026-07 | `client_connected` BitAuth policy; `User` PK = Identity; owner in `config` at init |
+| 2026-07 | `User.is_admin` + `require_admin`; owner SQL bootstrap for first admin |
+| 2026-07 | Documented private-table visibility (host owner vs clients); no issuer hardcode for ops |
+| 2026-07-25 | `create_ledger` (admin); `create_account` (debit = any user, credit = admin; Owner perm; address/webhook rules ported from Go) |
+| 2026-07-25 | `create_account`: `address: Option` (Some = admin); primary via `user_id` index (`Identity::ZERO` if not primary) |
+
+---
 
 ## SOURCE OF TRUTH
-This document should remain the source of truth during this refactor, as such, if the user presents things contrary to this document or in addition to this document, you should inform the user of that deviation/addition and update this document to reflect their decision.
+
+This document should remain the source of truth during this refactor. If the user presents things contrary to this document or in addition to this document, inform the user of that deviation/addition and **update this document** to reflect their decision. Live schema details in `spacetimedb/src/` win on drift until synced here.

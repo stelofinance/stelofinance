@@ -20,7 +20,7 @@ pub struct User {
     pub is_admin: bool,
 }
 
-#[derive(SpacetimeType)]
+#[derive(SpacetimeType, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LedgerKind {
     Digital,
     Derivation,
@@ -28,52 +28,57 @@ pub enum LedgerKind {
 }
 
 #[spacetimedb::table(accessor = ledger, public)]
+#[derive(Clone, Debug)]
 pub struct Ledger {
     #[primary_key]
     #[auto_inc]
-    id: u64,
+    pub id: u64,
 
     #[unique]
-    name: String,
+    pub name: String,
 
-    asset_scale: u8,
-    kind: LedgerKind,
+    pub asset_scale: u8,
+    pub kind: LedgerKind,
 }
 
-#[derive(SpacetimeType)]
+#[derive(SpacetimeType, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AccountKind {
     Credit,
     Debit,
 }
 
-#[spacetimedb::table(accessor = account)]
+#[spacetimedb::table(
+    accessor = account,
+    index(accessor = by_user_and_ledger, btree(columns = [user_id, ledger_id]))
+)]
+#[derive(Clone, Debug)]
 pub struct Account {
     #[primary_key]
     #[auto_inc]
-    id: u64,
+    pub id: u64,
 
     // Group / payment address within a ledger.
     #[index(btree)]
-    address: String,
+    pub address: String,
 
-    webhook: Option<String>,
+    pub webhook: Option<String>,
 
-    /// Primary owner user id, if any
+    /// Primary owner for this ledger, if any.
+    /// `Identity::ZERO` is our way of doing `Option<Identity>` while keeping an index.
+    pub user_id: Identity,
+
+    pub debits_pending: u64,
+    pub debits_posted: u64,
+    pub credits_pending: u64,
+    pub credits_posted: u64,
+
     #[index(btree)]
-    user_id: Option<Identity>,
-
-    debits_pending: u64,
-    debits_posted: u64,
-    credits_pending: u64,
-    credits_posted: u64,
-
-    #[index(btree)]
-    ledger_id: u64,
-    kind: AccountKind,
-    created_at: Timestamp,
+    pub ledger_id: u64,
+    pub kind: AccountKind,
+    pub created_at: Timestamp,
 }
 
-#[derive(SpacetimeType)]
+#[derive(SpacetimeType, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UserRole {
     Read,
     Write,
@@ -82,17 +87,18 @@ pub enum UserRole {
 }
 
 #[spacetimedb::table(accessor = account_permission)]
+#[derive(Clone, Debug)]
 pub struct AccountUser {
     #[primary_key]
     #[auto_inc]
-    id: u64,
+    pub id: u64,
     #[index(btree)]
-    account_id: u64,
+    pub account_id: u64,
     #[index(btree)]
-    user_id: Identity,
-    role: UserRole,
-    updated_at: Timestamp,
-    created_at: Timestamp,
+    pub user_id: Identity,
+    pub role: UserRole,
+    pub updated_at: Timestamp,
+    pub created_at: Timestamp,
 }
 
 #[derive(SpacetimeType)]
