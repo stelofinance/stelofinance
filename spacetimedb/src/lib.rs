@@ -1,4 +1,5 @@
 mod tables;
+mod transfers;
 
 pub use tables::*;
 
@@ -169,7 +170,7 @@ pub fn create_account(
         })
         .map_err(|e| format!("create_account failed: {e}"))?;
 
-    ctx.db.account_permission().insert(AccountUser {
+    ctx.db.account_user().insert(AccountUser {
         id: 0,
         account_id: account.id,
         user_id: sender,
@@ -191,7 +192,7 @@ pub fn create_account(
 }
 
 /// App admin check for privileged reducers (ledgers, issuer accounts, audit, …).
-pub fn require_admin(ctx: &ReducerContext) -> Result<(), String> {
+pub(crate) fn require_admin(ctx: &ReducerContext) -> Result<(), String> {
     let user = ctx
         .db
         .user()
@@ -204,7 +205,7 @@ pub fn require_admin(ctx: &ReducerContext) -> Result<(), String> {
     Ok(())
 }
 
-fn require_registered_user(ctx: &ReducerContext) -> Result<(), String> {
+pub(crate) fn require_registered_user(ctx: &ReducerContext) -> Result<(), String> {
     if ctx.db.user().id().find(&ctx.sender()).is_none() {
         return Err("not a registered user".to_string());
     }

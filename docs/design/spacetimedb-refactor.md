@@ -185,7 +185,7 @@ All core tables **private** unless noted. Enums used instead of opaque integer c
 | `user` | `user` | Stelo user profile | **PK = `Identity`**. Unique `bitcraft_username`. `is_admin` (default false) |
 | `ledger` | `ledger` | Asset type / scale / kind | **Public** catalog. `LedgerKind`: Digital / Derivation / Physical |
 | `account` | `account` | Wallet / balances | `AccountKind` Credit/Debit; `user_id` = primary or **`Identity::ZERO`**; multi-col index `by_user_and_ledger`; single-col `ledger_id` + `address` |
-| `account_permission` | `account_permission` (`AccountUser`) | User ↔ account ACL | `UserRole`: Read / Write / Admin / Owner; `user_id: Identity` |
+| `account_user` | `account_user` (`AccountUser`) | User ↔ account ACL | `UserRole`; multi-col `by_account_and_user`; single-col `user_id` |
 | `transfer` | `transfer` | Transfer records | `TransferKind` + `TransferState`; optional pending/posted amounts; `finalized_at` optional |
 | `transfer_idempotency` | `transfer_idempotency` | Idempotency map | Auto-inc PK; index `by_account_and_key` on `(account_id, key)` |
 | `account_token` | — | API tokens (not yet) | Hashed only; later |
@@ -249,7 +249,7 @@ STDB docs’ JWT `roles` claim pattern is preferred if BitAuth ever issues roles
 
 Reducers must treat `ctx.sender()` as the principal. Map:
 
-`Identity` → `user` → `account_permission` / ownership on `account`.
+`Identity` → `user` → `account_user` / ownership on `account`.
 
 Edge `ADMIN_KEY` remains temporary break-glass for legacy HTTP only — not module authz long-term.
 ### 7.3 Views (multi-tenant, caller-dependent)
@@ -259,7 +259,7 @@ Views use `ViewContext` and filter by `ctx.sender()`. Prefer indexed lookups; us
 | View (proposal) | Returns | Auth idea |
 |-----------------|---------|-----------|
 | `my_user` | Current user profile | Caller’s row only |
-| `my_accounts` | Accounts caller can see | Via `account_permission` (and primary ownership) |
+| `my_accounts` | Accounts caller can see | Via `account_user` (and primary ownership) |
 | `my_account` / detail fields | Single account + balances | Must have `PermReadBal` or admin |
 | `my_transfers` | Transfers involving caller’s accounts | Permission-gated |
 | `ledger_list` | Public ledger catalog | Anonymous or authenticated; no secrets |
@@ -281,7 +281,8 @@ All reducers: validate sender, load permission, enforce domain rules, mutate onl
 | `update_account_address` | Admin/system |
 | `set_account_user` | Link/unlink primary user |
 | `grant_permission` / `revoke_permission` | Account ACL |
-| `create_transfer` | Full transfer path + idempotency + enqueue webhook outbox |
+| `create_transfer` (**done**) | Auth by kind (asset/liability posted-only; redeem/issue posted vs pending rules); idempotency `(sender, key)` |
+| `finalize_transfer` (**done**) | One-shot on `Pending` only; post→`PostPending` (refund rest); void→`VoidPending`; state-based idempotent replay |
 | `set_webhook` / `clear_webhook` | Account webhook URL |
 | `create_account_token` / `revoke_account_token` | API tokens (return raw token **once** to caller) |
 | `create_ledger` (**done**) | **`require_admin`**; public catalog row |
@@ -603,8 +604,8 @@ Use this to validate the design before full port:
 - [x] Go STDB connect smoke (`/auth/bitauth/stdb-connect`) — no codegen
 - [x] Document OIDC claims + cookie names (this section / §5.2 / §7.2)
 - [x] `create_ledger` (admin) + `create_account` (debit any user; credit admin)
-- [ ] Seed / bootstrap ledgers + issuer & player accounts (via reducers above / admin scripts)
-- [ ] `create_transfer` reducer + idempotency
+- [x] `create_transfer` + idempotency + pending; `finalize_transfer` (void / post)
+- [ ] Seed / bootstrap script (ledgers + issuer + sample wallets via reducers)
 - [ ] `my_user` / `my_accounts` / `my_transfers` views filtered by sender
 - [ ] Go edge: one-off query views / reducer call beyond smoke
 - [ ] One app page rendered from STDB (parallel to legacy `/app`)
@@ -649,7 +650,7 @@ Any admin balance patch must either:
 1. ~~Create `spacetimedb/` + local publish/dev loop~~ **done**.
 2. ~~BitAuth OIDC + cookie + `client_connected` + owner/admin model~~ **done** (parallel path; legacy login remains).
 3. ~~`create_ledger` + `create_account` (credit admin / debit open)~~ **done**.
-4. **Next:** `create_transfer` + idempotency; then multi-tenant views; wire one Go page off STDB; Datastar subscribe.
+4. **Next:** seed script; then multi-tenant views; wire one Go page off STDB; Datastar subscribe.
 5. Cut over `/app` session from JetStream `sid` to BitAuth/STDB when ready (P1).
 6. After fuller P0, expand this doc into an **implementation spec** (exact reducer signatures, error codes, cookie RFC polish).
 
@@ -667,6 +668,7 @@ Any admin balance patch must either:
 | 2026-07 | Documented private-table visibility (host owner vs clients); no issuer hardcode for ops |
 | 2026-07-25 | `create_ledger` (admin); `create_account` (debit = any user, credit = admin; Owner perm; address/webhook rules ported from Go) |
 | 2026-07-25 | `create_account`: `address: Option` (Some = admin); primary via `user_id` index (`Identity::ZERO` if not primary) |
+| 2026-07-25 | `create_transfer` / `finalize_transfer`: pending path; Write+ authz; memo max 32; hash `send\|recv\|amt\|memo\|pending` |
 
 ---
 

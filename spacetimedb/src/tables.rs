@@ -86,13 +86,15 @@ pub enum UserRole {
     Owner,
 }
 
-#[spacetimedb::table(accessor = account_permission)]
+#[spacetimedb::table(
+    accessor = account_user,
+    index(accessor = by_account_and_user, btree(columns = [account_id, user_id]))
+)]
 #[derive(Clone, Debug)]
 pub struct AccountUser {
     #[primary_key]
     #[auto_inc]
     pub id: u64,
-    #[index(btree)]
     pub account_id: u64,
     #[index(btree)]
     pub user_id: Identity,
@@ -101,14 +103,15 @@ pub struct AccountUser {
     pub created_at: Timestamp,
 }
 
-#[derive(SpacetimeType)]
+#[derive(SpacetimeType, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TransferState {
     Posted,
     Pending,
-    PostPending, // Can also be partially posted if posted_amount < pending_amount
-    VoidPending, // Completely void the transfer, all pending funds unlocked
+    PostPending,
+    VoidPending,
 }
-#[derive(SpacetimeType)]
+
+#[derive(SpacetimeType, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TransferKind {
     Liability, // Credit <-> Credit
     Asset,     // Debit <-> Debit
@@ -117,26 +120,28 @@ pub enum TransferKind {
 }
 
 #[spacetimedb::table(accessor = transfer)]
+#[derive(Clone, Debug)]
 pub struct Transfer {
     #[primary_key]
     #[auto_inc]
-    id: u64,
+    pub id: u64,
 
     #[index(btree)]
-    debit_account_id: u64,
+    pub debit_account_id: u64,
     #[index(btree)]
-    credit_account_id: u64,
+    pub credit_account_id: u64,
 
-    pending_amount: Option<u64>,
-    posted_amount: Option<u64>,
+    pub pending_amount: Option<u64>,
+    pub posted_amount: Option<u64>,
 
     #[index(btree)]
-    ledger_id: u64,
+    pub ledger_id: u64,
 
-    kind: TransferKind,
-    memo: Option<String>,
-    created_at: Timestamp,
-    finalized_at: Option<Timestamp>,
+    pub kind: TransferKind,
+    pub state: TransferState,
+    pub memo: Option<String>,
+    pub created_at: Timestamp,
+    pub finalized_at: Option<Timestamp>,
 }
 
 #[spacetimedb::table(
