@@ -6,19 +6,18 @@ use crate::role_rank;
 use crate::tables::*;
 use spacetimedb::{Identity, ReducerContext, Table, reducer};
 
+/// Grant or update a member's role on an account.
+///
+/// `member_id` is resolved as a **user** (if present in `user`) else **app** (if present in `app`).
+/// Owner may only be granted to users; apps max Admin.
 #[reducer]
-pub fn grant_account_user(
+pub fn grant_account_member(
     ctx: &ReducerContext,
     account_id: u64,
-    username: String,
+    member_id: Identity,
     role: Role,
 ) -> Result<(), String> {
     require_principal(ctx)?;
-
-    let username = username.trim().to_string();
-    if username.is_empty() {
-        return Err("username required".to_string());
-    }
 
     let account = load_account(ctx, account_id)?;
     let caller_role = caller_role_on(ctx, account_id)?;
@@ -26,15 +25,19 @@ pub fn grant_account_user(
         return Err("admin or owner required".to_string());
     }
 
-    let grantee = ctx
-        .db
-        .user()
-        .bitcraft_username()
-        .find(&username)
-        .ok_or_else(|| "user not found".to_string())?;
+    let kind = resolve_member_kind(ctx, member_id)?;
 
-    if grantee.id == ctx.sender() {
+    if member_id == ctx.sender() {
         return Err("cannot grant a role to yourself".to_string());
+    }
+
+    if kind == MemberKind::App {
+        if role == Role::Owner {
+            return Err("apps cannot be granted owner".to_string());
+        }
+        if !matches!(role, Role::Read | Role::Write | Role::Admin) {
+            return Err("invalid role for app".to_string());
+        }
     }
 
     // Admins cannot assign Owner; only Owner can transfer ownership.
@@ -42,10 +45,13 @@ pub fn grant_account_user(
         return Err("only owner can grant owner".to_string());
     }
 
-    let existing = find_user_membership(ctx, account_id, grantee.id);
+    let existing = find_membership(ctx, account_id, member_id);
 
     // Nobody but the current Owner may change or replace the Owner row.
     if let Some(ref m) = existing {
+        if m.kind != kind {
+            return Err("member kind mismatch with existing membership".to_string());
+        }
         if m.role == Role::Owner && role != Role::Owner {
             return Err("cannot demote owner; transfer ownership instead".to_string());
         }
@@ -55,6 +61,13 @@ pub fn grant_account_user(
     }
 
     if role == Role::Owner {
+        // Only users can become Owner (kind already restricted above for App).
+        let grantee = ctx
+            .db
+            .user()
+            .id()
+            .find(&member_id)
+            .ok_or_else(|| "user not found".to_string())?;
         return transfer_ownership(ctx, &account, caller_role, &grantee, existing.as_ref());
     }
 
@@ -65,45 +78,38 @@ pub fn grant_account_user(
         return Err("cannot modify owner".to_string());
     }
 
-    upsert_user_membership(ctx, account_id, grantee.id, role, existing.as_ref())?;
+    upsert_membership(ctx, account_id, member_id, kind, role, existing.as_ref())?;
 
     log::info!(
-        "grant_account_user account={} user={} role={:?} by={}",
+        "grant_account_member account={} member={} kind={:?} role={:?} by={}",
         account_id,
-        username,
+        member_id,
+        kind,
         role,
         ctx.sender()
     );
     Ok(())
 }
 
+/// Revoke a member from an account by Identity. Members may leave themselves (except Owner).
 #[reducer]
-pub fn revoke_account_user(
+pub fn revoke_account_member(
     ctx: &ReducerContext,
     account_id: u64,
-    username: String,
+    member_id: Identity,
 ) -> Result<(), String> {
     require_principal(ctx)?;
-
-    let username = username.trim().to_string();
-    if username.is_empty() {
-        return Err("username required".to_string());
-    }
 
     let _account = load_account(ctx, account_id)?;
     let caller_role = caller_role_on(ctx, account_id)?;
 
-    let target = ctx
-        .db
-        .user()
-        .bitcraft_username()
-        .find(&username)
-        .ok_or_else(|| "user not found".to_string())?;
+    // Ensure principal exists as user or app (clearer error than "not on account").
+    let _kind = resolve_member_kind(ctx, member_id)?;
 
-    let membership = find_user_membership(ctx, account_id, target.id)
-        .ok_or_else(|| "user is not on this account".to_string())?;
+    let membership = find_membership(ctx, account_id, member_id)
+        .ok_or_else(|| "member is not on this account".to_string())?;
 
-    let leaving_self = target.id == ctx.sender();
+    let leaving_self = member_id == ctx.sender();
 
     if leaving_self {
         if membership.role == Role::Owner {
@@ -111,117 +117,21 @@ pub fn revoke_account_user(
         }
         // Any non-owner role may leave.
     } else {
-        // Revoking someone else.
         if role_rank(caller_role) < role_rank(Role::Admin) {
             return Err("admin or owner required to revoke others".to_string());
         }
         if membership.role == Role::Owner {
             return Err("cannot revoke owner; transfer ownership first".to_string());
         }
-        // Owner and Admin may revoke any non-owner.
     }
 
     // Exactly one Owner is preserved: we never delete an Owner row here.
-    ctx.db.account_user().id().delete(&membership.id);
+    ctx.db.account_member().id().delete(&membership.id);
 
     log::info!(
-        "revoke_account_user account={} user={} by={}",
+        "revoke_account_member account={} member={} by={}",
         account_id,
-        username,
-        ctx.sender()
-    );
-    Ok(())
-}
-
-/// Grant an app Read/Write/Admin on an account (never Owner). Target by unique app `name`.
-#[reducer]
-pub fn grant_account_app(
-    ctx: &ReducerContext,
-    account_id: u64,
-    name: String,
-    role: Role,
-) -> Result<(), String> {
-    require_principal(ctx)?;
-
-    let name = name.trim().to_string();
-    if name.is_empty() {
-        return Err("app name required".to_string());
-    }
-
-    let _account = load_account(ctx, account_id)?;
-    let caller_role = caller_role_on(ctx, account_id)?;
-    if role_rank(caller_role) < role_rank(Role::Admin) {
-        return Err("admin or owner required".to_string());
-    }
-
-    if role == Role::Owner {
-        return Err("apps cannot be granted owner".to_string());
-    }
-    if !matches!(role, Role::Read | Role::Write | Role::Admin) {
-        return Err("invalid role for app".to_string());
-    }
-
-    let app = ctx
-        .db
-        .app()
-        .name()
-        .find(&name)
-        .ok_or_else(|| "app not found".to_string())?;
-
-    let existing = find_app_membership(ctx, account_id, app.id);
-    upsert_app_membership(ctx, account_id, app.id, role, existing.as_ref())?;
-
-    log::info!(
-        "grant_account_app account={} app={} role={:?} by={}",
-        account_id,
-        name,
-        role,
-        ctx.sender()
-    );
-    Ok(())
-}
-
-/// Revoke an app from an account (by app name). Apps may revoke themselves.
-#[reducer]
-pub fn revoke_account_app(
-    ctx: &ReducerContext,
-    account_id: u64,
-    name: String,
-) -> Result<(), String> {
-    require_principal(ctx)?;
-
-    let name = name.trim().to_string();
-    if name.is_empty() {
-        return Err("app name required".to_string());
-    }
-
-    let _account = load_account(ctx, account_id)?;
-    let caller_role = caller_role_on(ctx, account_id)?;
-
-    let app = ctx
-        .db
-        .app()
-        .name()
-        .find(&name)
-        .ok_or_else(|| "app not found".to_string())?;
-
-    let membership = find_app_membership(ctx, account_id, app.id)
-        .ok_or_else(|| "app is not on this account".to_string())?;
-
-    let leaving_self = app.id == ctx.sender();
-
-    if !leaving_self {
-        if role_rank(caller_role) < role_rank(Role::Admin) {
-            return Err("admin or owner required to revoke others".to_string());
-        }
-    }
-
-    ctx.db.account_app().id().delete(&membership.id);
-
-    log::info!(
-        "revoke_account_app account={} app={} by={}",
-        account_id,
-        name,
+        member_id,
         ctx.sender()
     );
     Ok(())
@@ -333,12 +243,23 @@ pub fn set_account_webhook(
 // Internals
 // ---------------------------------------------------------------------------
 
+/// Prefer user over app if both somehow exist (should not happen under mutual exclusion).
+fn resolve_member_kind(ctx: &ReducerContext, member_id: Identity) -> Result<MemberKind, String> {
+    if ctx.db.user().id().find(&member_id).is_some() {
+        return Ok(MemberKind::User);
+    }
+    if ctx.db.app().id().find(&member_id).is_some() {
+        return Ok(MemberKind::App);
+    }
+    Err("member not found (not a registered user or app)".to_string())
+}
+
 fn transfer_ownership(
     ctx: &ReducerContext,
     account: &Account,
     caller_role: Role,
     grantee: &User,
-    grantee_membership: Option<&AccountUser>,
+    grantee_membership: Option<&AccountMember>,
 ) -> Result<(), String> {
     if caller_role != Role::Owner {
         return Err("only owner can grant owner".to_string());
@@ -350,19 +271,19 @@ fn transfer_ownership(
     }
 
     let caller = ctx.sender();
-    let caller_membership = find_user_membership(ctx, account.id, caller)
+    let caller_membership = find_membership(ctx, account.id, caller)
         .ok_or_else(|| "caller membership missing".to_string())?;
 
-    // TODO, I think we already checked before that the caller is owner
     if caller_membership.role != Role::Owner {
         return Err("caller is not owner".to_string());
     }
 
     // Promote grantee to Owner (insert or update).
-    upsert_user_membership(
+    upsert_membership(
         ctx,
         account.id,
         grantee.id,
+        MemberKind::User,
         Role::Owner,
         grantee_membership,
     )?;
@@ -371,7 +292,7 @@ fn transfer_ownership(
     let mut demoted = caller_membership;
     demoted.role = Role::Admin;
     demoted.updated_at = ctx.timestamp;
-    ctx.db.account_user().id().update(demoted);
+    ctx.db.account_member().id().update(demoted);
 
     // Ensure still exactly one Owner.
     let owner_count = count_owners(ctx, account.id);
@@ -388,59 +309,31 @@ fn transfer_ownership(
     Ok(())
 }
 
-fn upsert_user_membership(
+fn upsert_membership(
     ctx: &ReducerContext,
     account_id: u64,
-    user_id: Identity,
+    member_id: Identity,
+    kind: MemberKind,
     role: Role,
-    existing: Option<&AccountUser>,
+    existing: Option<&AccountMember>,
 ) -> Result<(), String> {
     match existing {
         Some(m) => {
-            if m.role == role {
+            if m.role == role && m.kind == kind {
                 return Ok(());
             }
             let mut updated = m.clone();
             updated.role = role;
+            updated.kind = kind;
             updated.updated_at = ctx.timestamp;
-            ctx.db.account_user().id().update(updated);
+            ctx.db.account_member().id().update(updated);
         }
         None => {
-            ctx.db.account_user().insert(AccountUser {
+            ctx.db.account_member().insert(AccountMember {
                 id: 0,
                 account_id,
-                user_id,
-                role,
-                updated_at: ctx.timestamp,
-                created_at: ctx.timestamp,
-            });
-        }
-    }
-    Ok(())
-}
-
-fn upsert_app_membership(
-    ctx: &ReducerContext,
-    account_id: u64,
-    app_id: Identity,
-    role: Role,
-    existing: Option<&AccountApp>,
-) -> Result<(), String> {
-    match existing {
-        Some(m) => {
-            if m.role == role {
-                return Ok(());
-            }
-            let mut updated = m.clone();
-            updated.role = role;
-            updated.updated_at = ctx.timestamp;
-            ctx.db.account_app().id().update(updated);
-        }
-        None => {
-            ctx.db.account_app().insert(AccountApp {
-                id: 0,
-                account_id,
-                app_id,
+                member_id,
+                kind,
                 role,
                 updated_at: ctx.timestamp,
                 created_at: ctx.timestamp,
@@ -462,34 +355,22 @@ fn caller_role_on(ctx: &ReducerContext, account_id: u64) -> Result<Role, String>
     effective_role(ctx, account_id).ok_or_else(|| "not a member of this account".to_string())
 }
 
-fn find_user_membership(
+fn find_membership(
     ctx: &ReducerContext,
     account_id: u64,
-    user_id: Identity,
-) -> Option<AccountUser> {
+    member_id: Identity,
+) -> Option<AccountMember> {
     ctx.db
-        .account_user()
-        .by_account_and_user()
-        .filter((account_id, user_id))
-        .next()
-}
-
-fn find_app_membership(
-    ctx: &ReducerContext,
-    account_id: u64,
-    app_id: Identity,
-) -> Option<AccountApp> {
-    ctx.db
-        .account_app()
-        .by_account_and_app()
-        .filter((account_id, app_id))
+        .account_member()
+        .by_account_and_member()
+        .filter((account_id, member_id))
         .next()
 }
 
 fn count_owners(ctx: &ReducerContext, account_id: u64) -> usize {
     ctx.db
-        .account_user()
-        .by_account_and_user()
+        .account_member()
+        .by_account_and_member()
         .filter(&account_id)
         .filter(|m| m.role == Role::Owner)
         .count()

@@ -1,5 +1,8 @@
-use spacetimedb::{Identity, SpacetimeType, Timestamp, table};
+use spacetimedb::{Identity, ScheduleAt, SpacetimeType, Timestamp, table};
 
+use crate::apps::*;
+
+// DB Config Table, for meta stuff
 #[table(accessor = config)]
 pub struct Config {
     #[primary_key]
@@ -37,7 +40,7 @@ pub struct Ledger {
     #[unique]
     pub name: String,
 
-    pub asset_scale: u8,
+    pub scale: u8,
     pub kind: LedgerKind,
 }
 
@@ -78,7 +81,7 @@ pub struct Account {
     pub created_at: Timestamp,
 }
 
-/// Shared role ladder for humans (`account_user`) and apps (`account_app`).
+/// Shared role ladder for account members (users and apps).
 /// Ordering: Read < Write < Admin < Owner. Apps may hold at most Admin.
 #[derive(SpacetimeType, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Role {
@@ -88,18 +91,27 @@ pub enum Role {
     Owner,
 }
 
+/// Whether a membership row is a human user or an app principal.
+#[derive(SpacetimeType, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MemberKind {
+    User,
+    App,
+}
+
+/// Unified account ACL for users and apps.
 #[spacetimedb::table(
-    accessor = account_user,
-    index(accessor = by_account_and_user, btree(columns = [account_id, user_id]))
+    accessor = account_member,
+    index(accessor = by_account_and_member, btree(columns = [account_id, member_id]))
 )]
 #[derive(Clone, Debug)]
-pub struct AccountUser {
+pub struct AccountMember {
     #[primary_key]
     #[auto_inc]
     pub id: u64,
     pub account_id: u64,
     #[index(btree)]
-    pub user_id: Identity,
+    pub member_id: Identity,
+    pub kind: MemberKind,
     pub role: Role,
     pub updated_at: Timestamp,
     pub created_at: Timestamp,
@@ -116,7 +128,7 @@ pub struct App {
     #[unique]
     pub name: String,
 
-    /// Human user who created the app (rename/delete / replace identity later).
+    /// Human user who created the app (rename/delete / replace identity later)
     pub created_by: Identity,
     pub updated_at: Timestamp,
     pub created_at: Timestamp,
@@ -124,27 +136,32 @@ pub struct App {
 
 #[derive(SpacetimeType, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AppTicketPurpose {
-    /// First-time registration: `name` must not already be an app.
-    Create,
-    /// Rebind Identity: `name` must be an existing app owned by the ticket creator.
-    Replace,
+    Create,  // First time registration
+    Replace, // Rebind Identity on App
 }
 
-/// App membership on an account (parallel to `account_user`). Max role: Admin.
-#[spacetimedb::table(
-    accessor = account_app,
-    index(accessor = by_account_and_app, btree(columns = [account_id, app_id]))
-)]
+/// Pending app create/replace; expires via schedule (~15 minutes)
+#[table(accessor = app_ticket, scheduled(expire_app_ticket, at = expires_at))]
 #[derive(Clone, Debug)]
-pub struct AccountApp {
+pub struct AppTicket {
     #[primary_key]
     #[auto_inc]
     pub id: u64,
-    pub account_id: u64,
-    #[index(btree)]
-    pub app_id: Identity,
-    pub role: Role,
-    pub updated_at: Timestamp,
+
+    pub expires_at: ScheduleAt, // Fire TTL cleanup
+
+    pub created_by: Identity,
+
+    /// Create: desired app name (must be free).
+    /// Replace: existing app name
+    #[unique]
+    pub name: String,
+
+    /// OIDC `sub` that will own this app Identity on connect
+    #[unique]
+    pub sub: String,
+
+    pub purpose: AppTicketPurpose,
     pub created_at: Timestamp,
 }
 
@@ -204,5 +221,3 @@ pub struct TransferIdempotency {
     pub request_hash: String,
     pub created_at: Timestamp,
 }
-
-

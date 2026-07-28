@@ -103,7 +103,7 @@ pub fn client_connected(ctx: &ReducerContext) -> Result<(), String> {
 pub fn create_ledger(
     ctx: &ReducerContext,
     name: String,
-    asset_scale: u8,
+    scale: u8,
     kind: LedgerKind,
 ) -> Result<(), String> {
     require_admin(ctx)?; // Admin only, obviously
@@ -119,7 +119,7 @@ pub fn create_ledger(
         .try_insert(Ledger {
             id: 0,
             name: name.clone(),
-            asset_scale,
+            scale,
             kind,
         })
         .map_err(|e| format!("create_ledger failed: {e}"))?;
@@ -128,7 +128,7 @@ pub fn create_ledger(
         "created ledger id={} name={} scale={} by {}",
         ledger.id,
         name,
-        asset_scale,
+        scale,
         ctx.sender()
     );
     Ok(())
@@ -204,10 +204,11 @@ pub fn create_account(
         })
         .map_err(|e| format!("create_account failed: {e}"))?;
 
-    ctx.db.account_user().insert(AccountUser {
+    ctx.db.account_member().insert(AccountMember {
         id: 0,
         account_id: account.id,
-        user_id: sender,
+        member_id: sender,
+        kind: MemberKind::User,
         role: Role::Owner,
         updated_at: ctx.timestamp,
         created_at: ctx.timestamp,
@@ -313,21 +314,12 @@ pub(crate) fn require_principal(ctx: &ReducerContext) -> Result<(), String> {
     Err("not a registered user or app".to_string())
 }
 
-/// Account role for `ctx.sender()` from `account_user` **or** `account_app`.
+/// Account role for `ctx.sender()` from `account_member`.
 pub(crate) fn effective_role(ctx: &ReducerContext, account_id: u64) -> Option<Role> {
     let sender = ctx.sender();
-    if let Some(m) = ctx
-        .db
-        .account_user()
-        .by_account_and_user()
-        .filter((account_id, sender))
-        .next()
-    {
-        return Some(m.role);
-    }
     ctx.db
-        .account_app()
-        .by_account_and_app()
+        .account_member()
+        .by_account_and_member()
         .filter((account_id, sender))
         .next()
         .map(|m| m.role)

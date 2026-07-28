@@ -1,38 +1,12 @@
 use crate::require_registered_user;
 use crate::tables::*;
 use spacetimedb::{
-    Identity, ProcedureContext, ReducerContext, ScheduleAt, Table, Timestamp, procedure, reducer,
-    table,
+    Identity, ProcedureContext, ReducerContext, ScheduleAt, Table, procedure, reducer,
 };
 use std::time::Duration;
 
 const TICKET_TTL: Duration = Duration::from_secs(15 * 60);
 const MAX_APP_NAME_LEN: usize = 64;
-
-/// Pending app create/replace; expires via schedule (~15 minutes).
-#[table(accessor = app_ticket, scheduled(expire_app_ticket, at = expires_at))]
-#[derive(Clone, Debug)]
-pub struct AppTicket {
-    #[primary_key]
-    #[auto_inc]
-    pub id: u64,
-
-    /// When the schedule fires the ticket is removed (TTL cleanup).
-    pub expires_at: ScheduleAt,
-
-    pub created_by: Identity,
-
-    /// Create: desired app name (must be free). Replace: existing app name.
-    #[unique]
-    pub name: String,
-
-    /// SpacetimeAuth OIDC `sub` that will own this app Identity on connect.
-    #[unique]
-    pub sub: String,
-
-    pub purpose: AppTicketPurpose,
-    pub created_at: Timestamp,
-}
 
 // ---------------------------------------------------------------------------
 // Ticket reducers (BitAuth human)
@@ -184,11 +158,16 @@ fn fulfill_replace(
         return Ok(());
     }
 
-    // Snapshot grants, then swap app identity.
-    let grants: Vec<AccountApp> = ctx.db.account_app().app_id().filter(&old_id).collect();
+    // Snapshot grants, then swap app identity on memberships.
+    let grants: Vec<AccountMember> = ctx
+        .db
+        .account_member()
+        .member_id()
+        .filter(&old_id)
+        .collect();
 
     for g in &grants {
-        ctx.db.account_app().id().delete(&g.id);
+        ctx.db.account_member().id().delete(&g.id);
     }
 
     ctx.db.app().id().delete(&old_id);
@@ -202,10 +181,11 @@ fn fulfill_replace(
     });
 
     for g in grants {
-        ctx.db.account_app().insert(AccountApp {
+        ctx.db.account_member().insert(AccountMember {
             id: 0,
             account_id: g.account_id,
-            app_id: sender,
+            member_id: sender,
+            kind: MemberKind::App,
             role: g.role,
             updated_at: ctx.timestamp,
             created_at: g.created_at,

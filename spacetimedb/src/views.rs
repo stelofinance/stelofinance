@@ -22,7 +22,7 @@ pub struct MyAccountRow {
     pub balance: u64,
     pub ledger_id: u64,
     pub ledger_name: String,
-    pub ledger_asset_scale: u8,
+    pub ledger_scale: u8,
     pub ledger_kind: LedgerKind,
     pub role: Role,
     pub is_primary: bool,
@@ -34,24 +34,14 @@ pub struct MyAccountRow {
 }
 
 #[derive(SpacetimeType, Clone, Debug)]
-pub struct MyAccountUserRow {
-    /// `account_user` row id (stable PK for client cache).
+pub struct MyAccountMemberRow {
+    /// `account_member` row id (stable PK for client cache).
     pub id: u64,
     pub account_id: u64,
-    pub user_id: Identity,
-    pub username: String,
-    pub role: Role,
-    pub updated_at: Timestamp,
-    pub created_at: Timestamp,
-}
-
-#[derive(SpacetimeType, Clone, Debug)]
-pub struct MyAccountAppRow {
-    /// `account_app` row id (stable PK for client cache).
-    pub id: u64,
-    pub account_id: u64,
-    pub app_id: Identity,
-    pub app_name: String,
+    pub member_id: Identity,
+    pub kind: MemberKind,
+    /// Username (User) or app name (App).
+    pub name: String,
     pub role: Role,
     pub updated_at: Timestamp,
     pub created_at: Timestamp,
@@ -70,7 +60,7 @@ pub struct MyTransferRow {
     pub posted_amount: Option<u64>,
     pub ledger_id: u64,
     pub ledger_name: String,
-    pub ledger_asset_scale: u8,
+    pub ledger_scale: u8,
     pub kind: TransferKind,
     pub state: TransferState,
     pub memo: Option<String>,
@@ -140,7 +130,7 @@ fn my_accounts(ctx: &ViewContext) -> Vec<MyAccountRow> {
             balance: computed_balance(&acc),
             ledger_id: ledger.id,
             ledger_name: ledger.name.clone(),
-            ledger_asset_scale: ledger.asset_scale,
+            ledger_scale: ledger.scale,
             ledger_kind: ledger.kind,
             role,
             is_primary,
@@ -153,10 +143,10 @@ fn my_accounts(ctx: &ViewContext) -> Vec<MyAccountRow> {
     out
 }
 
-/// Members of every account the caller can access (Read+).
+/// Users and apps on every account the caller can access (Read+).
 /// Filter with SQL for one account: `WHERE account_id = …`
-#[view(accessor = my_accounts_users, public, primary_key = id)]
-fn my_accounts_users(ctx: &ViewContext) -> Vec<MyAccountUserRow> {
+#[view(accessor = my_accounts_members, public, primary_key = id)]
+fn my_accounts_members(ctx: &ViewContext) -> Vec<MyAccountMemberRow> {
     let mut out = Vec::new();
     let mut seen_accounts = Vec::new();
 
@@ -168,65 +158,17 @@ fn my_accounts_users(ctx: &ViewContext) -> Vec<MyAccountUserRow> {
 
         for member in ctx
             .db
-            .account_user()
-            .by_account_and_user()
+            .account_member()
+            .by_account_and_member()
             .filter(&account_id)
         {
-            let username = ctx
-                .db
-                .user()
-                .id()
-                .find(&member.user_id)
-                .map(|u| u.bitcraft_username)
-                .unwrap_or_default();
-
-            out.push(MyAccountUserRow {
+            let name = member_display_name(&ctx.db, member.member_id, member.kind);
+            out.push(MyAccountMemberRow {
                 id: member.id,
                 account_id: member.account_id,
-                user_id: member.user_id,
-                username,
-                role: member.role,
-                updated_at: member.updated_at,
-                created_at: member.created_at,
-            });
-        }
-    }
-
-    out
-}
-
-/// Apps on every account the caller can access (Read+).
-/// Filter with SQL for one account: `WHERE account_id = …`
-#[view(accessor = my_accounts_apps, public, primary_key = id)]
-fn my_accounts_apps(ctx: &ViewContext) -> Vec<MyAccountAppRow> {
-    let mut out = Vec::new();
-    let mut seen_accounts = Vec::new();
-
-    for (account_id, _) in memberships_for_sender(ctx) {
-        if seen_accounts.contains(&account_id) {
-            continue;
-        }
-        seen_accounts.push(account_id);
-
-        for member in ctx
-            .db
-            .account_app()
-            .by_account_and_app()
-            .filter(&account_id)
-        {
-            let app_name = ctx
-                .db
-                .app()
-                .id()
-                .find(&member.app_id)
-                .map(|a| a.name)
-                .unwrap_or_default();
-
-            out.push(MyAccountAppRow {
-                id: member.id,
-                account_id: member.account_id,
-                app_id: member.app_id,
-                app_name,
+                member_id: member.member_id,
+                kind: member.kind,
+                name,
                 role: member.role,
                 updated_at: member.updated_at,
                 created_at: member.created_at,
@@ -343,38 +285,55 @@ fn ledger_audit(ctx: &ViewContext) -> Vec<LedgerAuditRow> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Accounts where the caller has a role via `account_user` or `account_app`.
+/// Accounts where the caller has a role via `account_member`.
 fn memberships_for_sender(ctx: &ViewContext) -> Vec<(u64, Role)> {
     let sender = ctx.sender();
-    let mut out = Vec::new();
-
-    for au in ctx.db.account_user().user_id().filter(&sender) {
-        out.push((au.account_id, au.role));
-    }
-    for aa in ctx.db.account_app().app_id().filter(&sender) {
-        out.push((aa.account_id, aa.role));
-    }
-
-    out
+    ctx.db
+        .account_member()
+        .member_id()
+        .filter(&sender)
+        .map(|m| (m.account_id, m.role))
+        .collect()
 }
 
 fn role_is_admin_plus(role: Role) -> bool {
     matches!(role, Role::Admin | Role::Owner)
 }
 
-/// Username of the first `Role::Owner` ACL row on this account.
+/// Username of the first `Role::Owner` membership on this account.
 fn owner_username_for_account(ctx: &ViewContext, account_id: u64) -> Option<String> {
     for member in ctx
         .db
-        .account_user()
-        .by_account_and_user()
+        .account_member()
+        .by_account_and_member()
         .filter(&account_id)
     {
         if member.role == Role::Owner {
-            return username_for(&ctx.db, member.user_id);
+            return username_for(&ctx.db, member.member_id);
         }
     }
     None
+}
+
+fn member_display_name(
+    db: &spacetimedb::LocalReadOnly,
+    member_id: Identity,
+    kind: MemberKind,
+) -> String {
+    match kind {
+        MemberKind::User => db
+            .user()
+            .id()
+            .find(&member_id)
+            .map(|u| u.bitcraft_username)
+            .unwrap_or_default(),
+        MemberKind::App => db
+            .app()
+            .id()
+            .find(&member_id)
+            .map(|a| a.name)
+            .unwrap_or_default(),
+    }
 }
 
 /// Available balance matching legacy app semantics (never negative → u64).
@@ -421,7 +380,7 @@ fn enrich_transfer(ctx: &ViewContext, tr: &Transfer) -> Option<MyTransferRow> {
         posted_amount: tr.posted_amount,
         ledger_id: ledger.id,
         ledger_name: ledger.name,
-        ledger_asset_scale: ledger.asset_scale,
+        ledger_scale: ledger.scale,
         kind: tr.kind,
         state: tr.state,
         memo: tr.memo.clone(),
