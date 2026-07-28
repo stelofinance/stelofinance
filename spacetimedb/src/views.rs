@@ -24,9 +24,9 @@ pub struct MyAccountRow {
     pub ledger_name: String,
     pub ledger_asset_scale: u8,
     pub ledger_kind: LedgerKind,
-    pub role: UserRole,
+    pub role: Role,
     pub is_primary: bool,
-    /// Username of the user with `UserRole::Owner` on this account (not the primary flag).
+    /// Username of the user with `Role::Owner` on this account (not the primary flag).
     pub owner_username: Option<String>,
     /// Present only when caller's role is Admin or Owner.
     pub webhook: Option<String>,
@@ -40,7 +40,19 @@ pub struct MyAccountUserRow {
     pub account_id: u64,
     pub user_id: Identity,
     pub username: String,
-    pub role: UserRole,
+    pub role: Role,
+    pub updated_at: Timestamp,
+    pub created_at: Timestamp,
+}
+
+#[derive(SpacetimeType, Clone, Debug)]
+pub struct MyAccountAppRow {
+    /// `account_app` row id (stable PK for client cache).
+    pub id: u64,
+    pub account_id: u64,
+    pub app_id: Identity,
+    pub app_name: String,
+    pub role: Role,
     pub updated_at: Timestamp,
     pub created_at: Timestamp,
 }
@@ -105,8 +117,8 @@ fn my_accounts(ctx: &ViewContext) -> Vec<MyAccountRow> {
     let sender = ctx.sender();
     let mut out = Vec::new();
 
-    for au in ctx.db.account_user().user_id().filter(&sender) {
-        let Some(acc) = ctx.db.account().id().find(&au.account_id) else {
+    for (account_id, role) in memberships_for_sender(ctx) {
+        let Some(acc) = ctx.db.account().id().find(&account_id) else {
             continue;
         };
         let Some(ledger) = ctx.db.ledger().id().find(&acc.ledger_id) else {
@@ -115,7 +127,7 @@ fn my_accounts(ctx: &ViewContext) -> Vec<MyAccountRow> {
 
         let is_primary = acc.user_id == sender;
         let owner_username = owner_username_for_account(ctx, acc.id);
-        let webhook = if role_is_admin_plus(au.role) {
+        let webhook = if role_is_admin_plus(role) {
             acc.webhook.clone()
         } else {
             None
@@ -130,7 +142,7 @@ fn my_accounts(ctx: &ViewContext) -> Vec<MyAccountRow> {
             ledger_name: ledger.name.clone(),
             ledger_asset_scale: ledger.asset_scale,
             ledger_kind: ledger.kind,
-            role: au.role,
+            role,
             is_primary,
             owner_username,
             webhook,
@@ -145,16 +157,20 @@ fn my_accounts(ctx: &ViewContext) -> Vec<MyAccountRow> {
 /// Filter with SQL for one account: `WHERE account_id = …`
 #[view(accessor = my_accounts_users, public, primary_key = id)]
 fn my_accounts_users(ctx: &ViewContext) -> Vec<MyAccountUserRow> {
-    let sender = ctx.sender();
     let mut out = Vec::new();
+    let mut seen_accounts = Vec::new();
 
-    for my_au in ctx.db.account_user().user_id().filter(&sender) {
-        // Prefix filter on (account_id, user_id) multi-column index.
+    for (account_id, _) in memberships_for_sender(ctx) {
+        if seen_accounts.contains(&account_id) {
+            continue;
+        }
+        seen_accounts.push(account_id);
+
         for member in ctx
             .db
             .account_user()
             .by_account_and_user()
-            .filter(&my_au.account_id)
+            .filter(&account_id)
         {
             let username = ctx
                 .db
@@ -179,17 +195,62 @@ fn my_accounts_users(ctx: &ViewContext) -> Vec<MyAccountUserRow> {
     out
 }
 
+/// Apps on every account the caller can access (Read+).
+/// Filter with SQL for one account: `WHERE account_id = …`
+#[view(accessor = my_accounts_apps, public, primary_key = id)]
+fn my_accounts_apps(ctx: &ViewContext) -> Vec<MyAccountAppRow> {
+    let mut out = Vec::new();
+    let mut seen_accounts = Vec::new();
+
+    for (account_id, _) in memberships_for_sender(ctx) {
+        if seen_accounts.contains(&account_id) {
+            continue;
+        }
+        seen_accounts.push(account_id);
+
+        for member in ctx
+            .db
+            .account_app()
+            .by_account_and_app()
+            .filter(&account_id)
+        {
+            let app_name = ctx
+                .db
+                .app()
+                .id()
+                .find(&member.app_id)
+                .map(|a| a.name)
+                .unwrap_or_default();
+
+            out.push(MyAccountAppRow {
+                id: member.id,
+                account_id: member.account_id,
+                app_id: member.app_id,
+                app_name,
+                role: member.role,
+                updated_at: member.updated_at,
+                created_at: member.created_at,
+            });
+        }
+    }
+
+    out
+}
+
 /// Transfers involving any of the caller's accounts.
 ///
 /// No `primary_key` yet: if the caller has ACL on both legs we may emit the same
 /// transfer twice (product choice). Declaring `primary_key = id` would reject that.
 #[view(accessor = my_transfers, public)]
 fn my_transfers(ctx: &ViewContext) -> Vec<MyTransferRow> {
-    let sender = ctx.sender();
     let mut out = Vec::new();
+    let mut seen_accounts = Vec::new();
 
-    for au in ctx.db.account_user().user_id().filter(&sender) {
-        let account_id = au.account_id;
+    for (account_id, _) in memberships_for_sender(ctx) {
+        if seen_accounts.contains(&account_id) {
+            continue;
+        }
+        seen_accounts.push(account_id);
 
         for tr in ctx.db.transfer().debit_account_id().filter(&account_id) {
             if let Some(row) = enrich_transfer(ctx, &tr) {
@@ -282,11 +343,26 @@ fn ledger_audit(ctx: &ViewContext) -> Vec<LedgerAuditRow> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn role_is_admin_plus(role: UserRole) -> bool {
-    matches!(role, UserRole::Admin | UserRole::Owner)
+/// Accounts where the caller has a role via `account_user` or `account_app`.
+fn memberships_for_sender(ctx: &ViewContext) -> Vec<(u64, Role)> {
+    let sender = ctx.sender();
+    let mut out = Vec::new();
+
+    for au in ctx.db.account_user().user_id().filter(&sender) {
+        out.push((au.account_id, au.role));
+    }
+    for aa in ctx.db.account_app().app_id().filter(&sender) {
+        out.push((aa.account_id, aa.role));
+    }
+
+    out
 }
 
-/// Username of the first `UserRole::Owner` ACL row on this account.
+fn role_is_admin_plus(role: Role) -> bool {
+    matches!(role, Role::Admin | Role::Owner)
+}
+
+/// Username of the first `Role::Owner` ACL row on this account.
 fn owner_username_for_account(ctx: &ViewContext, account_id: u64) -> Option<String> {
     for member in ctx
         .db
@@ -294,7 +370,7 @@ fn owner_username_for_account(ctx: &ViewContext, account_id: u64) -> Option<Stri
         .by_account_and_user()
         .filter(&account_id)
     {
-        if member.role == UserRole::Owner {
+        if member.role == Role::Owner {
             return username_for(&ctx.db, member.user_id);
         }
     }

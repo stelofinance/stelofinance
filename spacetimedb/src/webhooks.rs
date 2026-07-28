@@ -13,7 +13,7 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(5);
 pub struct WebhookDelivery {
     #[primary_key]
     #[auto_inc]
-    pub scheduled_id: u64,
+    pub id: u64,
 
     pub scheduled_at: ScheduleAt,
 
@@ -83,7 +83,7 @@ fn insert_delivery_at(
     when: Timestamp,
 ) {
     ctx.insert_webhook_delivery(WebhookDelivery {
-        scheduled_id: 0,
+        id: 0,
         scheduled_at: ScheduleAt::Time(when),
         account_id,
         transfer_id,

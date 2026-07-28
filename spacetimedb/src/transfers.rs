@@ -1,5 +1,6 @@
-use crate::require_registered_user;
-use crate::role_rank;
+use crate::has_account_role;
+use crate::require_account_role;
+use crate::require_principal;
 use crate::tables::*;
 use crate::webhooks::enqueue_transfer_webhooks;
 use spacetimedb::{ReducerContext, Table, reducer};
@@ -17,7 +18,7 @@ pub fn create_transfer(
     idempotency_key: String,
     pending: bool,
 ) -> Result<(), String> {
-    require_registered_user(ctx)?;
+    require_principal(ctx)?;
 
     let key = idempotency_key.trim().to_string();
     if key.is_empty() {
@@ -130,7 +131,7 @@ pub fn finalize_transfer(
     transfer_id: u64,
     amount: u64,
 ) -> Result<(), String> {
-    require_registered_user(ctx)?;
+    require_principal(ctx)?;
 
     let transfer = ctx
         .db
@@ -247,38 +248,38 @@ fn authorize_create_transfer(
             if pending {
                 return Err("asset transfers cannot be pending".to_string());
             }
-            require_account_role(ctx, sending_id, UserRole::Write)
+            require_account_role(ctx, sending_id, Role::Write)
         }
         TransferKind::Liability => {
             if pending {
                 return Err("liability transfers cannot be pending".to_string());
             }
-            require_account_role(ctx, sending_id, UserRole::Write)
+            require_account_role(ctx, sending_id, Role::Write)
         }
         TransferKind::Redeem => {
             if pending {
-                if has_account_role(ctx, sending_id, UserRole::Write)
-                    || has_account_role(ctx, receiving_id, UserRole::Write)
+                if has_account_role(ctx, sending_id, Role::Write)
+                    || has_account_role(ctx, receiving_id, Role::Write)
                 {
                     Ok(())
                 } else {
                     Err("write access required on sender or receiver".to_string())
                 }
             } else {
-                require_account_role(ctx, receiving_id, UserRole::Write)
+                require_account_role(ctx, receiving_id, Role::Write)
             }
         }
         TransferKind::Issue => {
             if pending {
-                if has_account_role(ctx, sending_id, UserRole::Write)
-                    || has_account_role(ctx, receiving_id, UserRole::Write)
+                if has_account_role(ctx, sending_id, Role::Write)
+                    || has_account_role(ctx, receiving_id, Role::Write)
                 {
                     Ok(())
                 } else {
                     Err("write access required on sender or receiver".to_string())
                 }
             } else {
-                require_account_role(ctx, sending_id, UserRole::Write)
+                require_account_role(ctx, sending_id, Role::Write)
             }
         }
     }
@@ -292,32 +293,11 @@ fn authorize_finalize_transfer(ctx: &ReducerContext, transfer: &Transfer) -> Res
     );
 
     match transfer.kind {
-        TransferKind::Redeem => require_account_role(ctx, receiving_id, UserRole::Write),
-        TransferKind::Issue => require_account_role(ctx, sending_id, UserRole::Write),
+        TransferKind::Redeem => require_account_role(ctx, receiving_id, Role::Write),
+        TransferKind::Issue => require_account_role(ctx, sending_id, Role::Write),
         TransferKind::Asset | TransferKind::Liability => {
             Err("only issue/redeem pending transfers can be finalized".to_string())
         }
-    }
-}
-
-fn has_account_role(ctx: &ReducerContext, account_id: u64, min: UserRole) -> bool {
-    let sender = ctx.sender();
-    ctx.db
-        .account_user()
-        .by_account_and_user()
-        .filter((account_id, sender))
-        .any(|p| role_rank(p.role) >= role_rank(min))
-}
-
-fn require_account_role(
-    ctx: &ReducerContext,
-    account_id: u64,
-    min: UserRole,
-) -> Result<(), String> {
-    if has_account_role(ctx, account_id, min) {
-        Ok(())
-    } else {
-        Err("insufficient account permission".to_string())
     }
 }
 

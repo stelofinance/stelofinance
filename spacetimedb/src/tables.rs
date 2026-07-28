@@ -78,8 +78,10 @@ pub struct Account {
     pub created_at: Timestamp,
 }
 
+/// Shared role ladder for humans (`account_user`) and apps (`account_app`).
+/// Ordering: Read < Write < Admin < Owner. Apps may hold at most Admin.
 #[derive(SpacetimeType, Clone, Copy, Debug, PartialEq, Eq)]
-pub enum UserRole {
+pub enum Role {
     Read,
     Write,
     Admin,
@@ -98,7 +100,50 @@ pub struct AccountUser {
     pub account_id: u64,
     #[index(btree)]
     pub user_id: Identity,
-    pub role: UserRole,
+    pub role: Role,
+    pub updated_at: Timestamp,
+    pub created_at: Timestamp,
+}
+
+/// Third-party / bot principal (SpacetimeAuth anonymous Identity).
+/// Bound on first connect when an `app_ticket` matches the JWT `sub`.
+#[spacetimedb::table(accessor = app)]
+#[derive(Clone, Debug)]
+pub struct App {
+    #[primary_key]
+    pub id: Identity,
+
+    #[unique]
+    pub name: String,
+
+    /// Human user who created the app (rename/delete / replace identity later).
+    pub created_by: Identity,
+    pub updated_at: Timestamp,
+    pub created_at: Timestamp,
+}
+
+#[derive(SpacetimeType, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AppTicketPurpose {
+    /// First-time registration: `name` must not already be an app.
+    Create,
+    /// Rebind Identity: `name` must be an existing app owned by the ticket creator.
+    Replace,
+}
+
+/// App membership on an account (parallel to `account_user`). Max role: Admin.
+#[spacetimedb::table(
+    accessor = account_app,
+    index(accessor = by_account_and_app, btree(columns = [account_id, app_id]))
+)]
+#[derive(Clone, Debug)]
+pub struct AccountApp {
+    #[primary_key]
+    #[auto_inc]
+    pub id: u64,
+    pub account_id: u64,
+    #[index(btree)]
+    pub app_id: Identity,
+    pub role: Role,
     pub updated_at: Timestamp,
     pub created_at: Timestamp,
 }

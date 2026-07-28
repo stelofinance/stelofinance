@@ -1,4 +1,5 @@
 mod acl;
+mod apps;
 mod tables;
 mod transfers;
 mod views;
@@ -10,6 +11,10 @@ use spacetimedb::{Identity, ReducerContext, Table, rand::Rng, reducer};
 
 const BITAUTH_ISSUER: &str = "https://auth.trinit.is/";
 const BITAUTH_AUDIENCE: &str = "nintron-stelofinance";
+
+/// SpacetimeAuth OIDC (anonymous app identities). Set to your project client id.
+const SPACETIMEAUTH_ISSUER: &str = "https://auth.spacetimedb.com/oidc";
+const SPACETIMEAUTH_CLIENT_ID: &str = "client_PLACEHOLDER";
 
 /// Easy to read / hard to misread letters
 const ADDRESS_STD_CHARS: &[u8] = b"ABCDEFGHJKMNPRTUVWXY";
@@ -32,21 +37,56 @@ pub fn init(ctx: &ReducerContext) -> Result<(), String> {
 /// Runs after the host validates credentials and assigns `ctx.sender()`.
 #[reducer(client_connected)]
 pub fn client_connected(ctx: &ReducerContext) -> Result<(), String> {
+    let identity = ctx.sender();
+
     // Bypass everything for db owner
-    if ctx.db.config().owner().find(ctx.sender()).is_some() {
-        log::info!("owner connection allowed identity={}", ctx.sender());
+    if ctx.db.config().owner().find(&identity).is_some() {
+        log::info!("owner connection allowed identity={identity}");
         return Ok(());
     }
 
-    // Regular clients: BitAuth only
+    // Already-registered apps (any prior SpacetimeAuth bind). Mutually exclusive with users.
+    if ctx.db.app().id().find(&identity).is_some() {
+        if ctx.db.user().id().find(&identity).is_some() {
+            return Err("identity cannot be both user and app".to_string());
+        }
+        log::info!("app connection allowed identity={identity}");
+        return Ok(());
+    }
+
     let jwt = ctx
         .sender_auth()
         .jwt()
         .ok_or_else(|| "authentication required: OIDC JWT missing".to_string())?;
 
+    if jwt.identity() != identity {
+        return Err("token identity does not match connection sender".to_string());
+    }
+
+    // SpacetimeAuth: fulfill open app ticket by OIDC `sub`, or reject.
+    if jwt.issuer() == SPACETIMEAUTH_ISSUER {
+        if !jwt
+            .audience()
+            .iter()
+            .any(|a| a == SPACETIMEAUTH_CLIENT_ID)
+        {
+            return Err(format!(
+                "invalid audience: expected {SPACETIMEAUTH_CLIENT_ID}, got {:?}",
+                jwt.audience()
+            ));
+        }
+        if ctx.db.user().id().find(&identity).is_some() {
+            return Err("identity cannot be both user and app".to_string());
+        }
+        apps::try_fulfill_app_ticket(ctx, identity, jwt.subject())?;
+        log::info!("app ticket fulfilled identity={identity}");
+        return Ok(());
+    }
+
+    // Human clients: BitAuth only
     if jwt.issuer() != BITAUTH_ISSUER {
         return Err(format!(
-            "invalid issuer: expected {BITAUTH_ISSUER}, got {}",
+            "invalid issuer: expected BitAuth or SpacetimeAuth, got {}",
             jwt.issuer()
         ));
     }
@@ -56,11 +96,6 @@ pub fn client_connected(ctx: &ReducerContext) -> Result<(), String> {
             "invalid audience: expected {BITAUTH_AUDIENCE}, got {:?}",
             jwt.audience()
         ));
-    }
-
-    let identity = ctx.sender();
-    if jwt.identity() != identity {
-        return Err("token identity does not match connection sender".to_string());
     }
 
     let username = display_name_from_jwt(jwt)?;
@@ -177,7 +212,7 @@ pub fn create_account(
         id: 0,
         account_id: account.id,
         user_id: sender,
-        role: UserRole::Owner,
+        role: Role::Owner,
         updated_at: ctx.timestamp,
         created_at: ctx.timestamp,
     });
@@ -199,13 +234,13 @@ pub(crate) fn is_admin(user: &User) -> bool {
     user.is_admin
 }
 
-/// Ordering for `UserRole` comparisons (Read < Write < Admin < Owner).
-pub(crate) fn role_rank(role: UserRole) -> u8 {
+/// Ordering for `Role` comparisons (Read < Write < Admin < Owner).
+pub(crate) fn role_rank(role: Role) -> u8 {
     match role {
-        UserRole::Read => 1,
-        UserRole::Write => 2,
-        UserRole::Admin => 3,
-        UserRole::Owner => 4,
+        Role::Read => 1,
+        Role::Write => 2,
+        Role::Admin => 3,
+        Role::Owner => 4,
     }
 }
 
@@ -223,11 +258,60 @@ pub(crate) fn require_admin(ctx: &ReducerContext) -> Result<(), String> {
     Ok(())
 }
 
+/// Human player only (BitAuth `user` row).
 pub(crate) fn require_registered_user(ctx: &ReducerContext) -> Result<(), String> {
     if ctx.db.user().id().find(&ctx.sender()).is_none() {
         return Err("not a registered user".to_string());
     }
     Ok(())
+}
+
+/// Registered human **or** app principal.
+pub(crate) fn require_principal(ctx: &ReducerContext) -> Result<(), String> {
+    let sender = ctx.sender();
+    if ctx.db.user().id().find(&sender).is_some() {
+        return Ok(());
+    }
+    if ctx.db.app().id().find(&sender).is_some() {
+        return Ok(());
+    }
+    Err("not a registered user or app".to_string())
+}
+
+/// Account role for `ctx.sender()` from `account_user` **or** `account_app`.
+pub(crate) fn effective_role(ctx: &ReducerContext, account_id: u64) -> Option<Role> {
+    let sender = ctx.sender();
+    if let Some(m) = ctx
+        .db
+        .account_user()
+        .by_account_and_user()
+        .filter((account_id, sender))
+        .next()
+    {
+        return Some(m.role);
+    }
+    ctx.db
+        .account_app()
+        .by_account_and_app()
+        .filter((account_id, sender))
+        .next()
+        .map(|m| m.role)
+}
+
+pub(crate) fn has_account_role(ctx: &ReducerContext, account_id: u64, min: Role) -> bool {
+    effective_role(ctx, account_id).is_some_and(|r| role_rank(r) >= role_rank(min))
+}
+
+pub(crate) fn require_account_role(
+    ctx: &ReducerContext,
+    account_id: u64,
+    min: Role,
+) -> Result<(), String> {
+    if has_account_role(ctx, account_id, min) {
+        Ok(())
+    } else {
+        Err("insufficient account permission".to_string())
+    }
 }
 
 fn ensure_user(ctx: &ReducerContext, identity: Identity, username: String) -> Result<(), String> {
