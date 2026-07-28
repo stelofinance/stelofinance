@@ -225,6 +225,45 @@ pub fn create_account(
     Ok(())
 }
 
+/// App admin: set an account's payment address by id.
+/// Address must be non-empty A–Z (after trim/uppercase), max length, unique within ledger.
+#[reducer]
+pub fn update_account_address(
+    ctx: &ReducerContext,
+    account_id: u64,
+    address: String,
+) -> Result<(), String> {
+    require_admin(ctx)?;
+
+    let mut account = ctx
+        .db
+        .account()
+        .id()
+        .find(&account_id)
+        .ok_or_else(|| "account not found".to_string())?;
+
+    let new_address = parse_custom_address(&address)?;
+    if new_address == account.address {
+        return Ok(());
+    }
+    if address_taken(ctx, account.ledger_id, &new_address) {
+        return Err("address already taken".to_string());
+    }
+
+    let old = account.address.clone();
+    account.address = new_address.clone();
+    ctx.db.account().id().update(account);
+
+    log::info!(
+        "update_account_address account={} {} → {} by={}",
+        account_id,
+        old,
+        new_address,
+        ctx.sender()
+    );
+    Ok(())
+}
+
 /// Whether a user row has the app-admin flag (`User.is_admin`).
 pub(crate) fn is_admin(user: &User) -> bool {
     user.is_admin
@@ -378,17 +417,25 @@ fn normalize_address(
         return generate_unique_address(ctx, ledger_id);
     }
 
+    let upper = parse_custom_address(trimmed)?;
+    if address_taken(ctx, ledger_id, &upper) {
+        return Err("address already taken".to_string());
+    }
+    Ok(upper)
+}
+
+/// Non-empty A–Z only (trim + uppercase). Used for create custom address and updates.
+fn parse_custom_address(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("address required".to_string());
+    }
     if trimmed.len() > MAX_ADDRESS_LENGTH {
         return Err(format!("address exceeds max length ({MAX_ADDRESS_LENGTH})"));
     }
-
     let upper = trimmed.to_ascii_uppercase();
     if !upper.bytes().all(|b| b.is_ascii_uppercase()) {
         return Err("invalid account configuration: address must be A–Z only".to_string());
-    }
-
-    if address_taken(ctx, ledger_id, &upper) {
-        return Err("address already taken".to_string());
     }
     Ok(upper)
 }
