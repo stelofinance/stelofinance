@@ -14,7 +14,7 @@ const BITAUTH_AUDIENCE: &str = "nintron-stelofinance";
 
 /// SpacetimeAuth OIDC (anonymous app identities). Set to your project client id.
 const SPACETIMEAUTH_ISSUER: &str = "https://auth.spacetimedb.com/oidc";
-const SPACETIMEAUTH_CLIENT_ID: &str = "client_PLACEHOLDER";
+const SPACETIMEAUTH_CLIENT_ID: &str = "client_033wW7fObq5GPPc4ESCFsF";
 
 /// Easy to read / hard to misread letters
 const ADDRESS_STD_CHARS: &[u8] = b"ABCDEFGHJKMNPRTUVWXY";
@@ -65,11 +65,7 @@ pub fn client_connected(ctx: &ReducerContext) -> Result<(), String> {
 
     // SpacetimeAuth: fulfill open app ticket by OIDC `sub`, or reject.
     if jwt.issuer() == SPACETIMEAUTH_ISSUER {
-        if !jwt
-            .audience()
-            .iter()
-            .any(|a| a == SPACETIMEAUTH_CLIENT_ID)
-        {
+        if !jwt.audience().iter().any(|a| a == SPACETIMEAUTH_CLIENT_ID) {
             return Err(format!(
                 "invalid audience: expected {SPACETIMEAUTH_CLIENT_ID}, got {:?}",
                 jwt.audience()
