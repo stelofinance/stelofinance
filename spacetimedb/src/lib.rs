@@ -9,18 +9,48 @@ pub use tables::*;
 
 use spacetimedb::{Identity, ReducerContext, Table, rand::Rng, reducer};
 
-const BITAUTH_ISSUER: &str = "https://auth.trinit.is/";
-const BITAUTH_AUDIENCE: &str = "nintron-stelofinance";
+// OIDC configuration
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OidcProvider {
+    BitAuth,
+    SpacetimeAuth,
+}
 
-/// SpacetimeAuth OIDC (anonymous app identities). Set to your project client id.
-const SPACETIMEAUTH_ISSUER: &str = "https://auth.spacetimedb.com/oidc";
-const SPACETIMEAUTH_CLIENT_ID: &str = "client_033wW7fObq5GPPc4ESCFsF";
+impl OidcProvider {
+    pub const fn issuer(self) -> &'static str {
+        match self {
+            Self::BitAuth => "https://auth.trinit.is/",
+            Self::SpacetimeAuth => "https://auth.spacetimedb.com/oidc",
+        }
+    }
+
+    pub const fn audience(self) -> &'static str {
+        match self {
+            Self::BitAuth => "nintron-stelofinance",
+            Self::SpacetimeAuth => "client_033wW7fObq5GPPc4ESCFsF",
+        }
+    }
+
+    /// Try to turn an issuer string into the enum
+    pub fn from_issuer(issuer: &str) -> Option<Self> {
+        match issuer {
+            "https://auth.trinit.is/" => Some(Self::BitAuth),
+            "https://auth.spacetimedb.com/oidc" => Some(Self::SpacetimeAuth),
+            _ => None,
+        }
+    }
+
+    /// Validate both issuer (already known) and audience
+    pub fn is_valid_audience(self, audience: &str) -> bool {
+        self.audience() == audience
+    }
+}
 
 /// Easy to read / hard to misread letters
 const ADDRESS_STD_CHARS: &[u8] = b"ABCDEFGHJKMNPRTUVWXY";
 const MAX_ADDRESS_LENGTH: usize = 16;
 const DEFAULT_ADDRESS_LENGTH: usize = 8;
-const ADDRESS_GEN_ATTEMPTS: usize = 8;
+const ADDRESS_GEN_ATTEMPTS: usize = 4;
 
 #[reducer(init)]
 pub fn init(ctx: &ReducerContext) -> Result<(), String> {
@@ -34,69 +64,51 @@ pub fn init(ctx: &ReducerContext) -> Result<(), String> {
     Ok(())
 }
 
-/// Runs after the host validates credentials and assigns `ctx.sender()`.
 #[reducer(client_connected)]
 pub fn client_connected(ctx: &ReducerContext) -> Result<(), String> {
     let identity = ctx.sender();
+    let auth_ctx = ctx.sender_auth();
 
-    // Bypass everything for db owner
+    // DB owner bypasses all
     if ctx.db.config().owner().find(&identity).is_some() {
         log::info!("owner connection allowed identity={identity}");
         return Ok(());
     }
 
-    // Already-registered apps (any prior SpacetimeAuth bind). Mutually exclusive with users.
-    if ctx.db.app().id().find(&identity).is_some() {
-        if ctx.db.user().id().find(&identity).is_some() {
-            return Err("identity cannot be both user and app".to_string());
-        }
-        log::info!("app connection allowed identity={identity}");
-        return Ok(());
-    }
-
-    let jwt = ctx
-        .sender_auth()
+    // JWT required
+    let jwt = auth_ctx
         .jwt()
-        .ok_or_else(|| "authentication required: OIDC JWT missing".to_string())?;
+        .ok_or_else(|| "OIDC JWT missing".to_string())?;
+    let provider = {
+        let provider = OidcProvider::from_issuer(jwt.issuer())
+            .ok_or_else(|| "invalid OIDC provider".to_string())?;
+        jwt.audience()
+            .iter()
+            .any(|a| provider.is_valid_audience(a))
+            .then_some(provider)
+            .ok_or_else(|| "invalid OIDC audience".to_string())?
+    };
 
-    if jwt.identity() != identity {
-        return Err("token identity does not match connection sender".to_string());
-    }
-
-    // SpacetimeAuth: fulfill open app ticket by OIDC `sub`, or reject.
-    if jwt.issuer() == SPACETIMEAUTH_ISSUER {
-        if !jwt.audience().iter().any(|a| a == SPACETIMEAUTH_CLIENT_ID) {
-            return Err(format!(
-                "invalid audience: expected {SPACETIMEAUTH_CLIENT_ID}, got {:?}",
-                jwt.audience()
-            ));
+    // Now handle users vs apps
+    return match provider {
+        OidcProvider::BitAuth => {
+            let username = display_name_from_jwt(jwt)?;
+            ensure_user(ctx, identity, username)?;
+            Ok(())
         }
-        if ctx.db.user().id().find(&identity).is_some() {
-            return Err("identity cannot be both user and app".to_string());
+        OidcProvider::SpacetimeAuth => {
+            if ctx.db.app().id().find(&identity).is_some() {
+                return Ok(());
+            }
+
+            if ctx.db.user().id().find(&identity).is_some() {
+                return Err("identity cannot be both user and app".to_string());
+            }
+            apps::try_fulfill_app_ticket(ctx, identity, jwt.subject())?;
+            log::info!("app ticket fulfilled identity={identity}");
+            return Ok(());
         }
-        apps::try_fulfill_app_ticket(ctx, identity, jwt.subject())?;
-        log::info!("app ticket fulfilled identity={identity}");
-        return Ok(());
-    }
-
-    // Human clients: BitAuth only
-    if jwt.issuer() != BITAUTH_ISSUER {
-        return Err(format!(
-            "invalid issuer: expected BitAuth or SpacetimeAuth, got {}",
-            jwt.issuer()
-        ));
-    }
-
-    if !jwt.audience().iter().any(|a| a == BITAUTH_AUDIENCE) {
-        return Err(format!(
-            "invalid audience: expected {BITAUTH_AUDIENCE}, got {:?}",
-            jwt.audience()
-        ));
-    }
-
-    let username = display_name_from_jwt(jwt)?;
-    ensure_user(ctx, identity, username)?;
-    Ok(())
+    };
 }
 
 #[reducer]
