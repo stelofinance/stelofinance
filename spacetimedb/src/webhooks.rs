@@ -16,14 +16,10 @@ pub struct WebhookDelivery {
     pub id: u64,
 
     pub scheduled_at: ScheduleAt,
-
     pub account_id: u64,
     pub transfer_id: u64,
-    /// Snapshot of the account webhook URL at enqueue time.
     pub url: String,
-    /// Frozen JSON body (transfer event payload).
     pub payload_json: String,
-    /// 0 on first schedule; incremented each re-queue after failure.
     pub attempts: u32,
 }
 
@@ -47,13 +43,11 @@ pub(crate) fn enqueue_transfer_webhooks(
         insert_delivery(ctx, sending.id, transfer.id, url, &payload_json, 0);
     }
     if let Some(url) = receiving.webhook.as_ref() {
-        // Avoid double-insert if same account somehow both legs (shouldn't happen).
-        if receiving.id != sending.id {
-            insert_delivery(ctx, receiving.id, transfer.id, url, &payload_json, 0);
-        }
+        insert_delivery(ctx, receiving.id, transfer.id, url, &payload_json, 0);
     }
 }
 
+// TODO: Remove this function, it's really not needed
 fn insert_delivery(
     ctx: &ReducerContext,
     account_id: u64,

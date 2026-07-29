@@ -233,7 +233,7 @@ fn ledger_audit(ctx: &ViewContext) -> Vec<LedgerAuditRow> {
     let Some(user) = ctx.db.user().id().find(&ctx.sender()) else {
         return Vec::new();
     };
-    if !crate::is_admin(&user) {
+    if !user.is_admin {
         return Vec::new();
     }
 

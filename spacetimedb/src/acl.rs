@@ -9,7 +9,9 @@ use spacetimedb::{Identity, ReducerContext, Table, reducer};
 /// Grant or update a member's role on an account.
 ///
 /// `member_id` is resolved as a **user** (if present in `user`) else **app** (if present in `app`).
-/// Owner may only be granted to users; apps max Admin.
+///
+/// Owner may only be granted to users
+/// Admin is max role for apps
 #[reducer]
 pub fn grant_account_member(
     ctx: &ReducerContext,
@@ -19,6 +21,10 @@ pub fn grant_account_member(
 ) -> Result<(), String> {
     require_principal(ctx)?;
 
+    if member_id == ctx.sender() {
+        return Err("cannot grant a role to yourself".to_string());
+    }
+
     let account = load_account(ctx, account_id)?;
     let caller_role = caller_role_on(ctx, account_id)?;
     if role_rank(caller_role) < role_rank(Role::Admin) {
@@ -27,17 +33,8 @@ pub fn grant_account_member(
 
     let kind = resolve_member_kind(ctx, member_id)?;
 
-    if member_id == ctx.sender() {
-        return Err("cannot grant a role to yourself".to_string());
-    }
-
-    if kind == MemberKind::App {
-        if role == Role::Owner {
-            return Err("apps cannot be granted owner".to_string());
-        }
-        if !matches!(role, Role::Read | Role::Write | Role::Admin) {
-            return Err("invalid role for app".to_string());
-        }
+    if kind == MemberKind::App && role == Role::Owner {
+        return Err("apps cannot be granted owner".to_string());
     }
 
     // Admins cannot assign Owner; only Owner can transfer ownership.
@@ -47,15 +44,11 @@ pub fn grant_account_member(
 
     let existing = find_membership(ctx, account_id, member_id);
 
-    // Nobody but the current Owner may change or replace the Owner row.
-    if let Some(ref m) = existing {
-        if m.kind != kind {
+    if let Some(ref e) = existing {
+        if e.kind != kind {
             return Err("member kind mismatch with existing membership".to_string());
         }
-        if m.role == Role::Owner && role != Role::Owner {
-            return Err("cannot demote owner; transfer ownership instead".to_string());
-        }
-        if m.role == Role::Owner && caller_role != Role::Owner {
+        if e.role == Role::Owner || (role == Role::Owner && caller_role != Role::Owner) {
             return Err("cannot modify owner".to_string());
         }
     }
@@ -72,9 +65,7 @@ pub fn grant_account_member(
     }
 
     // Non-owner grants: Admin or Owner assigning Read/Write/Admin.
-    if caller_role != Role::Owner
-        && existing.as_ref().is_some_and(|m| m.role == Role::Owner)
-    {
+    if caller_role != Role::Owner && existing.as_ref().is_some_and(|m| m.role == Role::Owner) {
         return Err("cannot modify owner".to_string());
     }
 
@@ -125,7 +116,6 @@ pub fn revoke_account_member(
         }
     }
 
-    // Exactly one Owner is preserved: we never delete an Owner row here.
     ctx.db.account_member().id().delete(&membership.id);
 
     log::info!(
@@ -175,8 +165,8 @@ pub fn set_account_primary(
             return Ok(());
         }
 
-        // Primary must be Owner or ZERO — clear any invalid non-owner primary.
         if account.user_id != Identity::ZERO && account.user_id != sender {
+            // TODO: Maybe we handle this state here? Or just determine state is impossible
             return Err("invalid primary state".to_string());
         }
 
@@ -193,7 +183,7 @@ pub fn set_account_primary(
             return Ok(());
         }
         if account.user_id != sender {
-            // Should be unreachable if only Owner is ever primary.
+            // TODO: Should be unreachable if only Owner is ever primary.
             return Err("invalid primary state".to_string());
         }
         account.user_id = Identity::ZERO;

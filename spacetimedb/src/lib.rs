@@ -158,16 +158,18 @@ pub fn create_account(
     require_registered_user(ctx)?;
 
     match kind {
-        AccountKind::Credit => require_admin(ctx)?,
+        AccountKind::Credit => {
+            require_admin(ctx)?; // Must be admin
+
+            // Credit accounts cannot be a user's primary wallet.
+            if is_primary {
+                return Err("credit accounts cannot be primary".to_string());
+            }
+        }
         AccountKind::Debit => {}
     }
 
-    // Credit (issuer/liability) accounts cannot be a user's primary wallet.
-    if is_primary && matches!(kind, AccountKind::Credit) {
-        return Err("credit accounts cannot be primary".to_string());
-    }
-
-    // Custom address is admin-only; None (or blank) → auto-generate.
+    // Custom address is admin-only; None (or blank) -> auto-generate.
     let address_input = match address {
         Some(a) if !a.trim().is_empty() => {
             require_admin(ctx)?;
@@ -238,8 +240,6 @@ pub fn create_account(
     Ok(())
 }
 
-/// App admin: set an account's payment address by id.
-/// Address must be non-empty A–Z (after trim/uppercase), max length, unique within ledger.
 #[reducer]
 pub fn update_account_address(
     ctx: &ReducerContext,
@@ -277,11 +277,6 @@ pub fn update_account_address(
     Ok(())
 }
 
-/// Whether a user row has the app-admin flag (`User.is_admin`).
-pub(crate) fn is_admin(user: &User) -> bool {
-    user.is_admin
-}
-
 /// Ordering for `Role` comparisons (Read < Write < Admin < Owner).
 pub(crate) fn role_rank(role: Role) -> u8 {
     match role {
@@ -292,7 +287,6 @@ pub(crate) fn role_rank(role: Role) -> u8 {
     }
 }
 
-/// App admin check for privileged reducers (ledgers, issuer accounts, audit, …).
 pub(crate) fn require_admin(ctx: &ReducerContext) -> Result<(), String> {
     let user = ctx
         .db
@@ -300,7 +294,7 @@ pub(crate) fn require_admin(ctx: &ReducerContext) -> Result<(), String> {
         .id()
         .find(&ctx.sender())
         .ok_or_else(|| "not a registered user".to_string())?;
-    if !is_admin(&user) {
+    if !user.is_admin {
         return Err("admin required".to_string());
     }
     Ok(())
@@ -315,6 +309,8 @@ pub(crate) fn require_registered_user(ctx: &ReducerContext) -> Result<(), String
 }
 
 /// Registered human **or** app principal.
+// TODO: Technically we don't delete apps or users, so if the client even connected they
+// MUST exist... I guess it's extra safety for now
 pub(crate) fn require_principal(ctx: &ReducerContext) -> Result<(), String> {
     let sender = ctx.sender();
     if ctx.db.user().id().find(&sender).is_some() {
@@ -337,7 +333,8 @@ pub(crate) fn effective_role(ctx: &ReducerContext, account_id: u64) -> Option<Ro
         .map(|m| m.role)
 }
 
-pub(crate) fn has_account_role(ctx: &ReducerContext, account_id: u64, min: Role) -> bool {
+/// Check if the caller has at least the minimum role
+pub(crate) fn has_minimum_role(ctx: &ReducerContext, account_id: u64, min: Role) -> bool {
     effective_role(ctx, account_id).is_some_and(|r| role_rank(r) >= role_rank(min))
 }
 
@@ -346,7 +343,7 @@ pub(crate) fn require_account_role(
     account_id: u64,
     min: Role,
 ) -> Result<(), String> {
-    if has_account_role(ctx, account_id, min) {
+    if has_minimum_role(ctx, account_id, min) {
         Ok(())
     } else {
         Err("insufficient account permission".to_string())
@@ -406,7 +403,8 @@ fn display_name_from_jwt(jwt: &spacetimedb::JwtClaims) -> Result<String, String>
     Ok(username.to_string())
 }
 
-/// `None` → random 8-char address. `Some` → uppercase A–Z only. Unique within ledger.
+/// `None` -> random 8-char address.
+/// `Some` -> uppercase A–Z only. Unique within ledger.
 fn normalize_address(
     ctx: &ReducerContext,
     ledger_id: u64,
@@ -428,7 +426,6 @@ fn normalize_address(
     Ok(upper)
 }
 
-/// Non-empty A–Z only (trim + uppercase). Used for create custom address and updates.
 fn parse_custom_address(raw: &str) -> Result<String, String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {

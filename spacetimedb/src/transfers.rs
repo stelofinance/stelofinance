@@ -1,4 +1,4 @@
-use crate::has_account_role;
+use crate::has_minimum_role;
 use crate::require_account_role;
 use crate::require_principal;
 use crate::tables::*;
@@ -167,6 +167,7 @@ pub fn finalize_transfer(
 
     authorize_finalize_transfer(ctx, &transfer)?;
 
+    // TODO: Optimize fetching these twice (here and just below)
     let mut debit_acc = load_account(ctx, transfer.debit_account_id)?;
     let mut credit_acc = load_account(ctx, transfer.credit_account_id)?;
 
@@ -258,8 +259,8 @@ fn authorize_create_transfer(
         }
         TransferKind::Redeem => {
             if pending {
-                if has_account_role(ctx, sending_id, Role::Write)
-                    || has_account_role(ctx, receiving_id, Role::Write)
+                if has_minimum_role(ctx, sending_id, Role::Write)
+                    || has_minimum_role(ctx, receiving_id, Role::Write)
                 {
                     Ok(())
                 } else {
@@ -271,8 +272,8 @@ fn authorize_create_transfer(
         }
         TransferKind::Issue => {
             if pending {
-                if has_account_role(ctx, sending_id, Role::Write)
-                    || has_account_role(ctx, receiving_id, Role::Write)
+                if has_minimum_role(ctx, sending_id, Role::Write)
+                    || has_minimum_role(ctx, receiving_id, Role::Write)
                 {
                     Ok(())
                 } else {
@@ -308,7 +309,6 @@ fn authorize_finalize_transfer(ctx: &ReducerContext, transfer: &Transfer) -> Res
 fn identify_transfer_kind(sending: AccountKind, receiving: AccountKind) -> TransferKind {
     match (sending, receiving) {
         (AccountKind::Debit, AccountKind::Debit) => TransferKind::Asset,
-        (AccountKind::Credit, AccountKind::Credit) => TransferKind::Liability,
         (AccountKind::Debit, AccountKind::Credit) => TransferKind::Redeem,
         (AccountKind::Credit, AccountKind::Debit) => TransferKind::Issue,
     }
