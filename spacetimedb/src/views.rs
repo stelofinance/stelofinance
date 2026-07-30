@@ -117,10 +117,9 @@ fn my_accounts(ctx: &ViewContext) -> Vec<MyAccountRow> {
 
         let is_primary = acc.user_id == sender;
         let owner_username = owner_username_for_account(ctx, acc.id);
-        let webhook = if role_is_admin_plus(role) {
-            acc.webhook.clone()
-        } else {
-            None
+        let webhook = match role {
+            Role::Admin | Role::Owner => acc.webhook.clone(),
+            _ => None,
         };
 
         out.push(MyAccountRow {
@@ -294,10 +293,6 @@ fn memberships_for_sender(ctx: &ViewContext) -> Vec<(u64, Role)> {
         .filter(&sender)
         .map(|m| (m.account_id, m.role))
         .collect()
-}
-
-fn role_is_admin_plus(role: Role) -> bool {
-    matches!(role, Role::Admin | Role::Owner)
 }
 
 /// Username of the first `Role::Owner` membership on this account.
