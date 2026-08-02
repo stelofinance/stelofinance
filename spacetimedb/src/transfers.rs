@@ -18,6 +18,7 @@ pub(crate) enum TransferActor {
 }
 
 /// Result of create, including whether this was an idempotent replay.
+// TODO: Do we really need the enum? Could maybe just return one value better
 #[derive(Clone, Debug)]
 pub(crate) struct CreateTransferOutcome {
     pub transfer: Transfer,
@@ -85,6 +86,7 @@ pub(crate) fn create_transfer_core(
         return Err("sender is receiver".to_string());
     }
 
+    // TODO: Just guard all non-senders for now, update later
     if let TransferActor::TokenAccount(token_acc) = actor {
         if token_acc != sending_account_id {
             return Err("token account must be the sending account".to_string());

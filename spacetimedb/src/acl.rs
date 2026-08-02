@@ -6,12 +6,6 @@ use crate::role_rank;
 use crate::tables::*;
 use spacetimedb::{Identity, ReducerContext, Table, reducer};
 
-/// Grant or update a member's role on an account.
-///
-/// `member_id` is resolved as a **user** (if present in `user`) else **app** (if present in `app`).
-///
-/// Owner may only be granted to users
-/// Admin is max role for apps
 #[reducer]
 pub fn grant_account_member(
     ctx: &ReducerContext,
