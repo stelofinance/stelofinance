@@ -117,6 +117,22 @@ pub struct AccountMember {
     pub created_at: Timestamp,
 }
 
+/// HTTP API tokens for programmatic access to an account.
+#[spacetimedb::table(accessor = account_token)]
+#[derive(Clone, Debug)]
+pub struct AccountToken {
+    #[primary_key]
+    #[auto_inc]
+    pub id: u64,
+    #[index(btree)]
+    pub account_id: u64,
+    #[unique]
+    pub token: String,
+    pub label: String,
+    pub created_by: Identity,
+    pub created_at: Timestamp,
+}
+
 /// Third-party / bot principal (SpacetimeAuth anonymous Identity).
 /// Bound on first connect when an `app_ticket` matches the JWT `sub`.
 #[spacetimedb::table(accessor = app)]

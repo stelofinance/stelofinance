@@ -88,6 +88,16 @@ pub struct LedgerAuditRow {
     pub balanced: bool,
 }
 
+/// Metadata for HTTP API tokens (never includes the secret).
+#[derive(SpacetimeType, Clone, Debug)]
+pub struct MyAccountTokenRow {
+    pub id: u64,
+    pub account_id: u64,
+    pub label: String,
+    pub created_by: Identity,
+    pub created_at: Timestamp,
+}
+
 // ---------------------------------------------------------------------------
 // Views
 // ---------------------------------------------------------------------------
@@ -278,6 +288,30 @@ fn ledger_audit(ctx: &ViewContext) -> Vec<LedgerAuditRow> {
             },
         )
         .collect()
+}
+
+/// Tokens on accounts where the caller is Admin or Owner.
+/// Secret is never included.
+#[view(accessor = my_accounts_tokens, public, primary_key = id)]
+fn my_accounts_tokens(ctx: &ViewContext) -> Vec<MyAccountTokenRow> {
+    let mut out = Vec::new();
+
+    for (account_id, role) in memberships_for_sender(ctx) {
+        if crate::role_rank(role) < crate::role_rank(Role::Admin) {
+            continue;
+        }
+        for tok in ctx.db.account_token().account_id().filter(&account_id) {
+            out.push(MyAccountTokenRow {
+                id: tok.id,
+                account_id: tok.account_id,
+                label: tok.label,
+                created_by: tok.created_by,
+                created_at: tok.created_at,
+            });
+        }
+    }
+
+    out
 }
 
 // ---------------------------------------------------------------------------

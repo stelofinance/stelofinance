@@ -308,9 +308,10 @@ fn authorize_finalize_transfer(ctx: &ReducerContext, transfer: &Transfer) -> Res
 
 fn identify_transfer_kind(sending: AccountKind, receiving: AccountKind) -> TransferKind {
     match (sending, receiving) {
+        (AccountKind::Credit, AccountKind::Credit) => TransferKind::Liability,
         (AccountKind::Debit, AccountKind::Debit) => TransferKind::Asset,
-        (AccountKind::Debit, AccountKind::Credit) => TransferKind::Redeem,
         (AccountKind::Credit, AccountKind::Debit) => TransferKind::Issue,
+        (AccountKind::Debit, AccountKind::Credit) => TransferKind::Redeem,
     }
 }
 
