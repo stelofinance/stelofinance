@@ -1,9 +1,13 @@
 use crate::require_account_role;
 use crate::require_principal;
 use crate::tables::*;
+use crate::transfers::{
+    CreateTransferOutcome, TransferActor, create_transfer_core, finalize_transfer_core,
+};
+use crate::views::computed_balance;
 use spacetimedb::http::{Body, HandlerContext, Request, Response, Router, handler, router};
 use spacetimedb::{
-    ProcedureContext, ReducerContext, Table, TxContext, procedure,
+    Identity, ProcedureContext, ReducerContext, Table, Timestamp, TxContext, procedure,
     rand::{Rng, RngCore, SeedableRng, rngs::StdRng},
     reducer,
 };
@@ -36,9 +40,7 @@ pub fn create_account_token(
     entropy: String,
 ) -> Result<String, String> {
     // try_with_tx may retry the closure, so clone inputs rather than move.
-    ctx.try_with_tx(|tx| {
-        create_account_token_tx(tx, account_id, label.clone(), entropy.clone())
-    })
+    ctx.try_with_tx(|tx| create_account_token_tx(tx, account_id, label.clone(), entropy.clone()))
 }
 
 fn create_account_token_tx(
@@ -197,20 +199,259 @@ fn ping(_ctx: &mut HandlerContext, _req: Request) -> Response {
     text_response(http::StatusCode::OK, "pong")
 }
 
-/// Token-gated health check. Valid `Authorization` secret → `pong`.
+/// Public account search (recipient lookup). No auth.
+///
+/// Query: `term` (required), `ledgerid` or `ledgerId` (required), optional `limit` (default 10, max 50).
+/// Matches case-insensitive substring on address or primary username within the ledger.
 #[handler]
-fn account_ping(ctx: &mut HandlerContext, req: Request) -> Response {
-    let Some(secret) = authorization_secret(&req) else {
-        return text_response(http::StatusCode::UNAUTHORIZED, "missing authorization");
+fn search_accounts(ctx: &mut HandlerContext, req: Request) -> Response {
+    let Some(term_raw) = parse_query_str(&req, "term") else {
+        return json_err(http::StatusCode::BAD_REQUEST, "term required");
+    };
+    let term = term_raw.trim();
+    if term.is_empty() {
+        return json_err(http::StatusCode::BAD_REQUEST, "term required");
+    }
+    let term_upper = term.to_ascii_uppercase();
+
+    let ledger_id = parse_query_u64(&req, "ledgerid")
+        .or_else(|| parse_query_u64(&req, "ledgerId"));
+    let Some(ledger_id) = ledger_id else {
+        return json_err(http::StatusCode::BAD_REQUEST, "ledgerid required");
     };
 
-    let found = ctx.with_tx(|tx| tx.db.account_token().token().find(&secret));
-    match found {
-        Some(acc) => text_response(
+    let limit = parse_query_u64(&req, "limit")
+        .unwrap_or(DEFAULT_SEARCH_LIMIT)
+        .min(MAX_SEARCH_LIMIT)
+        .max(1);
+
+    let result: Result<serde_json::Value, String> = ctx.try_with_tx(|tx| {
+        if tx.db.ledger().id().find(&ledger_id).is_none() {
+            return Err("ledger not found".to_string());
+        }
+
+        let mut out = Vec::new();
+        for acc in tx.db.account().ledger_id().filter(&ledger_id) {
+            if out.len() as u64 >= limit {
+                break;
+            }
+            let username = if acc.user_id != Identity::ZERO {
+                tx.db
+                    .user()
+                    .id()
+                    .find(&acc.user_id)
+                    .map(|u| u.bitcraft_username)
+            } else {
+                None
+            };
+
+            let addr_match = acc.address.to_ascii_uppercase().contains(&term_upper);
+            let user_match = username
+                .as_ref()
+                .is_some_and(|u| u.to_ascii_uppercase().contains(&term_upper));
+            if !addr_match && !user_match {
+                continue;
+            }
+
+            out.push(serde_json::json!({
+                "id": acc.id,
+                "address": acc.address,
+                "bitcraftUsername": username,
+            }));
+        }
+        Ok(serde_json::Value::Array(out))
+    });
+
+    match result {
+        Ok(body) => json_response(http::StatusCode::OK, body),
+        Err(e) if e == "ledger not found" => json_err(http::StatusCode::BAD_REQUEST, &e),
+        Err(e) => json_err(http::StatusCode::INTERNAL_SERVER_ERROR, &e),
+    }
+}
+
+/// Token-gated health check.
+#[handler]
+fn account_ping(ctx: &mut HandlerContext, req: Request) -> Response {
+    match require_token(ctx, &req) {
+        Ok(tkn) => text_response(
             http::StatusCode::OK,
-            format!("valid token, label: {}", acc.label).as_str(),
+            format!("pong, acc id: {}", tkn.account_id).as_str(),
         ),
-        None => text_response(http::StatusCode::FORBIDDEN, "invalid token"),
+        Err(resp) => resp,
+    }
+}
+
+/// Account details for the token's account.
+#[handler]
+fn get_account(ctx: &mut HandlerContext, req: Request) -> Response {
+    let token = match require_token(ctx, &req) {
+        Ok(t) => t,
+        Err(resp) => return resp,
+    };
+
+    let result: Result<serde_json::Value, String> = ctx.try_with_tx(|tx| {
+        let acc = tx
+            .db
+            .account()
+            .id()
+            .find(&token.account_id)
+            .ok_or_else(|| "account not found".to_string())?;
+        Ok(account_to_json(&acc))
+    });
+    match result {
+        Ok(body) => json_response(http::StatusCode::OK, body),
+        Err(e) => json_err(http::StatusCode::NOT_FOUND, &e),
+    }
+}
+
+const DEFAULT_TRANSFER_LIMIT: u64 = 100;
+const MAX_TRANSFER_LIMIT: u64 = 1000;
+const DEFAULT_SEARCH_LIMIT: u64 = 10;
+const MAX_SEARCH_LIMIT: u64 = 50;
+
+/// List transfers involving the token's account (`limit` / `offset` query params).
+// TODO: Clean this up
+#[handler]
+fn list_transfers(ctx: &mut HandlerContext, req: Request) -> Response {
+    let token = match require_token(ctx, &req) {
+        Ok(t) => t,
+        Err(resp) => return resp,
+    };
+
+    let limit = parse_query_u64(&req, "limit")
+        .unwrap_or(DEFAULT_TRANSFER_LIMIT)
+        .min(MAX_TRANSFER_LIMIT)
+        .max(1);
+    let offset = parse_query_u64(&req, "offset").unwrap_or(0);
+
+    let result: Result<serde_json::Value, String> = ctx.try_with_tx(|tx| {
+        let account_id = token.account_id;
+        let mut rows: Vec<Transfer> = tx
+            .db
+            .transfer()
+            .debit_account_id()
+            .filter(&account_id)
+            .chain(tx.db.transfer().credit_account_id().filter(&account_id))
+            .collect();
+
+        // Deduplicate if both legs somehow match (shouldn't for distinct accounts, so maybe we could remove).
+        rows.sort_by(|a, b| a.id.cmp(&b.id));
+        rows.dedup_by_key(|t| t.id);
+
+        // Newest first: created_at desc, then id desc.
+        rows.sort_by(|a, b| {
+            let ta = a.created_at.to_micros_since_unix_epoch();
+            let tb = b.created_at.to_micros_since_unix_epoch();
+            tb.cmp(&ta).then_with(|| b.id.cmp(&a.id))
+        });
+
+        let page: Vec<serde_json::Value> = rows
+            .into_iter()
+            .skip(offset as usize)
+            .take(limit as usize)
+            .map(|t| transfer_to_json(tx, &t))
+            .collect();
+        Ok(serde_json::Value::Array(page))
+    });
+    match result {
+        Ok(body) => json_response(http::StatusCode::OK, body),
+        Err(e) => json_err(http::StatusCode::INTERNAL_SERVER_ERROR, &e),
+    }
+}
+
+/// Create a transfer (token account = sender).
+#[handler]
+fn post_transfer(ctx: &mut HandlerContext, req: Request) -> Response {
+    let token = match require_token(ctx, &req) {
+        Ok(t) => t,
+        Err(resp) => return resp,
+    };
+
+    let idem_key = match req
+        .headers()
+        .get("Idempotency-Key")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+    {
+        Some(k) => k,
+        None => {
+            return json_err(
+                http::StatusCode::BAD_REQUEST,
+                "Idempotency-Key header required",
+            );
+        }
+    };
+
+    let body_bytes = req.into_body().into_bytes();
+    let input = match parse_create_transfer_body(&body_bytes) {
+        Ok(v) => v,
+        Err(e) => return json_err(http::StatusCode::BAD_REQUEST, &e),
+    };
+
+    let receiving_id = input.receiving_id;
+    let amount = input.amount;
+    let memo = input.memo;
+    let pending = input.pending;
+
+    if amount < 1 {
+        return json_err(http::StatusCode::BAD_REQUEST, "amount must be >= 1");
+    }
+
+    let result: Result<(CreateTransferOutcome, serde_json::Value), String> =
+        ctx.try_with_tx(|tx| {
+            // TxContext derefs to ReducerContext for shared domain core.
+            let outcome = create_transfer_core(
+                tx,
+                TransferActor::TokenAccount(token.account_id),
+                token.account_id,
+                receiving_id,
+                amount,
+                memo.clone(),
+                idem_key.clone(),
+                pending,
+            )?;
+            let json = transfer_to_json(tx, &outcome.transfer);
+            Ok((outcome, json))
+        });
+    match result {
+        Ok((CreateTransferOutcome { replay, .. }, json)) => {
+            let status = if replay {
+                http::StatusCode::OK
+            } else {
+                http::StatusCode::CREATED
+            };
+            json_response(status, json)
+        }
+        Err(e) => map_domain_err(&e),
+    }
+}
+
+#[handler]
+fn put_transfer(ctx: &mut HandlerContext, req: Request) -> Response {
+    let token = match require_token(ctx, &req) {
+        Ok(t) => t,
+        Err(resp) => return resp,
+    };
+
+    let body_bytes = req.into_body().into_bytes();
+    let input = match parse_finalize_transfer_body(&body_bytes) {
+        Ok(v) => v,
+        Err(e) => return json_err(http::StatusCode::BAD_REQUEST, &e),
+    };
+
+    let result: Result<serde_json::Value, String> = ctx.try_with_tx(|tx| {
+        let transfer = finalize_transfer_core(
+            tx,
+            TransferActor::TokenAccount(token.account_id),
+            input.transfer_id,
+            input.amount,
+        )?;
+        Ok(transfer_to_json(tx, &transfer))
+    });
+    match result {
+        Ok(json) => json_response(http::StatusCode::OK, json),
+        Err(e) => map_domain_err(&e),
     }
 }
 
@@ -218,9 +459,92 @@ fn account_ping(ctx: &mut HandlerContext, req: Request) -> Response {
 fn router() -> Router {
     Router::new()
         .get("/ping", ping)
+        .get("/accounts", search_accounts)
         .get("/account/ping", account_ping)
+        .get("/account", get_account)
+        .get("/account/transfers", list_transfers)
+        .post("/account/transfers", post_transfer)
+        .put("/account/transfer", put_transfer)
 }
 
+// ---------------------------------------------------------------------------
+// HTTP request DTOs (manual JSON parse — avoids serde_derive / host C toolchain)
+// ---------------------------------------------------------------------------
+
+struct CreateTransferBody {
+    receiving_id: u64,
+    amount: u64,
+    memo: Option<String>,
+    pending: bool,
+}
+
+struct FinalizeTransferBody {
+    transfer_id: u64,
+    amount: u64,
+}
+
+// TODO: Clean this up
+fn parse_create_transfer_body(bytes: &[u8]) -> Result<CreateTransferBody, String> {
+    let v: serde_json::Value =
+        serde_json::from_slice(bytes).map_err(|_| "invalid JSON body".to_string())?;
+    let receiving_id = v
+        .get("receivingId")
+        .and_then(|x| x.as_u64())
+        .ok_or_else(|| "receivingId required".to_string())?;
+    let amount = v
+        .get("amount")
+        .and_then(|x| x.as_u64())
+        .ok_or_else(|| "amount required".to_string())?;
+    let memo = match v.get("memo") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(serde_json::Value::String(s)) => Some(s.clone()),
+        Some(_) => return Err("memo must be a string".to_string()),
+    };
+    let pending = v.get("pending").and_then(|x| x.as_bool()).unwrap_or(false);
+    Ok(CreateTransferBody {
+        receiving_id,
+        amount,
+        memo,
+        pending,
+    })
+}
+
+// TODO: Clean this up
+fn parse_finalize_transfer_body(bytes: &[u8]) -> Result<FinalizeTransferBody, String> {
+    let v: serde_json::Value =
+        serde_json::from_slice(bytes).map_err(|_| "invalid JSON body".to_string())?;
+    let transfer_id = v
+        .get("transferId")
+        .and_then(|x| x.as_u64())
+        .ok_or_else(|| "transferId required".to_string())?;
+    let amount = v
+        .get("amount")
+        .and_then(|x| x.as_u64())
+        .ok_or_else(|| "amount required".to_string())?;
+    Ok(FinalizeTransferBody {
+        transfer_id,
+        amount,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Auth + JSON helpers
+// ---------------------------------------------------------------------------
+
+fn require_token(ctx: &mut HandlerContext, req: &Request) -> Result<AccountToken, Response> {
+    let Some(secret) = authorization_secret(req) else {
+        return Err(json_err(
+            http::StatusCode::UNAUTHORIZED,
+            "missing authorization",
+        ));
+    };
+    match ctx.with_tx(|tx| tx.db.account_token().token().find(&secret)) {
+        Some(tok) => Ok(tok),
+        None => Err(json_err(http::StatusCode::FORBIDDEN, "invalid token")),
+    }
+}
+
+/// Authorization header is the raw token secret only (no `Bearer ` prefix).
 fn authorization_secret(req: &Request) -> Option<String> {
     let raw = req
         .headers()
@@ -233,6 +557,177 @@ fn authorization_secret(req: &Request) -> Option<String> {
     } else {
         Some(raw.to_string())
     }
+}
+
+fn parse_query_str(req: &Request, name: &str) -> Option<String> {
+    let query = req.uri().query()?;
+    for pair in query.split('&') {
+        let mut parts = pair.splitn(2, '=');
+        let k = parts.next()?;
+        let v = parts.next().unwrap_or("");
+        if k == name {
+            // Minimal percent-decoding for spaces (+ / %20) so terms work from browsers.
+            return Some(percent_decode(v));
+        }
+    }
+    None
+}
+
+fn parse_query_u64(req: &Request, name: &str) -> Option<u64> {
+    parse_query_str(req, name)?.parse().ok()
+}
+
+fn percent_decode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'+' => {
+                out.push(' ');
+                i += 1;
+            }
+            b'%' if i + 2 < bytes.len() => {
+                let h = |c: u8| -> Option<u8> {
+                    match c {
+                        b'0'..=b'9' => Some(c - b'0'),
+                        b'a'..=b'f' => Some(c - b'a' + 10),
+                        b'A'..=b'F' => Some(c - b'A' + 10),
+                        _ => None,
+                    }
+                };
+                if let (Some(hi), Some(lo)) = (h(bytes[i + 1]), h(bytes[i + 2])) {
+                    out.push((hi << 4 | lo) as char);
+                    i += 3;
+                } else {
+                    out.push('%');
+                    i += 1;
+                }
+            }
+            c => {
+                out.push(c as char);
+                i += 1;
+            }
+        }
+    }
+    out
+}
+
+fn account_to_json(acc: &Account) -> serde_json::Value {
+    let kind = match acc.kind {
+        AccountKind::Debit => "Debit",
+        AccountKind::Credit => "Credit",
+    };
+    serde_json::json!({
+        "id": acc.id,
+        "address": acc.address,
+        "kind": kind,
+        "balance": computed_balance(acc),
+        "debitsPending": acc.debits_pending,
+        "debitsPosted": acc.debits_posted,
+        "creditsPending": acc.credits_pending,
+        "creditsPosted": acc.credits_posted,
+        "ledgerId": acc.ledger_id,
+        "isPrimary": acc.user_id != Identity::ZERO,
+        "createdAt": timestamp_rfc3339(acc.created_at),
+    })
+}
+
+fn transfer_to_json(tx: &TxContext, tr: &Transfer) -> serde_json::Value {
+    let debit_addr = tx
+        .db
+        .account()
+        .id()
+        .find(&tr.debit_account_id)
+        .map(|a| a.address)
+        .unwrap_or_default();
+    let credit_addr = tx
+        .db
+        .account()
+        .id()
+        .find(&tr.credit_account_id)
+        .map(|a| a.address)
+        .unwrap_or_default();
+
+    let amount = match tr.state {
+        TransferState::Pending => tr.pending_amount.unwrap_or(0),
+        TransferState::Posted | TransferState::PostPending | TransferState::VoidPending => {
+            tr.posted_amount.unwrap_or(0)
+        }
+    };
+
+    serde_json::json!({
+        "id": tr.id,
+        "debitAccId": tr.debit_account_id,
+        "creditAccId": tr.credit_account_id,
+        "pendingAmount": tr.pending_amount,
+        "postedAmount": tr.posted_amount,
+        "amount": amount,
+        "ledgerId": tr.ledger_id,
+        "debitAddr": debit_addr,
+        "creditAddr": credit_addr,
+        "kind": transfer_kind_str(tr.kind),
+        "state": transfer_state_str(tr.state),
+        "memo": tr.memo,
+        "createdAt": timestamp_rfc3339(tr.created_at),
+        "finalizedAt": tr.finalized_at.map(timestamp_rfc3339),
+    })
+}
+
+fn transfer_kind_str(kind: TransferKind) -> &'static str {
+    match kind {
+        TransferKind::Liability => "Liability",
+        TransferKind::Asset => "Asset",
+        TransferKind::Issue => "Issue",
+        TransferKind::Redeem => "Redeem",
+    }
+}
+
+fn transfer_state_str(state: TransferState) -> &'static str {
+    match state {
+        TransferState::Posted => "Posted",
+        TransferState::Pending => "Pending",
+        TransferState::PostPending => "PostPending",
+        TransferState::VoidPending => "VoidPending",
+    }
+}
+
+fn timestamp_rfc3339(ts: Timestamp) -> String {
+    ts.to_rfc3339().unwrap_or_else(|_| format!("{ts}"))
+}
+
+fn map_domain_err(e: &str) -> Response {
+    let lower = e.to_ascii_lowercase();
+    if lower.contains("idempotency key conflict") || lower.contains("finalize idempotency conflict")
+    {
+        return json_err(http::StatusCode::CONFLICT, e);
+    }
+    if lower.contains("not found") || lower.contains("missing") {
+        return json_err(http::StatusCode::NOT_FOUND, e);
+    }
+    if lower.contains("insufficient")
+        || lower.contains("permission")
+        || lower.contains("requires token")
+    {
+        return json_err(http::StatusCode::FORBIDDEN, e);
+    }
+    json_err(http::StatusCode::BAD_REQUEST, e)
+}
+
+fn json_response(status: http::StatusCode, body: serde_json::Value) -> Response {
+    let bytes = serde_json::to_vec(&body).unwrap_or_else(|_| b"{}".to_vec());
+    Response::builder()
+        .status(status)
+        .header(
+            http::header::CONTENT_TYPE,
+            "application/json; charset=utf-8",
+        )
+        .body(Body::from_bytes(bytes))
+        .expect("valid HTTP response")
+}
+
+fn json_err(status: http::StatusCode, message: &str) -> Response {
+    json_response(status, serde_json::json!({ "error": message }))
 }
 
 fn text_response(status: http::StatusCode, body: &str) -> Response {

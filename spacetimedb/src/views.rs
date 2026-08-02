@@ -366,11 +366,11 @@ fn member_display_name(
 }
 
 /// Available balance matching legacy app semantics (never negative → u64).
-fn computed_balance(acc: &Account) -> u64 {
+pub(crate) fn computed_balance(acc: &Account) -> u64 {
     computed_balance_i64(acc).max(0) as u64
 }
 
-fn computed_balance_i64(acc: &Account) -> i64 {
+pub(crate) fn computed_balance_i64(acc: &Account) -> i64 {
     match acc.kind {
         AccountKind::Debit => {
             let posted = acc.debits_posted as i64;
@@ -385,7 +385,7 @@ fn computed_balance_i64(acc: &Account) -> i64 {
     }
 }
 
-fn username_for(db: &spacetimedb::LocalReadOnly, user_id: Identity) -> Option<String> {
+pub(crate) fn username_for(db: &spacetimedb::LocalReadOnly, user_id: Identity) -> Option<String> {
     if user_id == Identity::ZERO {
         return None;
     }

@@ -8,6 +8,23 @@ use spacetimedb::{ReducerContext, Table, reducer};
 const MAX_IDEMPOTENCY_KEY_LEN: usize = 64;
 const MAX_MEMO_LEN: usize = 32;
 
+/// Who is authorizing a transfer mutation.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum TransferActor {
+    /// BitAuth user or app: use `account_member` roles via `ctx.sender()`.
+    Identity,
+    /// HTTP account token: full ops authority for this account id only.
+    TokenAccount(u64),
+}
+
+/// Result of create, including whether this was an idempotent replay.
+#[derive(Clone, Debug)]
+pub(crate) struct CreateTransferOutcome {
+    pub transfer: Transfer,
+    /// `true` if the same idempotency key + hash was replayed (HTTP → 200 vs 201).
+    pub replay: bool,
+}
+
 #[reducer]
 pub fn create_transfer(
     ctx: &ReducerContext,
@@ -19,7 +36,41 @@ pub fn create_transfer(
     pending: bool,
 ) -> Result<(), String> {
     require_principal(ctx)?;
+    create_transfer_core(
+        ctx,
+        TransferActor::Identity,
+        sending_account_id,
+        receiving_account_id,
+        amount,
+        memo,
+        idempotency_key,
+        pending,
+    )?;
+    Ok(())
+}
 
+#[reducer]
+pub fn finalize_transfer(
+    ctx: &ReducerContext,
+    transfer_id: u64,
+    amount: u64,
+) -> Result<(), String> {
+    require_principal(ctx)?;
+    finalize_transfer_core(ctx, TransferActor::Identity, transfer_id, amount)?;
+    Ok(())
+}
+
+/// Shared create path for reducers and HTTP handlers.
+pub(crate) fn create_transfer_core(
+    ctx: &ReducerContext,
+    actor: TransferActor,
+    sending_account_id: u64,
+    receiving_account_id: u64,
+    amount: u64,
+    memo: Option<String>,
+    idempotency_key: String,
+    pending: bool,
+) -> Result<CreateTransferOutcome, String> {
     let key = idempotency_key.trim().to_string();
     if key.is_empty() {
         return Err("idempotency key required".to_string());
@@ -32,6 +83,12 @@ pub fn create_transfer(
     }
     if sending_account_id == receiving_account_id {
         return Err("sender is receiver".to_string());
+    }
+
+    if let TransferActor::TokenAccount(token_acc) = actor {
+        if token_acc != sending_account_id {
+            return Err("token account must be the sending account".to_string());
+        }
     }
 
     let memo = normalize_memo(memo)?;
@@ -47,7 +104,16 @@ pub fn create_transfer(
         if existing.request_hash != req_hash {
             return Err("idempotency key conflict".to_string());
         }
-        return Ok(());
+        let transfer = ctx
+            .db
+            .transfer()
+            .id()
+            .find(&existing.transfer_id)
+            .ok_or_else(|| "idempotent transfer missing".to_string())?;
+        return Ok(CreateTransferOutcome {
+            transfer,
+            replay: true,
+        });
     }
 
     let sending = ctx
@@ -68,7 +134,7 @@ pub fn create_transfer(
     }
 
     let kind = identify_transfer_kind(sending.kind, receiving.kind);
-    authorize_create_transfer(ctx, kind, sending.id, receiving.id, pending)?;
+    authorize_create_transfer(ctx, actor, kind, sending.id, receiving.id, pending)?;
 
     let ledger_id = sending.ledger_id;
     let debit_account_id = debit_acc_id(kind, sending_account_id, receiving_account_id);
@@ -115,24 +181,26 @@ pub fn create_transfer(
     enqueue_transfer_webhooks(ctx, &transfer, &sending, &receiving);
 
     log::info!(
-        "create_transfer id={} kind={:?} pending={} amount={} by={}",
+        "create_transfer id={} kind={:?} pending={} amount={} actor={:?}",
         transfer.id,
         kind,
         pending,
         amount,
-        ctx.sender()
+        actor
     );
-    Ok(())
+    Ok(CreateTransferOutcome {
+        transfer,
+        replay: false,
+    })
 }
 
-#[reducer]
-pub fn finalize_transfer(
+/// Shared finalize path for reducers and HTTP handlers.
+pub(crate) fn finalize_transfer_core(
     ctx: &ReducerContext,
+    actor: TransferActor,
     transfer_id: u64,
     amount: u64,
-) -> Result<(), String> {
-    require_principal(ctx)?;
-
+) -> Result<Transfer, String> {
     let transfer = ctx
         .db
         .transfer()
@@ -145,13 +213,13 @@ pub fn finalize_transfer(
         TransferState::PostPending => {
             let posted = transfer.posted_amount.unwrap_or(0);
             if amount >= 1 && amount == posted {
-                return Ok(());
+                return Ok(transfer);
             }
             return Err("finalize idempotency conflict".to_string());
         }
         TransferState::VoidPending => {
             if amount == 0 {
-                return Ok(());
+                return Ok(transfer);
             }
             return Err("finalize idempotency conflict".to_string());
         }
@@ -165,7 +233,7 @@ pub fn finalize_transfer(
         return Err("no pending funds to finalize".to_string());
     }
 
-    authorize_finalize_transfer(ctx, &transfer)?;
+    authorize_finalize_transfer(ctx, actor, &transfer)?;
 
     // TODO: Optimize fetching these twice (here and just below)
     let mut debit_acc = load_account(ctx, transfer.debit_account_id)?;
@@ -194,12 +262,12 @@ pub fn finalize_transfer(
         enqueue_transfer_webhooks(ctx, &t, &sending_snap, &receiving_snap);
 
         log::info!(
-            "finalize_transfer id={} voided held={} by={}",
+            "finalize_transfer id={} voided held={} actor={:?}",
             transfer_id,
             held,
-            ctx.sender()
+            actor
         );
-        return Ok(());
+        return Ok(t);
     }
 
     if amount > held {
@@ -224,20 +292,89 @@ pub fn finalize_transfer(
     enqueue_transfer_webhooks(ctx, &t, &sending_snap, &receiving_snap);
 
     log::info!(
-        "finalize_transfer id={} posted={} refunded={} by={}",
+        "finalize_transfer id={} posted={} refunded={} actor={:?}",
         transfer_id,
         amount,
         refund,
-        ctx.sender()
+        actor
     );
-    Ok(())
+    Ok(t)
 }
 
 // ---------------------------------------------------------------------------
 // Authz
 // ---------------------------------------------------------------------------
 
+// TODO: Clean this up
 fn authorize_create_transfer(
+    ctx: &ReducerContext,
+    actor: TransferActor,
+    kind: TransferKind,
+    sending_id: u64,
+    receiving_id: u64,
+    pending: bool,
+) -> Result<(), String> {
+    match actor {
+        TransferActor::Identity => {
+            authorize_create_identity(ctx, kind, sending_id, receiving_id, pending)
+        }
+        TransferActor::TokenAccount(token_acc) => {
+            // Token is always the sender; create_transfer_core already checks that.
+            // Token implies full operational authority on the token account.
+            // For posted redeem, Identity path requires Write on *receiving*;
+            // HTTP API still allows the token-holder as sender only (legacy shape).
+            // Reject cases where Identity would require a different account.
+            match kind {
+                TransferKind::Asset | TransferKind::Liability => {
+                    if pending {
+                        return Err(if matches!(kind, TransferKind::Asset) {
+                            "asset transfers cannot be pending".to_string()
+                        } else {
+                            "liability transfers cannot be pending".to_string()
+                        });
+                    }
+                    if token_acc != sending_id {
+                        return Err("insufficient account permission".to_string());
+                    }
+                    Ok(())
+                }
+                TransferKind::Issue => {
+                    // Posted issue: Write on sending. Pending: Write on send or recv.
+                    if pending {
+                        if token_acc == sending_id || token_acc == receiving_id {
+                            Ok(())
+                        } else {
+                            Err("insufficient account permission".to_string())
+                        }
+                    } else if token_acc == sending_id {
+                        Ok(())
+                    } else {
+                        Err("insufficient account permission".to_string())
+                    }
+                }
+                TransferKind::Redeem => {
+                    // Posted redeem: Identity needs Write on *receiving*.
+                    // Token is always sender (debit) — allow only pending redeem
+                    // where sender Write is enough, or if token is on receiving.
+                    if pending {
+                        if token_acc == sending_id || token_acc == receiving_id {
+                            Ok(())
+                        } else {
+                            Err("insufficient account permission".to_string())
+                        }
+                    } else if token_acc == receiving_id {
+                        Ok(())
+                    } else {
+                        // Token on debit cannot post redeem (needs credit/receiving Write).
+                        Err("posted redeem requires token on receiving account".to_string())
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn authorize_create_identity(
     ctx: &ReducerContext,
     kind: TransferKind,
     sending_id: u64,
@@ -286,19 +423,45 @@ fn authorize_create_transfer(
     }
 }
 
-fn authorize_finalize_transfer(ctx: &ReducerContext, transfer: &Transfer) -> Result<(), String> {
+// TODO: Clean this up
+fn authorize_finalize_transfer(
+    ctx: &ReducerContext,
+    actor: TransferActor,
+    transfer: &Transfer,
+) -> Result<(), String> {
     let (sending_id, receiving_id) = sender_receiver_ids(
         transfer.kind,
         transfer.credit_account_id,
         transfer.debit_account_id,
     );
 
-    match transfer.kind {
-        TransferKind::Redeem => require_account_role(ctx, receiving_id, Role::Write),
-        TransferKind::Issue => require_account_role(ctx, sending_id, Role::Write),
-        TransferKind::Asset | TransferKind::Liability => {
-            Err("only issue/redeem pending transfers can be finalized".to_string())
-        }
+    match actor {
+        TransferActor::Identity => match transfer.kind {
+            TransferKind::Redeem => require_account_role(ctx, receiving_id, Role::Write),
+            TransferKind::Issue => require_account_role(ctx, sending_id, Role::Write),
+            TransferKind::Asset | TransferKind::Liability => {
+                Err("only issue/redeem pending transfers can be finalized".to_string())
+            }
+        },
+        TransferActor::TokenAccount(token_acc) => match transfer.kind {
+            TransferKind::Redeem => {
+                if token_acc == receiving_id {
+                    Ok(())
+                } else {
+                    Err("insufficient account permission".to_string())
+                }
+            }
+            TransferKind::Issue => {
+                if token_acc == sending_id {
+                    Ok(())
+                } else {
+                    Err("insufficient account permission".to_string())
+                }
+            }
+            TransferKind::Asset | TransferKind::Liability => {
+                Err("only issue/redeem pending transfers can be finalized".to_string())
+            }
+        },
     }
 }
 
