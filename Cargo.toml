@@ -1,0 +1,8 @@
+[package]
+	name = "stelofinance"
+	version = "0.5.0"
+	edition = "2024"
+
+[dependencies]
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros"] }
+topcoat = "0.5.0"
