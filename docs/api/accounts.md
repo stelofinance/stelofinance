@@ -1,197 +1,148 @@
 # Accounts
 
-All routes under `/accounts/{account_id}` require an account token via the `Authorization` header. Replace `{account_id}` with the actual account ID.
+Account-scoped routes use an **account token** via the `Authorization` header (raw secret only; no `Bearer ` prefix). The token binds to a single account — there is no account id path segment until SpacetimeDB supports route parameters.
 
-## Routes
+## SpacetimeDB module HTTP (current)
 
-<details>
-<summary><code>GET</code> <code><b>/accounts</b></code> <code>(search accounts by term and ledger)</code></summary>
+Host prefix:
 
-##### Parameters
-- Query params:
-  - `term` (string, required) — search term to match against account address or username
-  - `ledgerid` (string, required) — ledger ID, parsed to int64
-
-##### Example
-```bash
-curl -X GET "https://stelo.finance/api/accounts?term=alice&ledgerid=1"
+```text
+$STDB_URI/v1/database/$DATABASE/route
 ```
 
-##### Responses
-http code `200` | Content-Type `application/json`
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/ping` | none | Health check → `pong` |
+| `GET` | `/accounts` | none | Public search by address / primary username |
+| `GET` | `/account/ping` | token | Health check → `pong` |
+| `GET` | `/account` | token | Account details |
+| `GET` | `/account/transfers` | token | List transfers (`limit`, `offset`) |
+| `POST` | `/account/transfers` | token | Create transfer (token account = **sender**) |
+| `PUT` | `/account/transfer` | token | Finalize pending (post / partial / void) |
+
+### `GET /accounts` (public search)
+
+No auth. Find accounts on a ledger by address or primary username substring (case-insensitive).
+
+Query params:
+
+| Param | Required | Notes |
+|-------|----------|--------|
+| `term` | yes | Non-empty; matched as substring after uppercasing |
+| `ledgerid` | yes | Ledger id (`ledgerId` accepted as alias) |
+| `limit` | no | Default `10`, max `50` |
+
+```bash
+curl -s "$STDB/v1/database/stelofinance/route/accounts?term=alice&ledgerid=1"
+```
+
 ```jsonc
 [
   {
-    "id": 42,                    // int64 — account ID
-    "address": "alice",          // string — account address
-    "bitcraftUsername": "alice"  // string|null — linked username
+    "id": 42,
+    "address": "alice",
+    "bitcraftUsername": "alice"   // null if account has no primary user
   }
 ]
 ```
 
-http code `400` | Returned when `term` or `ledgerid` is missing or `ledgerid` is not a valid integer.
+`400` if `term` or `ledgerid` is missing/invalid, or ledger does not exist.
 
-</details>
+### `GET /account`
 
-<details>
-<summary><code>GET</code> <code><b>/accounts/{account_id}/ping</b></code> <code>(auth health check)</code></summary>
-
-##### Parameters
-No parameters required.
-
-##### Example
 ```bash
-curl -X GET https://stelo.finance/api/accounts/42/ping \
+curl -s "$STDB/v1/database/stelofinance/route/account" \
   -H "Authorization: <token>"
 ```
 
-##### Responses
-http code `200` | Content-Type `text/plain`
-```
-pong
-```
-
-</details>
-
-<details>
-<summary><code>GET</code> <code><b>/accounts/{account_id}</b></code> <code>(get account details)</code></summary>
-
-##### Parameters
-No parameters required.
-
-##### Example
-```bash
-curl -X GET https://stelo.finance/api/accounts/42 \
-  -H "Authorization: <token>"
-```
-
-##### Responses
-http code `200` | Content-Type `application/json`
 ```jsonc
 {
-  "userId": 7,           // int64|null — linked user ID
-  "balance": 300,        // int64 — computed account balance
-  "debitsPending": 0,    // int64
-  "debitsPosted": 500,   // int64
-  "creditsPending": 0,   // int64
-  "creditsPosted": 200,  // int64
-  "ledgerId": 1,         // int64
-  "code": 0,             // int64 — account code
-  "createdAt": "2024-01-15T10:30:00Z"  // RFC 3339 string
+  "id": 42,
+  "address": "ANSYZS",
+  "kind": "Debit",           // "Debit" | "Credit"
+  "balance": 300,
+  "debitsPending": 0,
+  "debitsPosted": 500,
+  "creditsPending": 0,
+  "creditsPosted": 200,
+  "ledgerId": 1,
+  "isPrimary": true,
+  "createdAt": "2024-01-15T10:30:00Z"
 }
 ```
 
-</details>
+### `GET /account/transfers`
 
-<details>
-<summary><code>GET</code> <code><b>/accounts/{account_id}/transfers</b></code> <code>(list account transfers)</code></summary>
+Query params:
 
-##### Parameters
-No parameters required.
+- `limit` — default `100`, max `1000`
+- `offset` — default `0`
 
-##### Example
+Order: newest first (`createdAt` desc, then `id` desc).
+
 ```bash
-curl -X GET https://stelo.finance/api/accounts/42/transfers \
+curl -s "$STDB/v1/database/stelofinance/route/account/transfers?limit=50&offset=0" \
   -H "Authorization: <token>"
 ```
 
-##### Responses
-http code `200` | Content-Type `application/json`
 ```jsonc
 [
   {
-    "id": 99,                  // int64 — transfer ID
-    "debitAccId": 42,          // int64 — debiting account ID
-    "creditAccId": 7,          // int64 — crediting account ID
-    "amount": 250,             // int64 — transfer amount
-    "ledgerId": 1,             // int64
-    "debitAddr": "ANSYZS",     // string — debit account address
-    "creditAddr": "QHCJYZ"     // string — credit account address
-    "code": 1,                 // int32 — transfer code
-    "memo": "food payment",    // string|null — optional memo
-    "createdAt": "2024-01-15T11:00:00Z"  // RFC 3339 string
+    "id": 99,
+    "debitAccId": 42,
+    "creditAccId": 7,
+    "pendingAmount": null,
+    "postedAmount": 250,
+    "amount": 250,              // pending if Pending, else posted
+    "ledgerId": 1,
+    "debitAddr": "ANSYZS",
+    "creditAddr": "QHCJYZ",
+    "kind": "Asset",            // Liability | Asset | Issue | Redeem
+    "state": "Posted",          // Posted | Pending | PostPending | VoidPending
+    "memo": "food payment",
+    "createdAt": "2024-01-15T11:00:00Z",
+    "finalizedAt": "2024-01-15T11:00:00Z"
   }
 ]
 ```
 
-</details>
+### `POST /account/transfers`
 
-<details>
-<summary><code>GET</code> <code><b>/accounts/{account_id}/transfers/{tr_id}</b></code> <code>(get a single transfer)</code></summary>
+Headers:
 
-##### Parameters
-- Path params:
-  - `tr_id` (int64, required) — transfer ID
+- `Idempotency-Key` (required, max 64 chars)
+- `Authorization`, `Content-Type: application/json`
 
-##### Example
-```bash
-curl -X GET https://stelo.finance/api/accounts/42/transfers/99 \
-  -H "Authorization: <token>"
-```
+Body:
 
-##### Responses
-http code `200` | Content-Type `application/json`
 ```jsonc
 {
-  "id": 99,                  // int64 — transfer ID
-  "debitAccId": 42,          // int64 — debiting account ID
-  "creditAccId": 7,          // int64 — crediting account ID
-  "amount": 250,             // int64 — transfer amount
-  "ledgerId": 1,             // int64
-  "debitAddr": "ANSYZS",     // string — debit account address
-  "creditAddr": "QHCJYZ"     // string — credit account address
-  "code": 1,                 // int32 — transfer code
-  "memo": "food payment",    // string|null — optional memo
-  "createdAt": "2024-01-15T11:00:00Z"  // RFC 3339 string
+  "receivingId": 7,
+  "amount": 250,
+  "memo": "payment",      // optional
+  "pending": false        // optional, default false
 }
 ```
 
-http code `404` | Returned when the transfer is not found.
+Status: `201` created, `200` idempotent replay, `409` key conflict, `400` validation.
 
-</details>
+### `PUT /account/transfer`
 
-<details>
-<summary><code>POST</code> <code><b>/accounts/{account_id}/transfers</b></code> <code>(create a transfer)</code></summary>
+Finalize a pending transfer. Singular path is temporary until path params exist (`/account/transfers/{id}`).
 
-##### Parameters
-- Headers:
-  - `Idempotency-Key` (string, required) — client-generated key (max 64 chars) unique per intended transfer for this account. Retries with the same key and same body return the original transfer; same key with a different body returns `409`.
-- Body fields (JSON):
-  - `receivingId` (int64, required) — destination account ID
-  - `memo` (string, optional) — transfer memo
-  - `ledgerId` (int64, required) — ledger ID
-  - `amount` (int64, required) — amount to transfer, must be >= 1
-
-##### Example
-```bash
-curl -X POST https://stelo.finance/api/accounts/42/transfers \
-  -H "Authorization: <token>" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: 550e8400-e29b-41d4-a716-446655440000" \
-  -d '{"receivingId":7,"ledgerId":1,"amount":250,"memo":"payment"}'
-```
-
-##### Responses
-http code `201` | Content-Type `application/json` — transfer created
 ```jsonc
 {
-  "id": 99,                  // int64 — transfer ID
-  "debitAccId": 42,          // int64
-  "creditAccId": 7,          // int64
-  "amount": 250,             // int64
-  "ledgerId": 1,             // int64
-  "debitAddr": "ANSYZS",     // string
-  "creditAddr": "QHCJYZ",    // string
-  "code": 1,                 // int32
-  "memo": "payment",         // string|null
-  "createdAt": "2024-01-15T11:00:00Z"  // RFC 3339 string
+  "transferId": 99,
+  "amount": 0             // 0 = void; 1..=held = post or partial post
 }
 ```
 
-http code `200` | Content-Type `application/json` — same body as `201`, returned when replaying a prior successful request with the same `Idempotency-Key` and payload.
+Status: `200` + transfer JSON; `403` if token is not the authorized leg; `404` not found; `400` validation.
 
-http code `400` | Bad Request — missing/invalid idempotency key, invalid balance, or validation failure.
+Only **Issue** and **Redeem** pending transfers can be finalized (same as module reducer).
 
-http code `409` | Conflict — `Idempotency-Key` was already used with a different request payload.
+---
 
-</details>
+## Legacy Go edge (`https://stelo.finance/api`) — reference
+
+The historical edge used `/accounts/{account_id}/…` and integer `code` fields. Prefer the module HTTP surface above for new integrations. Webhook URL CRUD remains UI/reducer-only (not on module HTTP).
