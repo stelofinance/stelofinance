@@ -1,6 +1,6 @@
 # Design Doc: SpacetimeDB Refactor
 
-**Status:** Outline + **domain core + webhooks + apps done; account API tokens + module HTTP next** (§7.7–§7.10)  
+**Status:** Outline + **domain core + webhooks + apps + account HTTP tokens done; admin reducers next** (§7.7–§7.10)  
 **Date:** 2026-07-24 (updated 2026-07-29)  
 **Author:** Stelo maintainers + design discussion  
 **Related:** Current stack is Go + SQLite (sqlc/goose) + embedded NATS/JetStream + Datastar; STDB module + BitAuth OIDC path land in parallel
@@ -186,7 +186,7 @@ All core tables **private** unless noted. Enums used instead of opaque integer c
 | `ledger` | `ledger` | Asset type / scale / kind | **Public** catalog. `LedgerKind`: Digital / Derivation / Physical |
 | `account` | `account` | Wallet / balances | `AccountKind` Credit/Debit; `user_id` = primary or **`Identity::ZERO`**; multi-col index `by_user_and_ledger`; single-col `ledger_id` + `address` |
 | `account_member` | `account_member` (`AccountMember`) | User **or** app ↔ account ACL | `MemberKind` + `Role`; multi-col `by_account_and_member`; single-col `member_id` |
-| `account_token` | `account_token` | HTTP API tokens per account | Table stub **started**; reducers + HTTP **in progress** (§7.10). Unique `token`; index `account_id` |
+| `account_token` | `account_token` | HTTP API tokens per account | **done** (§7.10): secret plaintext unique, `label`, `created_by`; index `account_id` |
 | `app` | `app` | Third-party / bot principal | **PK = Identity** (SpacetimeAuth). Unique `name`. `created_by` human |
 | `app_ticket` | `app_ticket` | Pending create/replace | Scheduled TTL ~15m; unique `name` + unique `sub`; see §7.9 |
 | `transfer` | `transfer` | Transfer records | `TransferKind` + `TransferState`; optional pending/posted amounts; `finalized_at` optional |
@@ -310,7 +310,7 @@ Views use `ViewContext` / `AnonymousViewContext` and (for per-user views) filter
 | `account_directory` | Public: `account_id`, `address`, `ledger_id`, `primary_username` (if `user_id != ZERO`) | **Anonymous OK**; all credit+debit accounts; world-readable addresses | **done** |
 | `ledger_audit` | Per-ledger debit-normal vs credit-normal nets + `balanced` | App admin (`User.is_admin`) only; others empty | **done** |
 | ~~`my_accounts_users`~~ / ~~`my_accounts_apps`~~ | — | Replaced by `my_accounts_members` | **Removed** |
-| `my_account_tokens` | Token metadata for accounts caller Admin+ (id, account_id, created_at; **never** secret) | Caller Admin+ on account | **Planned** (§7.10) |
+| `my_accounts_tokens` | Token metadata (id, account_id, label, created_by, created_at; **never** secret) | Caller Admin+ on account | **done** (§7.10) |
 | ~~`my_account`~~ | — | Use `my_accounts` + SQL `WHERE account_id` | **Skipped** |
 | ~~`ledger_list`~~ | — | Public `ledger` table | **Skipped** |
 
@@ -329,7 +329,7 @@ All reducers: validate sender, load permission, enforce domain rules, mutate onl
 | `client_connected` | Owner bypass; JWT required; `OidcProvider` BitAuth→user / SpacetimeAuth→app ticket | **done** |
 | `require_admin` (helper) | Gate admin reducers on `User.is_admin` | **done** |
 | `require_principal` / `effective_role` / `has_minimum_role` (helpers) | User **or** app; role from `account_member` | **done** |
-| `create_account_token` / `revoke_account_token` (etc.) | Admin+ manage HTTP API tokens | **Planned** (§7.10 / `api.rs`) |
+| `create_account_token` (procedure) / `revoke_account_tokens` | Admin+ manage tokens; create → `Result<String, String>` (no panic) | **done** (§7.10 / `api.rs`) |
 | `create_ledger` | Admin; public catalog row | **done** |
 | `create_account` | Owner = `ctx.sender()`. Debit open; Credit admin; custom address admin; Owner ACL row. **Users only** | **done** |
 | `create_transfer` | Kind authz; idempotency; pending/posted; balance rules; webhook enqueue | **done** |
@@ -437,12 +437,12 @@ Source: live Go routes/handlers/SQL/JetStream vs `spacetimedb/`. Goal: **finish 
 | Account settings page | | `my_accounts` (+ SQL filter), `my_accounts_members` | grant/revoke/primary **done**, apps **done** |
 | Add/remove members | `account_member` | `my_accounts_members` | `grant_account_member`, `revoke_account_member` **done** |
 | Set primary wallet | `account.user_id` | | `set_account_primary` **done** |
-| Transfer recipient search | public catalog | `account_directory` | edge LIKE filter |
+| Transfer recipient search | public catalog | `account_directory` | HTTP `GET /accounts?term&ledgerid` **done**; view for STDB clients |
 | Send transfer | `transfer`, balances | `my_transfers` | `create_transfer` **done** + webhook enqueue |
 | Pending finalize | | | `finalize_transfer` **done** + webhook enqueue |
 | Transfers list / realtime | | `my_transfers` subscribe | replaces NATS subjects |
 | Third-party bots / apps | `app`, `account_member`, `app_ticket` | `my_accounts_members` | tickets + grant/revoke **done** (§7.9) |
-| Account API tokens + JSON HTTP | `account_token` (stub) | `my_account_tokens` planned | reducers + HTTP handlers **in progress** (§7.10) |
+| Account API tokens + JSON HTTP | `account_token` | `my_accounts_tokens` **done** | create procedure + revoke + HTTP ping **done** (§7.10) |
 | Legacy edge JSON `/api` + JetStream `stla_` | — | — | Superseded by §7.10; drop after cutover |
 | Webhook URL CRUD | `account.webhook` | field on account view | `set_account_webhook` **done** |
 | Webhook delivery | **`webhook_delivery` schedule table** | — | enqueue + `deliver_webhook` **done** |
@@ -459,7 +459,7 @@ Source: live Go routes/handlers/SQL/JetStream vs `spacetimedb/`. Goal: **finish 
 3. ~~**Webhook config:**~~ **done** (`set_account_webhook`).
 4. ~~**Outbox + deliver:**~~ **done** (`webhook_delivery` + `deliver_webhook`).
 5. ~~**Apps + unified members:**~~ **done** (`app` / `account_member` / `app_ticket`, SpacetimeAuth bind, grant/revoke, views) — §7.9.
-6. **Account API tokens + module HTTP:** `account_token` reducers (`api.rs`), public `GET /ping`, token-gated account ping — §7.10 (**next**).
+6. ~~**Account API tokens + module HTTP:**~~ **done** (`api.rs`: create procedure, revoke reducer, `my_accounts_tokens`, `GET /ping` + `GET /account/ping`) — §7.10.
 7. **Admin:** `grant_admin` / `revoke_admin`, optional `admin_patch_balance` (`update_account_address` + `ledger_audit` already exist).
 8. **Hardening:** invariant tests, second-identity view isolation, webhook retry/dead-letter, app smoke (see §7.9 testing notes); restore Credit↔Credit (`Liability`) arm if still missing in `identify_transfer_kind`.
 
@@ -586,33 +586,34 @@ app_ticket  (scheduled expire_app_ticket, at = expires_at)
 
 ### 7.10 Account API tokens + module HTTP handlers
 
-**Decision (2026-07-29):** Re-open account API tokens for **JSON HTTP** programmatic access. Apps (§7.9) remain the path for **native STDB clients**. Tokens are **not** SpacetimeDB Identities — they authenticate HTTP handlers only.
+**Decision (2026-07-29):** Account API tokens for **JSON HTTP** programmatic access. Apps (§7.9) remain for **native STDB clients**. Tokens are **not** SpacetimeDB Identities — they authenticate HTTP handlers only.
 
-**Code:** table stub in `tables.rs` (`AccountToken`); reducers + HTTP in planned `spacetimedb/src/api.rs`; enable `spacetimedb` Cargo feature **`unstable`** (HTTP handlers are beta).
+**Code:** `spacetimedb/src/api.rs` + `AccountToken` in `tables.rs`; `spacetimedb` Cargo feature **`unstable`** (HTTP handlers beta). **Status: initial slice done.**
 
 #### Table (`account_token`)
-
-Current stub:
 
 ```text
 account_token
   id           u64 PK auto_inc
   account_id   u64  index btree
-  token        String unique   -- secret material (see hashing note)
+  token        String unique   -- opaque secret, no stla_ prefix; plaintext (private table)
+  label        String          -- UI label (may be empty)
+  created_by   Identity        -- user or app that minted it
   created_at   Timestamp
 ```
 
-**Likely additions before ship:** `created_by: Identity`; optional display `name`/`label`; consider storing **hash only** (return plaintext once on create) instead of unique plaintext `token` — decide at implement time. Tokens are full **Admin-equivalent for that account’s HTTP surface** (matches legacy: one token type with admin access to the account).
+Token grants access to that account’s HTTP surface (start: account ping; more routes later).
 
-#### Token management reducers (BitAuth / STDB session callers)
+#### Token management
 
-| Reducer | Authz | Behavior |
-|---------|-------|----------|
-| `create_account_token(account_id, …)` | **Admin+** on account (`require_account_role` Admin) | Generate secret (`stla_` + random); insert row; **return secret once** to caller (reducer return or side-channel — reducers traditionally `Result<(), String>`; may need procedure or return `String` if bindings allow) |
-| `revoke_account_token(account_id, token_id)` | Admin+ | Delete one token by id (must belong to account) |
-| `revoke_all_account_tokens(account_id)` | Admin+ | Delete all tokens for account (legacy delete-all) |
+| Function | Kind | Authz | Behavior |
+|----------|------|-------|----------|
+| `create_account_token(account_id, label, entropy)` | **Procedure** → `Result<String, String>` | Admin+ (human or app) | `entropy` ≥ 16 bytes of **client OS-random** material. Private `StdRng` (not timestamp-only `StdbRng`). `Ok(secret)` / `Err(message)`. Procedure `Result` is a normal return value (not reducer-style abort); **no panic** for validation errors. |
+| `revoke_account_tokens(account_id, token_ids: Vec<u64>)` | Reducer | Admin+ | Delete listed ids; each must belong to account. Empty vec = no-op. |
 
-View `my_account_tokens`: metadata only for accounts where caller is Admin+; **never** the secret.
+**RNG note:** STDB `StdbRng` is always `seed_from_u64(timestamp_micros)` with no inject-entropy API; docs call it not cryptographically secure. Token mint must not rely on it alone when `created_at` is visible.
+
+View `my_accounts_tokens`: id, account_id, label, created_by, created_at for accounts where caller is Admin+; **never** the secret.
 
 #### Module HTTP surface (STDB handlers)
 
@@ -622,33 +623,23 @@ Public URL shape (host):
 $STDB_URI/v1/database/$DATABASE/route<path>
 ```
 
-Handlers use `#[spacetimedb::http::handler]` + `#[spacetimedb::http::router]`. `HandlerContext` has **no caller Identity** for custom tokens — use `with_tx` / `try_with_tx` (tx sender is `Identity::ZERO`) and authorize by looking up `account_token` from the `Authorization` header.
+| Route (module path) | Auth | Response |
+|---------------------|------|----------|
+| `GET /ping` | None | `200` `pong` |
+| `GET /accounts` | None | Public search: `term` + `ledgerid` (+ optional `limit`); address/username substring |
+| `GET /account/ping` | token | `200` `pong` |
+| `GET /account` | token | Account JSON (kind, balance, counters, …) |
+| `GET /account/transfers` | token | Transfer list; query `limit` (default 100, max 1000), `offset` |
+| `POST /account/transfers` | token | Create (token account = sender); `Idempotency-Key`; body `receivingId`, `amount`, optional `memo`/`pending` |
+| `PUT /account/transfer` | token | Finalize pending (`transferId`, `amount`; 0 = void). Singular path until STDB path params |
 
-**Route path constraints (STDB 2.7):** exact match only; path chars = **lowercase ASCII, digits, `-_~/`**. No `{param}` / `:param` / wildcards yet (platform reserved for future). Trailing slashes are significant.
+Domain mutations share `create_transfer_core` / `finalize_transfer_core` with reducers (`TransferActor::Identity` vs `TokenAccount`). See `docs/api/accounts.md`.
 
-| Route (module path) | Auth | Response | Notes |
-|---------------------|------|----------|--------|
-| `GET /ping` | None | `200` body `pong` | Health / smoke |
-| Account ping | Valid `account_token` for that account | `200` body `pong` | See path design below |
+`HandlerContext` has no caller Identity for custom tokens — lookup `account_token` by secret via `with_tx`.
 
-**Path design for account-scoped routes (until path params exist):**
+**Route constraints (STDB 2.7):** exact match only; path chars = lowercase ASCII, digits, `-_~/`. No path params yet.
 
-Preferred v1 (works with exact routes):
-
-| Approach | Path | How account is bound |
-|----------|------|----------------------|
-| **A (recommended)** | `GET /accounts/ping` | Token row’s `account_id` only; optional query `account_id=` must match token if present |
-| **B (closer to legacy docs)** | Wait for STDB path params | Then `GET /accounts/{id}/ping` + token must match `{id}` |
-
-Do **not** invent per-id static routes. Document public API as legacy-shaped when path params land; implement A until then.
-
-Auth header (legacy-compatible):
-
-```text
-Authorization: stla_<secret>
-```
-
-(or raw secret if we drop the prefix — prefer keep `stla_` for drop-in familiarity).
+Auth header: raw secret only (`Authorization: <secret>`). No `Bearer ` prefix, no `stla_` prefix.
 
 #### Relation to apps / edge
 
@@ -656,15 +647,18 @@ Authorization: stla_<secret>
 |------|----------|
 | **Apps + STDB SDK** | Realtime subscribe, reducers, same authz as humans |
 | **Account tokens + HTTP** | Simple JSON/HTTP integrations, scripts, no STDB client |
-| **Go edge `/api`** | Temporary façade until module HTTP is complete; then deprecate |
+| **Go edge `/api`** | Temporary façade until module HTTP covers docs surface |
 
-#### Initial implementation slice
+#### Manual smoke
 
-1. Enable `unstable` on `spacetimedb` dependency.
-2. Flesh `AccountToken` + create/revoke reducers in `api.rs`.
-3. `GET /ping` → `pong`.
-4. `GET /accounts/ping` → require token → `pong`.
-5. Smoke with `curl` against local STDB `/v1/database/stelofinance/route/...`.
+```bash
+# after publish
+curl -s "$STDB/v1/database/stelofinance/route/ping"
+# create token via procedure create_account_token(account_id, label, entropy)
+# with OS-random entropy from the client, then:
+curl -s "$STDB/v1/database/stelofinance/route/account/ping" \
+  -H "Authorization: <secret>"
+```
 
 ---
 
@@ -923,10 +917,10 @@ stelofinance/
     src/views.rs          # multi-tenant + public views
     src/acl.rs            # grant/revoke user+app, primary, webhook
     src/apps.rs           # app_ticket + create/replace tickets; connect-time bind
-    src/api.rs            # account_token reducers + HTTP router/handlers (planned)
+    src/api.rs            # account_token create/revoke + HTTP router (/ping, /account/ping)
     src/transfers.rs      # create_transfer, finalize_transfer
     src/webhooks.rs       # webhook_delivery schedule table + deliver_webhook
-    Cargo.toml            # spacetimedb features include unstable (HTTP handlers)
+    Cargo.toml            # spacetimedb features = ["unstable"]
   spacetime.json          # database + module-path
   spacetime.dev.json      # server: local (committed shared dev)
   # spacetime.local.json  # personal overrides — gitignored
@@ -1011,9 +1005,9 @@ Any admin balance patch must either:
 8. ~~Webhook config (`set_account_webhook`)~~ **done**.
 9. ~~Outbox + `deliver_webhook`~~ **done**.
 10. ~~**Apps** (SpacetimeAuth tickets + `account_member`, views)~~ **done** (§7.9).
-11. **Next:** account API tokens + module HTTP (`api.rs`, §7.10) — table stub started; reducers + `/ping` + token-gated account ping.
-12. Admin reducers (`grant_admin` / `revoke_admin`, optional `admin_patch_balance`); `update_account_address` **done**.
-13. Wire Go page off STDB + Datastar subscribe (still P0 exit); edge UI for apps later.
+11. ~~Account API tokens + module HTTP (`api.rs`, §7.10)~~ **done** (create procedure + client entropy, revoke, `my_accounts_tokens`, `/ping` + `/account/ping`).
+12. **Next:** admin reducers (`grant_admin` / `revoke_admin`, optional `admin_patch_balance`); more HTTP routes as needed; `update_account_address` **done**.
+13. Wire Go page off STDB + Datastar subscribe (still P0 exit); edge UI for apps / token mint later.
 14. Cut over `/app` session from JetStream `sid` to BitAuth/STDB when ready (P1).
 15. After fuller P0, expand this doc into an **implementation spec** (exact reducer signatures, error codes, cookie RFC polish).
 
@@ -1047,6 +1041,11 @@ Any admin balance patch must either:
 | 2026-07-28 | Module cleanup: drop `is_admin()` helper (use `user.is_admin`); rename `has_account_role` → `has_minimum_role`; tighten `grant_account_member` / webhook enqueue comments |
 | 2026-07-29 | Views: inline Admin\|Owner for webhook field; remove `role_is_admin_plus` |
 | 2026-07-29 | **Re-open account API tokens:** `AccountToken` table stub; plan module HTTP (`api.rs`) + reverse D6/Q4 “won’t do” (§7.10) |
+| 2026-07-29 | **§7.10 implemented:** `AccountToken` (+label, created_by); `create_account_token` procedure returns secret; `revoke_account_tokens(Vec)`; `my_accounts_tokens`; HTTP `GET /ping` + `GET /account/ping`; `unstable` feature |
+| 2026-07-30 | Token mint: client `entropy` arg + private `StdRng` (avoid timestamp-only `StdbRng`); auth header raw secret only; view accessor `my_accounts_tokens` |
+| 2026-08-01 | `create_account_token` returns `Result<String, String>` instead of panicking on validation errors (avoids fatal WASM procedure errors) |
+| 2026-08-01 | HTTP account API: `GET /account`, list/create transfers, `PUT /account/transfer` finalize; shared transfer cores + `TransferActor` |
+| 2026-08-01 | Public HTTP account search: `GET /accounts?term&ledgerid` (limit default 10 max 50) |
 
 ---
 
