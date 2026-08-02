@@ -13,3 +13,8 @@ result
 spacetimedb/target/
 spacetime.local.json
 spacetime.*.local.json
+
+
+# Added by cargo
+
+/target

@@ -31,6 +31,37 @@
         targets = [ "wasm32-unknown-unknown" ];
       };
 
+      # Use the same overlay toolchain for packaging Rust tools (e.g. topcoat-cli).
+      rustPlatform = pkgs.makeRustPlatform {
+        cargo = rustToolchain;
+        rustc = rustToolchain;
+      };
+
+      topcoatCliVersion = "0.5.0";
+      topcoat-cli = rustPlatform.buildRustPackage {
+        pname = "topcoat-cli";
+        version = topcoatCliVersion;
+
+        src = pkgs.fetchCrate {
+          pname = "topcoat-cli";
+          version = topcoatCliVersion;
+          hash = "sha256-Z/Z9KCIj6M36MvKOpC3b0S24MPpov2nQCdNCg1Fp98U=";
+        };
+
+        # Vendor hash of crates.io deps from Cargo.lock; rebuild to refresh when bumping version.
+        cargoHash = "sha256-9KeF31rlUp5EuirfvIN7Cs0KUuZFvirYyQWFB4Ud5CE=";
+
+        # Skip tests: crate tests pull in the full topcoat framework and are not needed for the CLI bin.
+        doCheck = false;
+
+        meta = with pkgs.lib; {
+          description = "Topcoat CLI (dev server, fmt, asset bundling)";
+          homepage = "https://github.com/tokio-rs/topcoat";
+          license = licenses.mit;
+          mainProgram = "topcoat";
+        };
+      };
+
       # ---------------------------------------------------------------------------
       # SpacetimeDB: pinned GitHub release binaries (not nixpkgs / not built from source).
       # Update `spacetimeVersion` + hashes when bumping.
@@ -127,6 +158,9 @@
 
         # `spacetime build` release path invokes wasm-opt when available
         binaryen
+
+        # Topcoat frontend framework CLI (`topcoat dev`, fmt, assets)
+        topcoat-cli
       ];
 
       app = pkgs.buildGoModule {
@@ -157,7 +191,7 @@
     in
     {
       packages = {
-        inherit app container spacetimedb;
+        inherit app container spacetimedb topcoat-cli;
         default = app;
       };
 
