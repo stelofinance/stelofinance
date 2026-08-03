@@ -9,6 +9,13 @@ env:
 dotenv: [".env"]
 
 tasks:
+  live:topcoat:
+    desc: Run live dev environment with just topcoat
+    env:
+      PORT: 8080
+    cmds:
+      - topcoat dev
+
   live:
     desc: Run live dev environment (watchexec restarts on source changes)
     cmds:
