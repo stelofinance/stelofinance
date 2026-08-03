@@ -1,9 +1,9 @@
 # Design Doc: SpacetimeDB Refactor
 
-**Status:** Outline + **domain core + webhooks + apps + account HTTP tokens done; admin reducers next** (§7.7–§7.10)  
-**Date:** 2026-07-24 (updated 2026-07-29)  
+**Status:** Outline + **domain core + webhooks + apps + account HTTP tokens done; Topcoat edge migration inventory next** (§7.7–§7.10, §8)  
+**Date:** 2026-07-24 (updated 2026-08-02)  
 **Author:** Stelo maintainers + design discussion  
-**Related:** Current stack is Go + SQLite (sqlc/goose) + embedded NATS/JetStream + Datastar; STDB module + BitAuth OIDC path land in parallel
+**Related:** Current stack is Go + SQLite (sqlc/goose) + embedded NATS/JetStream + Datastar; target edge is **Rust Topcoat** + first-party STDB client; module + BitAuth remain
 
 ---
 
@@ -11,14 +11,16 @@
 
 Replace SQLite and NATS with **SpacetimeDB** as the single system of record, application logic host, realtime sync layer, and (eventually) direct third-party client surface.
 
+Replace the **Go** lite webserver with a **Rust Topcoat** edge so the site uses SpacetimeDB’s **first-party Rust client SDK** (not the Go third-party client).
+
 Split the product into two deployables:
 
 | Piece | Role |
 |-------|------|
-| **SpacetimeDB module** (Rust) | Tables, reducers, views, procedures. All domain/financial logic. |
-| **Lite webserver** (Go) | HTTP/HTML/JSON bridge. BitCraft OIDC → browser cookie holding STDB token. Datastar patches. Thin REST façade over reducers/views. **No domain rules.** |
+| **SpacetimeDB module** (Rust) | Tables, reducers, views, procedures. All domain/financial logic. Module HTTP under host routes. |
+| **Lite webserver** (Rust / [Topcoat](https://github.com/tokio-rs/topcoat)) | HTTP/HTML bridge. BitAuth OIDC → cookie holding STDB token. Datastar patches via Topcoat. STDB client (official Rust) as the user. **HTTP reverse-proxy** in front of module routes (our domain + path reshape). **No domain rules.** |
 
-Production module runs on **SpacetimeDB mainnet/maincloud**. Local dev runs a local SpacetimeDB instance. Existing production balances are small/tester-only; a **manual data import** cutover is acceptable.
+Production module runs on **SpacetimeDB mainnet/maincloud**. Local dev runs a local SpacetimeDB instance. Edge is **stateless** on Fly (no SQLite/NATS volume). Existing production balances are small/tester-only; a **manual data import** cutover is acceptable.
 
 ---
 
@@ -29,17 +31,20 @@ Production module runs on **SpacetimeDB mainnet/maincloud**. Local dev runs a lo
 3. **Realtime UI** without NATS: STDB subscriptions → edge re-renders Datastar HTML fragments.
 4. **Third-party integration paths (two):**
    - **Native STDB clients:** partners/bots connect as **app** Identities (SpacetimeAuth) granted roles on accounts via `account_member` (§7.9).
-   - **JSON HTTP API:** account-scoped **API tokens** (`AccountToken`) + **module HTTP handlers** under `/v1/database/:db/route/...` for programmatic account access without a full STDB client (§7.10). Replaces legacy edge `stla_` + JetStream KV + Go `/api`.
-5. **Browser acts as an authenticated STDB identity**, with the lite server proxying as that user (token-in-cookie), not as a privileged superuser.
-6. Remove operational dependency on embedded JetStream (sessions KV, transfer pub/sub, webhook work queue).
+   - **JSON HTTP API:** account-scoped **API tokens** (`AccountToken`) + **module HTTP handlers**; edge **reverse-proxies** them on our domain with a **new path shape** (not legacy Go `/api/...`). Path params and other shapes STDB lacks can be expressed on the edge and mapped onto module routes (§7.10, §8.5, §9).
+5. **Browser acts as an authenticated STDB identity**, with the lite server connecting as that user (token-in-cookie), not as a privileged superuser.
+6. Remove operational dependency on embedded JetStream (sessions KV, transfer pub/sub, webhook work queue) **and on the Go edge entirely** once Topcoat is cut over.
+7. **First-party STDB client on the edge** (Rust SDK + generated bindings) for type-safe queries/reducers/subscriptions.
 
 ## 3. Non-goals (this refactor)
 
-- Rewriting the HTML stack away from Go `tmpl` + Datastar.
-- Switching the lite edge off Go (e.g. to Rust/TS) solely for typed query builders.
 - Perfect zero-downtime dual-write migration (testers can be re-imported).
 - Full threat-model / abuse / rate-limit design (tracked as follow-up).
 - Per-user SpacetimeDB databases (we use **one multi-tenant module**).
+- Preserving legacy Go `/api/...` URL compatibility for third parties (new API shape; document the break).
+- Keeping BitJita / JetStream `sid` login (hard drop; BitAuth only).
+- Edge break-glass `ADMIN_KEY` (product admin is `User.is_admin` only).
+- Per-page Tailwind split-build / cache-aware CSS serving on day one (desired later; §8.4 F3).
 
 ---
 
@@ -76,66 +81,67 @@ Key domain invariant (must preserve):
 
 ```text
 Browser
-  │  cookie: STDB access token (user identity)
-  │  (and optional sid/session metadata if still needed)
+  │  cookie: stdb_id_token (+ optional stdb_refresh_token)
   ▼
-Lite webserver (Go)  ── acts as that user ──►  SpacetimeDB (mainnet / local)
-  │   - HTTP routes, cookies, OIDC callback           │
-  │   - Datastar HTML from tmpl                       │  Rust module:
-  │   - JSON façade → CallReducer / query             │  private tables
-  │   - STDB client (digitalxero)                     │  reducers, views
-  │   - NO balance/transfer/authz rules               │  webhook procedures
+Lite webserver (Rust / Topcoat)  ── acts as that user ──►  SpacetimeDB (mainnet / local)
+  │   - HTTP routes (module auto-discovery)                    │
+  │   - BitAuth OIDC cookies                                   │  Rust module:
+  │   - Topcoat view! + Datastar                               │  private tables
+  │   - Official STDB Rust client + Identity pool              │  reducers, views
+  │   - Reverse-proxy → module HTTP (our domain + paths)       │  HTTP handlers
+  │   - NO balance/transfer/authz rules                        │  webhook procedures
   ▼
-Static assets (CSS/JS)
+Static assets (CSS/JS/fonts via Topcoat asset pipeline)
 ```
+
+**Cutover note:** The Go edge (`cmd/app`, `web/`, `internal/*`) remains the live server until Topcoat reaches parity. New edge work lands under the workspace crate root (`src/`, `Cargo.toml` — already a Topcoat spike). BitJita `/login` + JetStream `sid` are **not** ported.
 
 ### 5.1 Responsibility split
 
 | Layer | Owns | Does not own |
 |-------|------|--------------|
-| **Module (Rust)** | Schema, mutations, authz, invariants, outbox/webhooks, public read surface via views | HTML, cookies, OIDC browser redirect UX, REST shape of legacy API |
-| **Lite edge (Go)** | OIDC login UX, cookie storage of STDB token, Datastar rendering, JSON façade, STDB client I/O | Whether a transfer is valid; what rows a user may see |
+| **Module (Rust)** | Schema, mutations, authz, invariants, outbox/webhooks, public read surface via views, module HTTP handlers | HTML, cookies, OIDC browser redirect UX, public URL shape of the JSON API |
+| **Lite edge (Topcoat/Rust)** | OIDC login UX, cookie storage of STDB token, HTML/Datastar rendering, STDB client I/O as user, reverse-proxy of module HTTP onto our domain | Whether a transfer is valid; what rows a user may see; long-term product admin (`User.is_admin` in module) |
 
 **Rule of thumb:** if the answer affects money or privacy, it belongs in the module.
 
-### 5.2 “Edge as the user” (session model — preferred)
+### 5.2 “Edge as the user” (session model)
 
-**Decision:** Prefer **BitAuth OIDC** (`https://auth.trinit.is/`, BitCraft sign-in) over BitJita-style login. Store the OIDC **ID token** in an HTTP-only cookie. The lite webserver uses that cookie on each request to open (or later pool) an STDB connection **as that identity** via `WithToken`.
+**Decision:** **BitAuth OIDC only** (`https://auth.trinit.is/`, BitCraft sign-in). No BitJita. Store the OIDC **ID token** in an HTTP-only cookie. The lite webserver uses that cookie to open or **reuse a pooled** STDB connection **as that identity**.
 
 Desired properties:
 
 - Edge is **not** a god-mode service identity for user reads/writes.
-- Module authorization is based on `ctx.sender()` (STDB `Identity`), so later direct clients reuse the same reducers/views.
-- Page render path: **one STDB session / identity context** loads the data needed for the template (via one-off queries or short-lived subscribe), rather than many ad-hoc SQLite round-trips scattered through handlers. Goal: avoid “N independent DB calls per render” as a pattern; batch via views where possible.
+- Module authorization is based on `ctx.sender()` (STDB `Identity`), so direct clients reuse the same reducers/views.
+- Page render path: **one STDB session / identity context** loads the data needed for the template (via one-off queries or short-lived subscribe), rather than many ad-hoc DB round-trips. Prefer few views that return render-ready shapes.
+- **Auto-refresh** ID token from `stdb_refresh_token` when near expiry (best effort), before STDB connect when possible.
 
-**Implemented (spike — parallel routes, legacy login still live):**
+**Target edge auth (Topcoat):**
 
 | Item | Choice |
 |------|--------|
 | IdP | BitAuth — `https://auth.trinit.is/` (OIDC Auth Code + PKCE, confidential client) |
-| Edge OIDC library | `github.com/coreos/go-oidc/v3` + `golang.org/x/oauth2` |
+| Edge OIDC | Rust OIDC stack (library TBD at implementation; same flow as current Go spike) |
 | Cookie (ID token for STDB) | `stdb_id_token` (HttpOnly, SameSite=Lax; Max-Age from JWT `exp`) |
-| Cookie (refresh) | `stdb_refresh_token` when `offline_access` granted (~14d BitAuth) |
+| Cookie (refresh) | `stdb_refresh_token` when `offline_access` granted (~14d BitAuth); used for auto-refresh |
 | Cookie Secure flag | `BITAUTH_SECURE_COOKIES` / prod; local HTTP often `false` |
-| Login routes | `GET /auth/bitauth/login`, `/callback`, `/logout`, `/session` |
-| STDB smoke | `GET /auth/bitauth/stdb-connect` — digitalxero client, no codegen |
-| STDB client | `go.digitalxero.dev/spacetimedb-client` |
+| Login UX | Login page with **“Login with BitAuth”** button → authorize URL |
+| Login routes | `/auth/bitauth/login`, `/callback`, `/logout` (+ optional `/session` debug) |
+| STDB client | **Official Rust SpacetimeDB SDK** + `spacetime generate` bindings |
 | Do not | Overwrite `stdb_id_token` with short-lived websocket tokens returned on connect |
+| Drop | BitJita `/login`, JetStream `sid`, edge `ADMIN_KEY` break-glass |
 
-**Still open / later:**
-
-- Legacy `/login` + `sid` JetStream session path remains until cutover.
-- Legacy account API tokens (`stla_` in JetStream KV) / Go JSON `/api` — **replaced by** module `account_token` + HTTP handlers (§7.10); drop edge façade after cutover.
-- Connection pooling by Identity (v1 = per-request connect).
+**Go spike (historical, still in tree until cutover):** parallel `/auth/bitauth/*` routes + digitalxero connect smoke. Not the long-term edge.
 
 ### 5.3 Connection model
 
 | Phase | Behavior |
 |-------|----------|
-| **v1** | New STDB connection (or connect+query+disconnect) **per HTTP request** is acceptable for API and page loads. SSE/Datastar update streams may hold a longer-lived connection for the duration of the SSE. |
-| **Later** | Pool connections **by identity** for hot users (optional optimization). |
+| **After connect works** | **Per-Identity connection pool** — first milestone after basic connect-as-user. Reuse open client connections across page navigations for the same Identity; avoid connect/teardown per request. |
+| **SSE / Datastar streams** | May pin a longer-lived connection for the duration of the stream (pool-aware acquire/release). |
+| **Cold path** | If no pooled conn: connect with cookie token → use → return to pool (or drop if pool full / idle TTL). |
 
-JSON API: **one-off queries / reducer calls** first; identity-based pooling later (same as above).
+Pool key is **STDB Identity** (or stable token identity), not OIDC client_id. Eviction/idle TTL/max size are implementation details.
 
 ---
 
@@ -144,30 +150,39 @@ JSON API: **one-off queries / reducer calls** first; identity-based pooling late
 | # | Decision | Choice | Notes |
 |---|----------|--------|--------|
 | D1 | Module language | **Rust** | Error handling + type system for financial logic |
-| D2 | Lite edge language | **Go** | Keep chi, tmpl, Datastar; digitalxero client |
+| D2 | Lite edge language | **Rust + Topcoat** | Replaces Go edge; first-party STDB client; Datastar/Tailwind/assets via Topcoat |
 | D3 | Data access control | **Private tables + public views + sender-checked reducers** | Design as if clients connect directly from day one |
 | D4 | Webhooks | **Outbox table + scheduled procedure (HTTP from module)** | Replaces JetStream work queue |
-| D5 | Browser session | **BitCraft OIDC → STDB token in cookie; edge calls STDB as user** | Avoid privileged edge for user data; minimize multi-hop app logic |
-| D6 | Third-party API | **Apps (STDB) + account tokens (HTTP)** | Apps: native clients (§7.9). Tokens + module HTTP handlers: JSON programmatic access (§7.10). Replaces legacy `stla_` / edge `/api`. |
+| D5 | Browser session | **BitAuth OIDC → STDB token in cookie; edge calls STDB as user** | Avoid privileged edge for user data; BitJita hard-dropped |
+| D6 | Third-party API | **Apps (STDB) + account tokens (HTTP)** | Module handlers + **edge reverse-proxy** on our domain (§8.5, §9). New path shape (not legacy `/api`). |
 | D7 | Multi-tenancy | **Single module, multi-tenant views** | View output depends on caller identity |
-| D8 | Hosting | **Mainnet/maincloud prod; local STDB for dev** | |
+| D8 | Hosting | **Mainnet/maincloud prod; local STDB for dev** | Edge: **stateless Fly** (no volume); GHA deploys module + edge |
 | D9 | Migration | **Manual/import cutover OK** | Tester-scale production data |
-| D10 | Go queries | **SQL/view name strings + community codegen for types** | No official Go query builder; keep edge queries simple |
-| D11 | Typed query builder | **Not a reason to rewrite edge** | Module + views carry correctness |
+| D10 | Edge STDB access | **Official Rust SDK + `spacetime generate` bindings** | Replaces digitalxero / Go codegen story |
+| D11 | Edge rewrite rationale | **First-party client + Topcoat stack** | Typed client and long-term maintainability; not “just query builders” |
 | D12 | Module path | **`spacetimedb/`** (CLI default) | Not `module/`; `spacetime.json` `module-path` |
 | D13 | Local STDB config | **`spacetime.json` + `spacetime.dev.json`** | Dev: `server: local`, DB name `stelofinance`; data dir `tmp/spacetimedb` |
-| D14 | Browser IdP | **BitAuth** (`auth.trinit.is`) | Auth Code + PKCE; confidential client secret on Go only |
+| D14 | Browser IdP | **BitAuth only** (`auth.trinit.is`) | Auth Code + PKCE; confidential client secret on **edge only** |
 | D15 | STDB principal | **`Identity` = f(iss, sub)** as `User` PK | BitAuth `sub` is stable numeric player id; username is `preferred_username` |
 | D16 | User bootstrap | **`client_connected` only** (no separate `ensure_user`) | Upsert on connect; no JWT → reject (except owner) |
-| D17 | App admin | **`User.is_admin: bool`** + `require_admin` | Bootstrap first admin via owner SQL; not SpacetimeAuth/JWT roles for now |
+| D17 | App admin | **`User.is_admin: bool`** + `require_admin` | Bootstrap first admin via owner SQL; **no edge `ADMIN_KEY`** |
 | D18 | DB owner / CLI | **Store owner in `config` at `init`** | Owner may connect for SQL without BitAuth; not product admin |
 | D19 | Private tables | **Default private; public only `ledger` (catalog)** | Host enforces client visibility; owner SQL can read private |
 | D20 | Composite uniqueness | **Reducer-enforced** (STDB 2.7 has no multi-col unique) | Indexes for lookup (e.g. idempotency `by_account_and_key`) |
 | D21 | Idempotency storage | **Separate `transfer_idempotency` table** | Scope `(account_id, key)` → transfer + request_hash |
-| D22 | Go STDB client | **digitalxero** `go.digitalxero.dev/spacetimedb-client` | Codegen not required for connect-only smoke |
-| D23 | Connection pooling | **Deferred** | v1 per-request connect with cookie token |
+| D22 | ~~Go STDB client~~ | **Superseded by D10** | Go digitalxero spike remains only until edge cutover |
+| D23 | Connection pooling | **Per-Identity pool — first milestone after connect** | Not optional later; see §5.3 |
 | D24 | Account create authz | **Debit open; Credit admin-only; custom address admin-only** | Maps former GA vs SRA/PRA; owner is always `ctx.sender()` |
 | D25 | Primary account `user_id` | **`Identity` + `ZERO` sentinel** (not `Option`) | Enables `user_id` index filter for “one primary per user per ledger” |
+| D26 | Edge framework | **Topcoat** (`tokio-rs/topcoat`) | Module route auto-discovery; built-in Datastar, Tailwind, assets, icons, fonts |
+| D27 | Edge routing | **Topcoat module auto-discovery** | Prefer `Router::builder().discover()` over hand-rolled route tables |
+| D28 | Browser login UX | **Login page → “Login with BitAuth”** | Hard drop BitJita chat handshake |
+| D29 | Token refresh | **Auto-refresh near expiry** | Use `stdb_refresh_token` when present; best effort before STDB connect |
+| D30 | Edge error UX | **Map errors to toasts or full error pages** | Depending on severity / request type (HTML vs Datastar vs proxy JSON) |
+| D31 | Edge logging | **stdout** (structured if easy) | No NATS log bus; no remote log-level subscribe |
+| D32 | Analytics | **Drop PostHog** | Not ported to Topcoat |
+| D33 | Public API surface | **Edge reverse-proxy of module HTTP** | Our domain; edge may reshape paths (e.g. path params); forwards `Authorization` |
+| D34 | Deploy | **GHA → STDB publish + Fly container (Rust binary)** | Stateless edge; no Fly volume for SQLite/NATS |
 
 ---
 
@@ -210,9 +225,9 @@ All core tables **private** unless noted. Enums used instead of opaque integer c
 
 ```text
 BitAuth OIDC (browser / human)
-    → Go /auth/bitauth/* (PKCE + client secret)
-    → cookie stdb_id_token = OIDC ID token
-    → Go connects STDB WithToken(id_token)
+    → Topcoat /auth/bitauth/* (PKCE + client secret)
+    → cookie stdb_id_token = OIDC ID token (+ optional refresh)
+    → edge connects STDB WithToken(id_token) via Identity pool
     → host verifies JWT, Identity = f(iss, sub)
     → client_connected (lib.rs):
          - if sender == config.owner → allow (ops CLI), no User row
@@ -222,15 +237,15 @@ BitAuth OIDC (browser / human)
          - SpacetimeAuth → if app row exists allow; else fulfill app_ticket by JWT sub (create/replace app)
 
 App (bot / partner) — SpacetimeAuth anonymous
-    → edge: SpacetimeAuth anonymous login → show access + refresh tokens to user
-    → edge decodes OIDC sub; human (BitAuth) calls create_app_ticket(name, sub)
-    → bot/edge connects WithToken(SpacetimeAuth JWT)
+    → edge or partner: SpacetimeAuth anonymous login → access + refresh tokens
+    → human (BitAuth) calls create_app_ticket(name, sub)
+    → bot connects WithToken(SpacetimeAuth JWT)
     → client_connected: OidcProvider::SpacetimeAuth → match app_ticket.sub → insert/replace app
     → grant_account_member; bot uses refresh as needed (same sub → same Identity)
 
 Account HTTP API (programmatic JSON) — no STDB Identity for the token holder
-    → client calls module HTTP route (Authorization: stla_…)
-    → HandlerContext.with_tx looks up account_token; authz is token + account scope (§7.10)
+    → client → edge reverse-proxy (our domain) → module HTTP
+    → Authorization header forwarded; HandlerContext.with_tx looks up account_token (§7.10, §8.5)
 ```
 
 **OIDC providers** are modeled as `OidcProvider` in `lib.rs` (`BitAuth` | `SpacetimeAuth`) with `issuer()`, `audience()`, `from_issuer()`, `is_valid_audience()` — replaces loose string constants for iss/aud checks.
@@ -273,7 +288,7 @@ Reducers must treat `ctx.sender()` as the principal. Map:
 
 `Identity` → `user` → `account_member` / ownership on `account`.
 
-Edge `ADMIN_KEY` remains temporary break-glass for legacy HTTP only — not module authz long-term.
+No edge `ADMIN_KEY` / break-glass. Product admin is **`User.is_admin`** only (owner SQL bootstrap, then admin reducers).
 
 ### 7.3 Views (multi-tenant, caller-dependent)
 
@@ -443,7 +458,7 @@ Source: live Go routes/handlers/SQL/JetStream vs `spacetimedb/`. Goal: **finish 
 | Transfers list / realtime | | `my_transfers` subscribe | replaces NATS subjects |
 | Third-party bots / apps | `app`, `account_member`, `app_ticket` | `my_accounts_members` | tickets + grant/revoke **done** (§7.9) |
 | Account API tokens + JSON HTTP | `account_token` | `my_accounts_tokens` **done** | create procedure + revoke + HTTP ping **done** (§7.10) |
-| Legacy edge JSON `/api` + JetStream `stla_` | — | — | Superseded by §7.10; drop after cutover |
+| Legacy edge JSON `/api` + JetStream `stla_` | — | — | Superseded by §7.10 + edge reverse-proxy (§8.5); **no** legacy path shape |
 | Webhook URL CRUD | `account.webhook` | field on account view | `set_account_webhook` **done** |
 | Webhook delivery | **`webhook_delivery` schedule table** | — | enqueue + `deliver_webhook` **done** |
 | Public ledgers | `ledger` public **done** | (table itself; no view) | `create_ledger` **done** |
@@ -470,8 +485,9 @@ Source: live Go routes/handlers/SQL/JetStream vs `spacetimedb/`. Goal: **finish 
 | Pending transfers | In module; not in production `CreateTransfer` — keep |
 | Bitflag permissions | Role enum is enough; UI only uses Admin today |
 | NATS permission events | Drop if views+subscribe cover UI |
-| JetStream user sessions (`sid`) | Edge/OIDC (P1), not module domain |
-| `ADMIN_KEY` HTTP header | → `User.is_admin` + admin reducers |
+| JetStream user sessions (`sid`) / BitJita | **Hard drop**; BitAuth only on Topcoat edge |
+| `ADMIN_KEY` HTTP header | **Drop**; `User.is_admin` only |
+| Go lite edge | Replaced by Topcoat (§8); not extended |
 | Parameterized fuzzy search in-view | Public `account_directory` + edge filter |
 | Memo length | Module 32 vs legacy 50 — decide at API cutover |
 | STDB HTTP path params `{id}` | **Not in 2.7** — exact paths only; see §7.10 route design |
@@ -647,7 +663,7 @@ Auth header: raw secret only (`Authorization: <secret>`). No `Bearer ` prefix, n
 |------|----------|
 | **Apps + STDB SDK** | Realtime subscribe, reducers, same authz as humans |
 | **Account tokens + HTTP** | Simple JSON/HTTP integrations, scripts, no STDB client |
-| **Go edge `/api`** | Temporary façade until module HTTP covers docs surface |
+| **Edge reverse-proxy** | Public domain + path reshape over module HTTP; not a domain re-implementation |
 
 #### Manual smoke
 
@@ -662,89 +678,247 @@ curl -s "$STDB/v1/database/stelofinance/route/account/ping" \
 
 ---
 
-## 8. Lite webserver design (Go)
+## 8. Lite webserver design (Rust / Topcoat)
 
-### 8.1 Dependencies
+**Code location (target):** workspace crate root (`src/`, `Cargo.toml`) — already a Topcoat spike.  
+**Framework:** [Topcoat](https://github.com/tokio-rs/topcoat) (`topcoat` + `topcoat-cli` in flake).  
+**Rule:** no domain/financial logic on the edge. Module owns money and privacy.
 
-- Keep: chi, tmpl, Datastar, static assets, Fly deployment for the edge.
-- Add: `go.digitalxero.dev/spacetimedb-client` (or successor).
-- Remove eventually: modernc sqlite, goose runtime path, embedded NATS/JetStream, sqlc-generated DB access for domain.
+### 8.1 Stack & dependencies
+
+| Concern | Choice |
+|---------|--------|
+| HTTP / HTML | Topcoat (`view!`, `#[page]`, `#[component]`, `#[layout]`) |
+| Routing | **Module auto-discovery** (`Router::builder().discover()`) |
+| Datastar | Topcoat `datastar` feature (SSE, `PatchElements`, `Signals`) |
+| CSS | Topcoat `tailwind` feature + port of Stelo theme tokens |
+| Assets | Topcoat `asset!` pipeline (content-hashed URLs) |
+| Fonts | Topcoat **font helpers** (Source Code Pro) |
+| Icons / illustrations | Topcoat `icon` / `IconData` (or equivalent) — SVG files, not hardcoded in page logic |
+| STDB | Official **Rust** SpacetimeDB client + generated module bindings |
+| OIDC | Rust OIDC client (library chosen at implement time; same BitAuth flow) |
+| Deploy | Stateless Fly container; GHA for module publish + edge deploy |
+| Drop | Go chi/tmpl, digitalxero, SQLite, NATS/JetStream, PostHog, BitJita, edge `ADMIN_KEY` |
+
+**Env (edge):**  
+`PORT`, `ENV`, `BITAUTH_ISSUER`, `BITAUTH_CLIENT_ID`, `BITAUTH_CLIENT_SECRET`, `BITAUTH_REDIRECT_URL`, `BITAUTH_LOGOUT_REDIRECT_URL`, `BITAUTH_OFFLINE_ACCESS`, `BITAUTH_SECURE_COOKIES`, `STDB_HOST`, `STDB_DATABASE` (and any Topcoat/cookie secrets if required).
 
 ### 8.2 Auth & cookies
 
-**Browser flow (BitAuth — implemented on parallel routes):**
-
-1. `GET /auth/bitauth/login` → BitAuth authorize (PKCE S256, scopes `openid profile` [+ `offline_access`]).
-2. `GET /auth/bitauth/callback` → code exchange with client secret; verify ID token (iss/aud/nonce).
-3. Set cookies: `stdb_id_token` (raw ID token), optional `stdb_refresh_token`.
-4. On demand / later every page: `WithToken(stdb_id_token)` → STDB connect → `client_connected` upserts `User`.
-5. `GET /auth/bitauth/stdb-connect` — smoke JSON with identity (digitalxero; no table codegen).
-6. `GET /auth/bitauth/session` — JSON claims from cookie (no raw token returned).
-7. `GET /auth/bitauth/logout` — clear cookies; optional BitAuth end_session.
-
-**Env (placeholders in `.env`):**  
-`BITAUTH_ISSUER`, `BITAUTH_CLIENT_ID`, `BITAUTH_CLIENT_SECRET`, `BITAUTH_REDIRECT_URL`, `BITAUTH_LOGOUT_REDIRECT_URL`, `BITAUTH_OFFLINE_ACCESS`, `BITAUTH_SECURE_COOKIES`, `STDB_HOST`, `STDB_DATABASE`.
-
-**Packages:** `internal/bitauth`, `internal/stdb`, handlers under `internal/handlers/bitauth.go`.
-
-**Account token API (third party):**
-
-- **Module-native** via `account_token` + HTTP handlers (§7.10). Edge may still mint/proxy legacy JetStream `stla_` until cutover; long-term mint is a reducer (Admin+), call is direct to STDB `/route/...`.
+1. Login page: **“Login with BitAuth”** → `GET /auth/bitauth/login` (PKCE S256, scopes `openid profile` [+ `offline_access`]).
+2. `GET /auth/bitauth/callback` → code exchange; verify ID token (iss/aud/nonce).
+3. Set cookies: `stdb_id_token`, optional `stdb_refresh_token`.
+4. **Auto-refresh** when ID token is near expiry (use refresh cookie if present); rewrite `stdb_id_token` Max-Age from new `exp`. Do **not** store short-lived STDB websocket tokens over the OIDC ID token.
+5. Requests to `/app/*`: require valid cookie (refresh if needed) → acquire pooled STDB connection as that identity.
+6. Logout: clear cookies; optional BitAuth `end_session`.
+7. Open-redirect protection on `?redirect=` (relative path only; same rules as Go `isValidRedirectURL`).
 
 ### 8.3 Request handling patterns
 
 **Page load (HTML):**
 
 ```text
-cookie token → connect/query as user
-  → OneOffQuery / subscribe-applied snapshot of needed views
-  → fill tmpl structs
+cookie → (refresh if near exp) → pool.acquire(identity)
+  → one-off query / short subscribe of needed views
+  → Topcoat view! render
   → respond HTML
 ```
 
-Prefer **few view queries** that return render-ready shapes over many point lookups.
+Prefer **few view queries** that return render-ready shapes.
 
 **Datastar live updates:**
 
 ```text
-SSE open → STDB Subscribe to my_accounts / my_transfers (etc.)
-  → on insert/update/delete callbacks → re-render fragment → PatchElements
-  → on disconnect → unsubscribe / close STDB conn
+SSE open → STDB Subscribe (my_accounts / my_transfers / …)
+  → on insert/update/delete → re-render fragment → PatchElements
+  → on disconnect → unsubscribe / return conn to pool
 ```
 
-**JSON façade:**
+Partial / component-specific patches (e.g. recipient fieldset) are **case-by-case** as each surface is ported.
 
-```text
-HTTP → validate transport auth (cookie or account token)
-     → CallReducer / OneOffQuery
-     → map STDB errors to HTTP status JSON
-```
+**Errors (D30):** map STDB / OIDC / validation failures to:
 
-No re-implementation of transfer math in Go.
+- **Toasts** or inline Datastar patches for recoverable action failures;
+- **Full error pages** for auth failures, hard missing resources, or unexpected 5xx;
+- JSON error bodies for reverse-proxied API traffic.
+
+**Module HTTP reverse-proxy:** see §8.5 — forward body/headers (including `Authorization`); reshape paths as needed; no domain math on the edge.
 
 ### 8.4 Types & codegen
 
-Official `spacetime generate` does **not** support Go.
+1. Module schema is source of truth (`spacetimedb/`).
+2. `spacetime generate` → Rust client bindings for the edge crate (regenerate in CI / Taskfile when module changes).
+3. Edge uses typed reducers/views where available; SQL against **views** only (`SELECT * FROM my_accounts`), never private tables as a client.
 
-Plan:
+### 8.5 Module HTTP reverse-proxy
 
-1. Module schema is source of truth (Rust).
-2. Generate Go bindings via digitalxero / community tooling where available (`stdb-go` / schema fetch generate).
-3. Fallback: checked-in generated structs + BSATN codecs; regenerate in CI when module changes.
-4. Edge subscriptions use **simple SQL strings against views** (`SELECT * FROM my_accounts`), not ad-hoc joins on private tables (private tables are invisible to clients anyway).
+**Goal:** expose programmatic JSON API on **our domain**, not only the SpacetimeDB host path `/v1/database/:db/route/...`.
 
-### 8.5 What gets deleted from Go
+| Property | Decision |
+|----------|----------|
+| Style | HTTP **reverse-proxy** (or thin path-mapping proxy) to module handlers |
+| Auth | Edge **forwards** `Authorization` (account token secret); module validates |
+| Path shape | **New** public routes (not legacy Go `/api/...`). Edge may introduce path params and map them onto module routes that lack param support today |
+| Domain logic | None on edge — only route rewrite, header forward, status/body pass-through (plus optional error envelope consistency) |
+| Docs | Update `docs/api/*` when public path shape is finalized |
 
-- `database/queries/*`, `database/gensql/*`, goose migrations for app schema (replace with module publish).
-- `internal/accounts/*` domain logic (ported to Rust).
-- NATS publish of transfer events; JetStream sessions/webhooks streams.
-- Embedded NATS server bootstrap in `web/web.go`.
+Exact public path prefix (e.g. `/v1/...` vs something else) is chosen when implementing the first proxied routes; document then.
 
-What remains thin:
+### 8.6 What gets deleted after cutover
 
-- `internal/handlers/*` as protocol adapters
-- `web/templates/*`
-- middleware for cookie/token extraction only (not ACL math)
+- Entire Go edge: `cmd/app`, `web/`, `internal/*` (except anything still used by temporary scripts), Go `fly` binary path.
+- `database/queries/*`, `database/gensql/*`, goose app migrations.
+- Embedded NATS/JetStream; SQLite volume on Fly.
+- digitalxero dependency; PostHog script; BitJita login; JetStream sessions/tokens.
+- Go toolchain from flake/CI once no scripts require it (`scripts/seed-hexcoin` may move to Rust or keep `go run` temporarily).
+
+### 8.7 Edge migration inventory (systems to recreate)
+
+Work through these **one by one**. Status: `todo` until implemented in Topcoat. Source of “what exists” is the current Go edge; target is Topcoat unless marked drop.
+
+#### A — Process / server foundation
+
+| ID | System | Notes | Status |
+|----|--------|-------|--------|
+| A1 | HTTP process bootstrap | Port, graceful shutdown; no SQLite/NATS startup | todo |
+| A2 | Router | **Topcoat module auto-discovery** | todo |
+| A3 | Request logging | stdout / structured logs (D31) | todo |
+| A4 | Panic / error recovery | Framework defaults + error pages | todo |
+| A5 | CORS | If public API proxy needs browser/cross-origin; otherwise minimal | todo |
+| A6 | Health check | Cheap path for Fly (replace `/api/ping` / `/heartbeat`) | todo |
+| A7 | Response compression | gzip/brotli if easy in stack | todo |
+| A8 | Env / config | BitAuth + STDB + PORT/ENV; drop JS_DIR/DB_FILE | todo |
+| A9 | App-wide shared state | Topcoat app context: pool, OIDC client, config | todo |
+
+#### B — Auth
+
+| ID | System | Notes | Status |
+|----|--------|-------|--------|
+| B1 | BitAuth OIDC client | Discovery, PKCE, verify ID token, end_session | todo |
+| B2 | Login / callback / logout routes | Port BitAuth flow | todo |
+| B3 | Cookie jar | `stdb_id_token`, `stdb_refresh_token`, oauth state/nonce/pkce/redirect | todo |
+| B4 | Open-redirect protection | Relative path only | todo |
+| B5 | Authed `/app` gate | Cookie required; no JetStream `sid` | todo |
+| B6 | Token auto-refresh near expiry | Best effort before STDB connect (D29) | todo |
+| B7 | ~~BitJita login~~ | **Drop** | n/a |
+| B8 | ~~JetStream user sessions~~ | **Drop** | n/a |
+| B9 | ~~Edge `ADMIN_KEY`~~ | **Drop** — `User.is_admin` only | n/a |
+
+#### C — SpacetimeDB client
+
+| ID | System | Notes | Status |
+|----|--------|-------|--------|
+| C1 | Official Rust STDB SDK + bindings | `spacetime generate` into edge crate | todo |
+| C2 | Connect-as-user | Cookie ID token → WithToken | todo |
+| C3 | Per-Identity connection pool | **First milestone after C2** (§5.3) | todo |
+| C4 | Page-load queries / reducers | Views + CallReducer via pool | todo |
+| C5 | Live subscribe for Datastar | my_accounts / my_transfers etc. | todo |
+| C6 | Error mapping | Toasts vs full pages vs JSON (D30) | todo |
+
+#### D — Templates / UI structure
+
+| ID | System | Notes | Status |
+|----|--------|-------|--------|
+| D1 | HTML shell layout | Public vs app chrome (Topcoat `#[layout]`) | todo |
+| D2 | Marketing page `GET /` | Port index content | todo |
+| D3 | Login page | **“Login with BitAuth”** button only (no BitJita UI) | todo |
+| D4 | App pages | home, accounts, account detail, transfers, payment request | todo |
+| D5 | Chrome components | nav, footer, app-nav, app-menu | todo |
+| D6 | Partial / component patches | Case-by-case (e.g. transfer recipient) | todo |
+| D7 | Display formatting | Asset-scale balances, relative times | todo |
+| D8 | Idempotency keys in forms | Generate on render (uuid) | todo |
+
+#### E — Datastar
+
+| ID | System | Notes | Status |
+|----|--------|-------|--------|
+| E1 | Datastar JS asset | Topcoat `datastar` feature + asset pipeline | todo |
+| E2 | SSE PatchElements | Accounts/transfers live updates + form actions | todo |
+| E3 | Signals I/O | Topcoat `Signals` extractor | todo |
+| E4 | Form posts | `@post` / form content type parity | todo |
+| E5 | Hot reload | **Topcoat dev CLI** (`topcoat dev`) — no custom `/hotreload` | n/a (framework) |
+| E6 | SSE reconnect / Last-Event-Id | Port where needed | todo |
+
+#### F — CSS / fonts / static assets
+
+| ID | System | Notes | Status |
+|----|--------|-------|--------|
+| F1 | Tailwind build | Topcoat `tailwind` feature | todo |
+| F2 | Custom theme | melrose/anakiwa, source-code-pro, header-offset, etc. | todo |
+| F3 | CSS delivery | **v1:** full site Tailwind as **inline `<style>`** if practical; else hashed `<link>` is acceptable. **Later ideal:** detect whether client has global TW cached → if not, inline (no layout shift) + lazy prefetch/cache the full asset; subsequent loads use `<link>` only. **Stretch:** per-page TW bundles for first paint, then graduate to global cache. | todo (v1) |
+| F4 | Fonts | Topcoat **font helpers** (Source Code Pro variable) | todo |
+| F5 | Favicon | Via asset pipeline | todo |
+| F6 | Static serving | Topcoat assets + cache headers | todo |
+| F7 | Content-hash cache busting | Topcoat assets (replaces Go `hash_asset_path`) | todo |
+
+#### G — Icons & illustrations
+
+| ID | System | Notes | Status |
+|----|--------|-------|--------|
+| G1 | SVG icons | Sized/colored via class/`currentColor` without hardcoding SVG into Rust page code | todo |
+| G2 | Illustrations | Same pattern | todo |
+| G3 | Asset inventory | Icons: logo-full, logo-colored, home, wallet, transfer, bitcraft, discord, github, close, hamburger, market-candles, right-arrow. Illustrations: account, deposit, nintron, trade, withdraw. | todo |
+
+#### H — App HTML surfaces (call module; no domain rules)
+
+| ID | Surface | Go routes (reference) | Status |
+|----|---------|----------------------|--------|
+| H1 | Accounts list + create + live updates | `GET/POST /app/accounts`, `GET .../updates` | todo |
+| H2 | Account admin | detail, primary, users, tokens | todo |
+| H3 | Transfers UI | list, select, recipient search, submit | todo |
+| H4 | Payment request | `GET /app/request`, `POST .../transfers` | todo |
+| H5 | Logout | clear cookies / end_session | todo |
+
+#### I — API reverse-proxy
+
+| ID | System | Notes | Status |
+|----|--------|-------|--------|
+| I1 | Reverse-proxy to module HTTP | Our domain; path reshape; not legacy `/api` shape | todo |
+| I2 | Auth header forward | Edge does not re-validate account tokens | todo |
+| I3 | Route map + docs | Map each module handler to public edge path; update `docs/api/*` | todo |
+
+#### J — Observability / product extras
+
+| ID | System | Notes | Status |
+|----|--------|-------|--------|
+| J1 | Logging | stdout (structured if easy) | todo |
+| J2 | Log level | Env / compile-time; no NATS `logs.level` | todo |
+| J3 | ~~PostHog~~ | **Drop** | n/a |
+
+#### K — Dev experience & deploy
+
+| ID | System | Notes | Status |
+|----|--------|-------|--------|
+| K1 | Dev server | **`topcoat dev`** for edge; later Taskfile recipe that runs STDB + Topcoat together | todo |
+| K2 | Taskfile | Keep `stdb:*`; replace Go `build`/`live` with Cargo/Topcoat; add combined dev task | todo |
+| K3 | Nix flake | Keep Rust/wasm/spacetime/topcoat-cli; drop Go toolchain when edge + scripts no longer need it | todo |
+| K4 | Fly | Stateless `fly.toml` (no volume); health check; secrets | todo |
+| K5 | CI | GHA: publish module to STDB + build/deploy edge container | todo |
+| K6 | Binary packaging | `cargo build --release` edge binary in image | todo |
+
+#### L — Explicit non-edge (module or delete)
+
+| System | Disposition |
+|--------|-------------|
+| SQLite / sqlc / goose | Delete after cutover |
+| NATS / JetStream | Delete after cutover |
+| `internal/accounts/*` domain | Already → module reducers |
+| Webhook worker | Module `deliver_webhook` |
+| Go digitalxero client | Replaced by Rust SDK |
+| JetStream account tokens | Module `account_token` |
+
+### 8.8 Suggested edge implementation order
+
+1. Skeleton: Topcoat app, layout, theme, fonts, favicon, health (A, F, G baseline).
+2. Datastar script + asset pipeline (E1).
+3. BitAuth + cookies + login page (B, D3).
+4. STDB connect-as-user (C1–C2).
+5. **Identity connection pool** (C3).
+6. One app page from STDB + Datastar subscribe (C4–C5, H1 slice).
+7. Error mapping polish (C6).
+8. Remaining app surfaces (H2–H5, D6 case-by-case).
+9. Module HTTP reverse-proxy (I1–I3).
+10. Fly + GHA cutover; delete Go edge (K4–K6, §8.6).
 
 ---
 
@@ -752,19 +926,16 @@ What remains thin:
 
 ### 9.1 External JSON API
 
-**Target:** module HTTP handlers (§7.10) under `/v1/database/:db/route/...`, not a permanent Go re-implementation of domain routes.
+**Target:** module HTTP handlers (§7.10) are the domain implementation. The **Topcoat edge reverse-proxies** them onto **our domain** with a **new public path shape** (not legacy Go `/api/...`). Edge may reshape routes (e.g. path params) when STDB module HTTP cannot express them yet (§8.5).
 
 | Area | Strategy |
 |------|----------|
-| Ledgers list/create/audit | Views + admin reducers (edge or STDB client); HTTP later if needed |
-| Accounts search / get | Views / future HTTP |
-| Transfers list/get/create | Views + `create_transfer` / future HTTP |
-| Webhook get/put/delete | Views + reducers / future HTTP |
-| Ping (public + account) | Module HTTP **first slice** (`/ping`, `/accounts/ping`) |
+| Ping (public + account) | Module HTTP done; proxy first |
+| Account get / search / transfers / finalize | Module HTTP (partial done); proxy + expand as needed |
+| Ledgers / audit / admin | Views + admin reducers; HTTP + proxy when needed |
+| Webhooks get/put/delete | Views + reducers / HTTP + proxy when needed |
 
-During cutover, Go `/api` may façade STDB; after module HTTP covers the docs surface, drop edge domain routes.
-
-Breaking changes: minimize; if STDB IDs differ from old SQLite integers, document migration (u64 vs int64) and update docs. Path shape may differ from legacy `/api/accounts/{id}/…` until STDB supports path parameters (§7.10).
+**Breaking change vs Go `/api`:** intentional. Update `docs/api/*` when edge public paths land. STDB IDs may differ from old SQLite integers (u64 vs int64) — document at cutover.
 
 ### 9.2 Direct STDB clients (apps)
 
@@ -772,7 +943,7 @@ Partners use official SDKs (TS/Rust/C#) with **SpacetimeAuth anonymous** tokens 
 
 ### 9.3 Account HTTP tokens
 
-Partners that want plain HTTP/JSON (no STDB SDK) use **account API tokens** + module routes (§7.10). Orthogonal to apps: same account may have both members (apps/users) and HTTP tokens.
+Partners that want plain HTTP/JSON (no STDB SDK) use **account API tokens** + module routes, typically reached via the **edge reverse-proxy** so the hostname is Stelo’s. Edge forwards `Authorization`; does not reimplement token validation. Orthogonal to apps: same account may have both members and HTTP tokens.
 
 ---
 
@@ -830,14 +1001,14 @@ STDB module payload (breaking vs legacy `code` int — documented in `docs/api/w
 
 | Phase | Work | Exit criteria |
 |-------|------|----------------|
-| **P0 — Spike** | Module skeleton + BitAuth connect + tables; then create_transfer, views, one page/Datastar | End-to-end transfer visible in UI via STDB |
-| **P1 — Auth** | BitAuth OIDC + cookie + `client_connected` (largely done in P0 parallel path); cut over `/app` off JetStream `sid` | Login works without BitJita/JetStream login KV |
-| **P2 — Domain complete** | Permissions, idempotency, ledgers, tokens, audit | Parity with current `internal/accounts` behavior |
-| **P3 — Webhooks** | Outbox + scheduled procedure | Delivery + retries without NATS |
-| **P4 — API façade** | Port `/api` routes to STDB | Docs still valid; integration tests pass |
-| **P5 — Import** | Script/reducer import of users/accounts/balances/transfers (or rebuild balances from transfers) | Audit invariant holds; tester accounts usable |
-| **P6 — Cutover** | Deploy module to mainnet; point edge at mainnet; decommission SQLite+NATS volumes | Stable prod; old DB read-only archive |
-| **P7 — Cleanup** | Remove dead Go deps and NATS embed | Smaller binary/ops surface |
+| **P0 — Module spike** | Module skeleton + BitAuth connect + tables; transfers, views, ACL, webhooks, apps, tokens | Domain core usable via STDB (largely **done**) |
+| **P1 — Topcoat edge foundation** | Topcoat skeleton, theme/assets, BitAuth, STDB connect, **Identity pool**, one STDB-backed page + Datastar | Browser login + one live page without Go domain path |
+| **P2 — App surface parity** | Port remaining `/app` pages/actions (inventory §8.7 H*) | Full web UX on Topcoat + STDB |
+| **P3 — API reverse-proxy** | Edge proxy of module HTTP; new public paths; docs | Third parties hit our domain; no Go `/api` |
+| **P4 — Domain leftovers** | Admin reducers, any missing HTTP routes | Parity matrix green |
+| **P5 — Import** | Script/reducer import of users/accounts/balances/transfers | Audit invariant holds; tester accounts usable |
+| **P6 — Cutover** | Mainnet module; Topcoat on Fly (stateless); GHA deploys; decommission Go + SQLite + NATS volumes | Stable prod; old DB read-only archive |
+| **P7 — Cleanup** | Delete Go edge/toolchain; flake/Taskfile/docs hygiene | Rust-only product path |
 
 ### 12.3 Data import sketch
 
@@ -855,16 +1026,19 @@ STDB module payload (breaking vs legacy `code` int — documented in `docs/api/w
 | ID | Topic | Status | Notes |
 |----|-------|--------|-------|
 | Q1 | Full threat model (abuse, spam transfers, energy, anonymous connect policy) | **Follow up later** | Issuer/aud gate exists for BitAuth; expand rate limits etc. |
-| Q2 | Cookie details: name, Max-Age, rotation, logout | **Mostly decided** | `stdb_id_token` / `stdb_refresh_token`; refresh rotation & revoke TBD |
+| Q2 | Cookie details: name, Max-Age, rotation, logout | **Mostly decided** | `stdb_id_token` / `stdb_refresh_token`; **auto-refresh near expiry** (D29); exact refresh skew TBD |
 | Q3 | OIDC claim mapping | **Decided (dev)** | Stable `sub` = player id; `preferred_username` = display; see §7.2 |
-| Q4 | Account API token validation path | **Decided (re-open)** | Module `account_token` + HTTP handlers (§7.10); apps still for native STDB (§7.9) |
-| Q5 | Exact table/view/reducer names | **In flux** | Live schema in `spacetimedb/src/` (`tables.rs`, `views.rs`, …) |
-| Q6 | Pending transfer flags / states | **Decided** | `TransferState` + optional pending/posted amounts; `create_transfer(pending)` + `finalize_transfer`; webhooks include `state` + amount semantics (§7.5) |
-| Q7 | digitalxero vs STDB protocol drift process | Monitor | Pinned `v0.6.0` for smoke; CI later |
-| Q8 | Admin auth | **Decided for spike** | `User.is_admin` + owner SQL bootstrap; JWT roles if BitAuth adds them later |
+| Q4 | Account API token validation path | **Decided** | Module validates; edge reverse-proxies + forwards `Authorization` |
+| Q5 | Exact table/view/reducer names | **In flux** | Live schema in `spacetimedb/src/` |
+| Q6 | Pending transfer flags / states | **Decided** | `TransferState` + pending/posted; webhooks `kind`/`state` strings (§7.5) |
+| Q7 | ~~digitalxero drift~~ | **Superseded** | Edge moves to official Rust SDK (D10) |
+| Q8 | Admin auth | **Decided** | `User.is_admin` only; no edge `ADMIN_KEY` |
 | Q9 | Backups / PITR / disaster recovery on mainnet | Open | Ops runbook |
-| Q10 | Connection pooling by identity | Deferred | v1 per-request OK; pool by **user Identity**, not OIDC client_id |
+| Q10 | Connection pooling by identity | **Decided** | Per-Identity pool = first milestone after connect (D23, §5.3) |
 | Q11 | Whether import recomputes balances from transfers vs copies balances | Open | Recompute is safer if history complete |
+| Q12 | Public edge API path prefix / shape | Open | Chosen when implementing I1; not legacy `/api` |
+| Q13 | CSS delivery: pure inline vs link vs cache-aware hybrid | **v1 = inline if practical** | Stretch goals in §8.7 F3 |
+| Q14 | Rust OIDC library choice | Open | Same BitAuth flow as Go spike |
 
 ---
 
@@ -875,7 +1049,7 @@ STDB module payload (breaking vs legacy `code` int — documented in `docs/api/w
 | Module unit/integration | Reducer tests: valid transfer, insufficient funds, idempotent replay, idempotent conflict, cross-ledger reject, permission deny |
 | Invariant tests | Random transfer sequences → ledger sums to 0 |
 | View tests | User A cannot read user B balances via views |
-| Edge smoke | OIDC dev path (or fixture token), HTML render, Datastar SSE update on transfer |
+| Edge smoke | Topcoat: OIDC login, HTML render, Identity pool, Datastar SSE update on transfer, proxy ping |
 | Webhook tests | Outbox retry; HTTP mock; no open redirects |
 | Import dry-run | Snapshot of prod export against local STDB |
 
@@ -886,21 +1060,22 @@ STDB module payload (breaking vs legacy `code` int — documented in `docs/api/w
 | Risk | Impact | Mitigation |
 |------|--------|------------|
 | Wrong authz → fund theft / data leak | Critical | Private tables; view filters; reducer checks; adversarial tests |
-| Community Go client lag | High | Pin versions; thin edge; ability to shell out critical paths; monitor STDB releases |
+| Topcoat / early framework churn | Medium | Pin Topcoat version; thin edge; upstream issues as needed |
+| Official Rust STDB client gaps | Medium | Pin SDK; thin wrapper; monitor STDB releases |
 | Token-in-cookie theft (XSS) | High | HttpOnly Secure cookies; tight CSP; no token in JS |
 | Webhook SSRF from module HTTP | High | URL allowlist/block private ranges; no redirects; timeouts |
 | Mainnet ops unfamiliarity | Medium | Local parity; runbooks; staged publish |
-| Naming / API ID changes break clients | Medium | Façade stability layer; publish migration notes |
-| Per-request connect latency | Medium | Pool later by identity; keep page queries few |
+| New API path shape breaks Go-era clients | Medium | Document break; no legacy `/api` promise |
+| Per-request connect latency | Medium | **Mitigated by Identity pool (D23)** early |
 
 ---
 
 ## 16. Success metrics
 
-1. SQLite and NATS **not required** in production edge.
+1. SQLite and NATS **not required** in production; Go edge **gone**.
 2. All transfers and balance changes happen only in module reducers.
-3. Browser session uses STDB user identity (cookie token); views enforce isolation.
-4. Existing JSON API consumers work via façade (or documented breaks only).
+3. Browser session uses STDB user identity (cookie token); views enforce isolation; edge uses official Rust client + Identity pool.
+4. Programmatic JSON API available on **Stelo domain** via reverse-proxy (new paths documented).
 5. Webhooks deliver with durable retries without JetStream.
 6. Ledger audit invariant holds post-import and under test suites.
 7. A second client (e.g. small TS script) can call `create_transfer` / subscribe to `my_transfers` with a user token and see the same authz behavior as the website.
@@ -912,53 +1087,64 @@ STDB module payload (breaking vs legacy `code` int — documented in `docs/api/w
 ```text
 stelofinance/
   spacetimedb/            # Rust SpacetimeDB module (CLI default path)
-    src/lib.rs            # init, client_connected, OidcProvider, create_ledger/account, role helpers
-    src/tables.rs         # domain schema (user, app, account, account_member, account_token, transfer, …)
+    src/lib.rs            # init, client_connected, OidcProvider, …
+    src/tables.rs         # domain schema
     src/views.rs          # multi-tenant + public views
-    src/acl.rs            # grant/revoke user+app, primary, webhook
-    src/apps.rs           # app_ticket + create/replace tickets; connect-time bind
-    src/api.rs            # account_token create/revoke + HTTP router (/ping, /account/ping)
+    src/acl.rs            # grant/revoke, primary, webhook
+    src/apps.rs           # app_ticket + connect-time bind
+    src/api.rs            # account_token + module HTTP
     src/transfers.rs      # create_transfer, finalize_transfer
-    src/webhooks.rs       # webhook_delivery schedule table + deliver_webhook
-    Cargo.toml            # spacetimedb features = ["unstable"]
-  spacetime.json          # database + module-path
-  spacetime.dev.json      # server: local (committed shared dev)
-  # spacetime.local.json  # personal overrides — gitignored
-  scripts/seed-hexcoin    # local seed helper
-  cmd/app/
-  internal/bitauth/       # OIDC client (go-oidc)
-  internal/stdb/          # ConnectOnce helper (digitalxero)
-  internal/handlers/      # bitauth routes + legacy
-  Taskfile.yml            # stdb:start | publish | live | logs | reset | seed
-  tmp/spacetimedb/        # local STDB data-dir (gitignored via tmp/)
+    src/webhooks.rs       # webhook_delivery + deliver_webhook
+    Cargo.toml
+  src/                    # Topcoat lite edge (workspace package)
+    main.rs / app/…       # module-discovered routes, layouts, pages
+    module_bindings/      # spacetime generate output (or equiv path)
+  Cargo.toml              # edge package: topcoat + spacetimedb client
+  spacetime.json
+  spacetime.dev.json
+  # spacetime.local.json  # gitignored personal overrides
+  scripts/                # seed/diag (Rust preferred long-term)
+  Taskfile.yml            # stdb:* + edge dev (topcoat) + combined live
+  fly.toml                # stateless edge (no SQLite/NATS volume)
+  .github/workflows/      # publish module + deploy Fly container
+  tmp/spacetimedb/
   docs/design/spacetimedb-refactor.md
-  docs/api/webhooks.md    # public webhook payload contract
+  docs/api/               # public API contract (edge paths + payloads)
 ```
 
-**Local module workflow:** `task stdb:start` (one terminal) + `task stdb:live` (watch rebuild/publish). Wipe inconsistent local state with `rm -rf tmp/spacetimedb` if snapshot/identity errors appear.
+**Local workflow (target):** `task stdb:start` + module watch; `topcoat dev` (or Taskfile wrapper) for edge. Later: one Taskfile command for both. Wipe `tmp/spacetimedb` if snapshot/identity errors appear.
+
+**During transition:** Go tree (`cmd/app`, `web/`, `internal/`) may still run production until P6 cutover; do not add new Go features.
 
 ---
 
-## 18. Spike checklist (P0)
+## 18. Spike checklist
 
-Use this to validate the design before full port:
+### 18.1 Module / domain (P0 — largely done)
 
 - [x] Module crate + `spacetime.json` / `.dev.json` + Taskfile `stdb:*`
 - [x] Private domain tables (+ public `ledger`); enums; idempotency table + index
 - [x] `config.owner` at init; owner connect for CLI SQL
 - [x] `client_connected`: BitAuth iss/aud + User upsert (`Identity` PK, `preferred_username`)
 - [x] `User.is_admin` + `require_admin` helper (admin reducers TBD)
-- [x] BitAuth OIDC parallel routes + cookies (`stdb_id_token`)
-- [x] Go STDB connect smoke (`/auth/bitauth/stdb-connect`) — no codegen
-- [x] Document OIDC claims + cookie names (this section / §5.2 / §7.2)
-- [x] `create_ledger` (admin) + `create_account` (debit any user; credit admin)
-- [x] `create_transfer` + idempotency + pending; `finalize_transfer` (void / post)
-- [x] Seed script `scripts/seed-hexcoin` (admin JWT reducers + owner SQL for private IDs)
-- [x] Multi-tenant views: `my_user`, `my_accounts`, `my_transfers`, `my_accounts_members`, `account_directory`, `ledger_audit` (see §7.3 / `views.rs`)
+- [x] BitAuth OIDC on **Go** parallel routes + cookies (`stdb_id_token`) — historical spike
+- [x] Go STDB connect smoke (`/auth/bitauth/stdb-connect`) — historical
+- [x] Document OIDC claims + cookie names (§5.2 / §7.2)
+- [x] `create_ledger` + `create_account` + transfers + seed + views + ACL + webhooks + apps + account tokens/HTTP
 - [ ] Prove a second identity cannot read the first identity’s view data
-- [ ] Go edge: one-off query views / reducer call beyond smoke
-- [ ] One app page rendered from STDB (parallel to legacy `/app`)
-- [ ] SSE + subscribe → Datastar patch on transfer
+- [ ] Admin reducers (`grant_admin` / `revoke_admin`, optional `admin_patch_balance`)
+
+### 18.2 Topcoat edge (P1 — active track)
+
+Track status in §8.7 inventory. Minimum P1 exit:
+
+- [ ] Topcoat skeleton + auto-discovery routes + layout + theme/fonts/favicon
+- [ ] BitAuth OIDC on Topcoat + login page (“Login with BitAuth”)
+- [ ] Official Rust STDB client + generated bindings; connect-as-user
+- [ ] Per-Identity connection pool
+- [ ] One app page from STDB + Datastar subscribe → patch on transfer
+- [ ] Health check for deploy; stdout logging
+- [ ] (Follow-on) reverse-proxy slice for module `ping` routes
 
 ---
 
@@ -966,17 +1152,21 @@ Use this to validate the design before full port:
 
 | Current component | Target |
 |-------------------|--------|
-| `gensql` models | Rust tables + generated Go types |
+| Go edge (`cmd/app`, `web/`, `internal/*`) | **Topcoat** edge crate (`src/`) |
+| Go `tmpl` + Datastar | Topcoat `view!` + `datastar` feature |
+| `gensql` models | Module tables + **Rust** client bindings |
 | `accounts.CreateTransfer` | `create_transfer` reducer |
-| `accounts.EventTransfer` + NATS publish | STDB row updates + optional outbox |
-| JetStream sessions KV | STDB token cookie (+ module user row) |
-| JetStream account tokens | **`account_token` table + module HTTP** (§7.10); apps remain for STDB SDK clients |
-| JetStream webhook stream | `webhook_delivery` schedule table + `deliver_webhook` procedure |
-| `AppAccountsUpdates` NATS subs | STDB subscribe on views |
-| `ADMIN_KEY` middleware | Temporary edge break-glass → `User.is_admin` + admin reducers |
-| Goose migrations | `spacetime publish` module versioning |
-| sqlc | Module query builder / views |
-| BitJita-style login KV | BitAuth OIDC + `stdb_id_token` cookie |
+| `accounts.EventTransfer` + NATS publish | STDB row updates + webhook schedule |
+| JetStream sessions KV | `stdb_id_token` cookie (+ module `User`) |
+| JetStream account tokens | **`account_token` + module HTTP** + edge reverse-proxy |
+| JetStream webhook stream | `webhook_delivery` + `deliver_webhook` |
+| `AppAccountsUpdates` NATS subs | STDB subscribe on views → Datastar |
+| `ADMIN_KEY` middleware | **Dropped** → `User.is_admin` |
+| Goose / sqlc | `spacetime publish` + views/reducers |
+| BitJita login KV | **Dropped** → BitAuth only |
+| Go `/api/*` | **New** edge proxy paths (not same shape) |
+| digitalxero Go client | Official Rust STDB SDK |
+| Fly volume (SQLite/NATS) | **Stateless** edge; module on STDB cloud |
 
 ## 20. Appendix B — Invariant reference
 
@@ -995,21 +1185,17 @@ Any admin balance patch must either:
 
 ## 21. Next actions
 
-1. ~~Create `spacetimedb/` + local publish/dev loop~~ **done**.
-2. ~~BitAuth OIDC + cookie + `client_connected` + owner/admin model~~ **done** (parallel path; legacy login remains).
-3. ~~`create_ledger` + `create_account` (credit admin / debit open)~~ **done**.
-4. ~~`create_transfer` / `finalize_transfer` + seed script~~ **done**.
-5. ~~Domain parity matrix documented (§7.7)~~ **done**.
-6. ~~Implement multi-tenant views (§7.3)~~ **done** (`spacetimedb/src/views.rs`).
-7. ~~ACL reducers (`grant` / `revoke` / `set_primary`)~~ **done** (§7.8 / `acl.rs`).
-8. ~~Webhook config (`set_account_webhook`)~~ **done**.
-9. ~~Outbox + `deliver_webhook`~~ **done**.
-10. ~~**Apps** (SpacetimeAuth tickets + `account_member`, views)~~ **done** (§7.9).
-11. ~~Account API tokens + module HTTP (`api.rs`, §7.10)~~ **done** (create procedure + client entropy, revoke, `my_accounts_tokens`, `/ping` + `/account/ping`).
-12. **Next:** admin reducers (`grant_admin` / `revoke_admin`, optional `admin_patch_balance`); more HTTP routes as needed; `update_account_address` **done**.
-13. Wire Go page off STDB + Datastar subscribe (still P0 exit); edge UI for apps / token mint later.
-14. Cut over `/app` session from JetStream `sid` to BitAuth/STDB when ready (P1).
-15. After fuller P0, expand this doc into an **implementation spec** (exact reducer signatures, error codes, cookie RFC polish).
+1. ~~Module domain core (tables, views, transfers, ACL, webhooks, apps, tokens/HTTP)~~ **done** (§7).
+2. ~~Document Topcoat edge decision + full migration inventory~~ **done** (§5, §6 D2/D26–D34, §8).
+3. **P1 — Topcoat foundation:** skeleton, layout, Tailwind/fonts/icons, BitAuth, STDB connect (follow §8.8 order).
+4. **Identity connection pool** immediately after connect works.
+5. One STDB-backed app page + Datastar live updates.
+6. Remaining app surfaces (§8.7 H*); case-by-case partials (D6).
+7. Module HTTP reverse-proxy (§8.5 / I*); update `docs/api/*`.
+8. Admin reducers on module (parallel track).
+9. Fly stateless + GHA (module publish + edge deploy); cut over; delete Go.
+
+Work items: tick §8.7 inventory and §18.2 as they land.
 
 ---
 
@@ -1046,6 +1232,7 @@ Any admin balance patch must either:
 | 2026-08-01 | `create_account_token` returns `Result<String, String>` instead of panicking on validation errors (avoids fatal WASM procedure errors) |
 | 2026-08-01 | HTTP account API: `GET /account`, list/create transfers, `PUT /account/transfer` finalize; shared transfer cores + `TransferActor` |
 | 2026-08-01 | Public HTTP account search: `GET /accounts?term&ledgerid` (limit default 10 max 50) |
+| 2026-08-02 | **Edge language change:** replace Go lite server with **Rust Topcoat**; official STDB Rust client; BitJita / `ADMIN_KEY` / PostHog / legacy `/api` shape **dropped**; Identity pool first milestone after connect; reverse-proxy for module HTTP on our domain; full edge inventory §8.7; phases/repo layout/decisions updated |
 
 ---
 
