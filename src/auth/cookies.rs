@@ -12,7 +12,7 @@ pub const COOKIE_OAUTH_PKCE: &str = "bitauth_oauth_pkce";
 pub const COOKIE_OAUTH_REDIRECT: &str = "bitauth_oauth_redirect";
 
 pub const OAUTH_ROUNDTRIP_MAX_AGE_SECS: i64 = 10 * 60;
-pub const TOKEN_MAX_AGE_SECS: i64 = 30 * 60;
+pub const TOKEN_MAX_AGE_SECS: i64 = 20 * 60;
 pub const REFRESH_MAX_AGE_SECS: i64 = 14 * 24 * 60 * 60;
 
 pub fn cookies(cx: &Cx) -> impl Cookies {
