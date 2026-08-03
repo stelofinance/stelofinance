@@ -1,87 +1,99 @@
 use topcoat::{
-    Result,
-    asset::{AssetBundle, RouterBuilderAssetExt, asset},
-    font::{Font, font},
-    router::{Router, RouterBuilderDiscoverExt, layout, module_router, page},
-    tailwind,
-    view::view,
+	Result,
+	asset::{AssetBundle, RouterBuilderAssetExt, asset},
+	cookie::RouterBuilderCookieExt,
+	font::{Font, font},
+	router::{Router, RouterBuilderDiscoverExt, layout, module_router, page},
+	tailwind,
+	view::view,
 };
 
+mod auth;
+mod login;
+
+use crate::auth::bitauth::BitAuth;
+
 const SOURCE_CODE_PRO: Font = font! {
-    "Source Code Pro",
-    @font-face {
-        src: url(asset!("https://cdn.jsdelivr.net/fontsource/fonts/source-code-pro:vf@5.3.0/latin-wght-normal.woff2")) format("woff2") tech("variations");
-        font-weight: 200 900;
-        font-style: normal;
-        font-display: swap;
-    }
-    @font-face {
-        src: url(asset!("https://cdn.jsdelivr.net/fontsource/fonts/source-code-pro:vf@5.3.0/latin-wght-italic.woff2")) format("woff2") tech("variations");
-        font-weight: 200 900;
-        font-style: italic;
-        font-display: swap;
-    }
+	"Source Code Pro",
+	@font-face {
+		src: url(asset!("https://cdn.jsdelivr.net/fontsource/fonts/source-code-pro:vf@5.3.0/latin-wght-normal.woff2")) format("woff2") tech("variations");
+		font-weight: 200 900;
+		font-style: normal;
+		font-display: swap;
+	}
+	@font-face {
+		src: url(asset!("https://cdn.jsdelivr.net/fontsource/fonts/source-code-pro:vf@5.3.0/latin-wght-italic.woff2")) format("woff2") tech("variations");
+		font-weight: 200 900;
+		font-style: italic;
+		font-display: swap;
+	}
 };
 
 /// Build the HTTP router for the lite edge.
-pub fn router() -> Router {
-    module_router!()
-        // Explicit-path handlers, fonts, etc. collected at link time.
-        .discover()
-        // Serves content-hashed assets under `/_topcoat/assets/...`.
-        // Produce the bundle with `topcoat asset bundle` or `topcoat dev`.
-        .assets(
-            AssetBundle::load()
-                .expect("asset bundle missing — run `topcoat asset bundle` or `topcoat dev`"),
-        )
-        .build()
+///
+/// Requires BitAuth env (`BITAUTH_CLIENT_ID`, `BITAUTH_CLIENT_SECRET`,
+/// `BITAUTH_REDIRECT_URL`, …); refuses to start if discovery/config fails.
+pub async fn router() -> Router {
+	let bitauth = BitAuth::from_env()
+		.await
+		.unwrap_or_else(|e| panic!("BitAuth required to start: {e}"));
+
+	module_router!()
+		.discover()
+		.cookies()
+		.app_context(bitauth)
+		.assets(
+			AssetBundle::load()
+				.expect("asset bundle missing — run `topcoat asset bundle` or `topcoat dev`"),
+		)
+		.build()
 }
 
-/// HTML shell: head assets + public body chrome for every page under this module tree.
 #[layout]
 async fn root_layout(slot: Result) -> Result {
-    view! {
-        <!DOCTYPE html>
-        <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>"Stelo Finance"</title>
-                <meta
-                    name="description"
-                    content="A finance platform for the game BitCraft. Free for any to use or build apps on through our API."
-                >
-                <link rel="icon" href=(asset!("assets/favicon.png"))>
-                topcoat::font::link(font: SOURCE_CODE_PRO)
-                <link rel="stylesheet" href=(tailwind::stylesheet!())>
-                // Hot-reload client when running under `topcoat dev`.
-                topcoat::dev::script()
-            </head>
-            <body class="min-h-dvh bg-neutral-900 font-source-code-pro text-white">
-                (slot?)
-            </body>
-        </html>
-    }
+	view! {
+		<!DOCTYPE html>
+		<html lang="en">
+			<head>
+				<meta charset="UTF-8">
+				<meta name="viewport" content="width=device-width, initial-scale=1.0">
+				<title>"Stelo Finance"</title>
+				<meta
+					name="description"
+					content="A finance platform for the game BitCraft. Free for any to use or build apps on through our API."
+				>
+				<link rel="icon" href=(asset!("assets/favicon.png"))>
+				topcoat::font::link(font: SOURCE_CODE_PRO)
+				<link rel="stylesheet" href=(tailwind::stylesheet!())>
+				topcoat::dev::script()
+			</head>
+			<body class="min-h-dvh bg-neutral-900 font-source-code-pro text-white">
+				(slot?)
+			</body>
+		</html>
+	}
 }
 
-/// Placeholder marketing homepage (full content ported later).
 #[page]
 async fn home() -> Result {
-    view! {
-        <main class="flex min-h-dvh flex-col items-center justify-center gap-4 px-4">
-            <p class="text-sm uppercase tracking-widest text-anakiwa">
-                "Stelo Finance"
-            </p>
-            <h1 class="text-center text-3xl font-medium text-melrose lg:text-4xl">
-                "Edge skeleton"
-            </h1>
-            <p class="max-w-lg text-center text-neutral-300">
-                "Topcoat layout, Stelo theme, Source Code Pro, and favicon are wired. "
-                "BitAuth and SpacetimeDB come next."
-            </p>
-            <p class="text-sm text-neutral-500">
-                "lite webserver · Rust / Topcoat"
-            </p>
-        </main>
-    }
+	view! {
+		<main class="flex min-h-dvh flex-col items-center justify-center gap-4 px-4">
+			<p class="text-sm uppercase tracking-widest text-anakiwa">
+				"Stelo Finance"
+			</p>
+			<h1 class="text-center text-3xl font-medium text-melrose lg:text-4xl">
+				"Edge skeleton"
+			</h1>
+			<p class="max-w-lg text-center text-neutral-300">
+				"Topcoat layout, Stelo theme, and BitAuth login are wired. "
+				"SpacetimeDB connection pool comes next."
+			</p>
+			<a href="/login" class="text-anakiwa underline hover:text-anakiwa-300">
+				"Login"
+			</a>
+			<p class="text-sm text-neutral-500">
+				"lite webserver · Rust / Topcoat"
+			</p>
+		</main>
+	}
 }

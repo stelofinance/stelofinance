@@ -81,7 +81,7 @@ Key domain invariant (must preserve):
 
 ```text
 Browser
-  │  cookie: stdb_id_token (+ optional stdb_refresh_token)
+  │  cookie: bitauth_token (+ optional bitauth_refresh_token)
   ▼
 Lite webserver (Rust / Topcoat)  ── acts as that user ──►  SpacetimeDB (mainnet / local)
   │   - HTTP routes (module auto-discovery)                    │
@@ -114,7 +114,7 @@ Desired properties:
 - Edge is **not** a god-mode service identity for user reads/writes.
 - Module authorization is based on `ctx.sender()` (STDB `Identity`), so direct clients reuse the same reducers/views.
 - Page render path: **one STDB session / identity context** loads the data needed for the template (via one-off queries or short-lived subscribe), rather than many ad-hoc DB round-trips. Prefer few views that return render-ready shapes.
-- **Auto-refresh** ID token from `stdb_refresh_token` when near expiry (best effort), before STDB connect when possible.
+- **Auto-refresh** ID token from `bitauth_refresh_token` when near expiry (best effort), before STDB connect when possible.
 
 **Target edge auth (Topcoat):**
 
@@ -122,13 +122,13 @@ Desired properties:
 |------|--------|
 | IdP | BitAuth — `https://auth.trinit.is/` (OIDC Auth Code + PKCE, confidential client) |
 | Edge OIDC | Rust OIDC stack (library TBD at implementation; same flow as current Go spike) |
-| Cookie (ID token for STDB) | `stdb_id_token` (HttpOnly, SameSite=Lax; Max-Age from JWT `exp`) |
-| Cookie (refresh) | `stdb_refresh_token` when `offline_access` granted (~14d BitAuth); used for auto-refresh |
-| Cookie Secure flag | `BITAUTH_SECURE_COOKIES` / prod; local HTTP often `false` |
+| Cookie (ID token for STDB) | `bitauth_token` (HttpOnly, SameSite=Lax; **Max-Age 30 minutes**) |
+| Cookie (refresh) | `bitauth_refresh_token` when `offline_access` granted (~14d BitAuth); used for auto-refresh |
+| Cookie Secure flag | **`ENV=prod` only** (no `BITAUTH_SECURE_COOKIES`) |
 | Login UX | Login page with **“Login with BitAuth”** button → authorize URL |
-| Login routes | `/auth/bitauth/login`, `/callback`, `/logout` (+ optional `/session` debug) |
+| Login routes | `/login`, `/auth/bitauth/login`, `/callback`, `/logout` (no session debug route) |
 | STDB client | **Official Rust SpacetimeDB SDK** + `spacetime generate` bindings |
-| Do not | Overwrite `stdb_id_token` with short-lived websocket tokens returned on connect |
+| Do not | Overwrite `bitauth_token` with short-lived STDB websocket tokens returned on connect |
 | Drop | BitJita `/login`, JetStream `sid`, edge `ADMIN_KEY` break-glass |
 
 **Go spike (historical, still in tree until cutover):** parallel `/auth/bitauth/*` routes + digitalxero connect smoke. Not the long-term edge.
@@ -177,7 +177,7 @@ Pool key is **STDB Identity** (or stable token identity), not OIDC client_id. Ev
 | D26 | Edge framework | **Topcoat** (`tokio-rs/topcoat`) | Module route auto-discovery; built-in Datastar, Tailwind, assets, icons, fonts |
 | D27 | Edge routing | **Topcoat module auto-discovery** | Prefer `Router::builder().discover()` over hand-rolled route tables |
 | D28 | Browser login UX | **Login page → “Login with BitAuth”** | Hard drop BitJita chat handshake |
-| D29 | Token refresh | **Auto-refresh near expiry** | Use `stdb_refresh_token` when present; best effort before STDB connect |
+| D29 | Token refresh | **Auto-refresh near expiry** | Use `bitauth_refresh_token` when present; best effort before STDB connect |
 | D30 | Edge error UX | **Map errors to toasts or full error pages** | Depending on severity / request type (HTML vs Datastar vs proxy JSON) |
 | D31 | Edge logging | **stdout** (structured if easy) | No NATS log bus; no remote log-level subscribe |
 | D32 | Analytics | **Drop PostHog** | Not ported to Topcoat |
@@ -226,7 +226,7 @@ All core tables **private** unless noted. Enums used instead of opaque integer c
 ```text
 BitAuth OIDC (browser / human)
     → Topcoat /auth/bitauth/* (PKCE + client secret)
-    → cookie stdb_id_token = OIDC ID token (+ optional refresh)
+    → cookie bitauth_token = OIDC ID token (+ optional refresh)
     → edge connects STDB WithToken(id_token) via Identity pool
     → host verifies JWT, Identity = f(iss, sub)
     → client_connected (lib.rs):
@@ -701,14 +701,15 @@ curl -s "$STDB/v1/database/stelofinance/route/account/ping" \
 | Drop | Go chi/tmpl, digitalxero, SQLite, NATS/JetStream, PostHog, BitJita, edge `ADMIN_KEY` |
 
 **Env (edge):**  
-`PORT`, `ENV`, `BITAUTH_ISSUER`, `BITAUTH_CLIENT_ID`, `BITAUTH_CLIENT_SECRET`, `BITAUTH_REDIRECT_URL`, `BITAUTH_LOGOUT_REDIRECT_URL`, `BITAUTH_OFFLINE_ACCESS`, `BITAUTH_SECURE_COOKIES`, `STDB_HOST`, `STDB_DATABASE` (and any Topcoat/cookie secrets if required).
+`PORT`, `ENV`, `BITAUTH_ISSUER`, `BITAUTH_CLIENT_ID`, `BITAUTH_CLIENT_SECRET`, `BITAUTH_REDIRECT_URL`, `BITAUTH_LOGOUT_REDIRECT_URL`, `STDB_HOST`, `STDB_DATABASE`. BitAuth env required to start (fail closed). Scopes always include `offline_access` (no toggle env).
 
 ### 8.2 Auth & cookies
 
-1. Login page: **“Login with BitAuth”** → `GET /auth/bitauth/login` (PKCE S256, scopes `openid profile` [+ `offline_access`]).
+1. Login page: **“Login with BitAuth”** → `GET /auth/bitauth/login` (PKCE S256, scopes `openid profile offline_access`).
 2. `GET /auth/bitauth/callback` → code exchange; verify ID token (iss/aud/nonce).
-3. Set cookies: `stdb_id_token`, optional `stdb_refresh_token`.
-4. **Auto-refresh** when ID token is near expiry (use refresh cookie if present); rewrite `stdb_id_token` Max-Age from new `exp`. Do **not** store short-lived STDB websocket tokens over the OIDC ID token.
+3. Set cookies: `bitauth_token` (Max-Age **30 minutes**), optional `bitauth_refresh_token` (~14d).
+4. **Auto-refresh** later when token near expiry (use refresh cookie); rewrite `bitauth_token`. Do **not** store short-lived STDB websocket tokens over the OIDC ID token.
+5. Cookie `Secure` when `ENV=prod` only.
 5. Requests to `/app/*`: require valid cookie (refresh if needed) → acquire pooled STDB connection as that identity.
 6. Logout: clear cookies; optional BitAuth `end_session`.
 7. Open-redirect protection on `?redirect=` (relative path only; same rules as Go `isValidRedirectURL`).
@@ -794,10 +795,10 @@ Work through these **one by one**. Status: `todo` until implemented in Topcoat. 
 
 | ID | System | Notes | Status |
 |----|--------|-------|--------|
-| B1 | BitAuth OIDC client | Discovery, PKCE, verify ID token, end_session | todo |
-| B2 | Login / callback / logout routes | Port BitAuth flow | todo |
-| B3 | Cookie jar | `stdb_id_token`, `stdb_refresh_token`, oauth state/nonce/pkce/redirect | todo |
-| B4 | Open-redirect protection | Relative path only | todo |
+| B1 | BitAuth OIDC client | Discovery, PKCE, verify ID token, end_session | **done** (`src/auth/bitauth.rs`) |
+| B2 | Login / callback / logout routes | `/login`, `/auth/bitauth/*` | **done** |
+| B3 | Cookie jar | `bitauth_token` (30m), `bitauth_refresh_token`, oauth state/nonce/pkce/redirect; Secure iff `ENV=prod` | **done** (`src/auth/cookies.rs`) |
+| B4 | Open-redirect protection | Relative path only | **done** |
 | B5 | Authed `/app` gate | Cookie required; no JetStream `sid` | todo |
 | B6 | Token auto-refresh near expiry | Best effort before STDB connect (D29) | todo |
 | B7 | ~~BitJita login~~ | **Drop** | n/a |
@@ -1026,7 +1027,7 @@ STDB module payload (breaking vs legacy `code` int — documented in `docs/api/w
 | ID | Topic | Status | Notes |
 |----|-------|--------|-------|
 | Q1 | Full threat model (abuse, spam transfers, energy, anonymous connect policy) | **Follow up later** | Issuer/aud gate exists for BitAuth; expand rate limits etc. |
-| Q2 | Cookie details: name, Max-Age, rotation, logout | **Mostly decided** | `stdb_id_token` / `stdb_refresh_token`; **auto-refresh near expiry** (D29); exact refresh skew TBD |
+| Q2 | Cookie details: name, Max-Age, rotation, logout | **Decided** | `bitauth_token` (30m) / `bitauth_refresh_token`; Secure iff prod; logout route yes, no `/session` debug |
 | Q3 | OIDC claim mapping | **Decided (dev)** | Stable `sub` = player id; `preferred_username` = display; see §7.2 |
 | Q4 | Account API token validation path | **Decided** | Module validates; edge reverse-proxies + forwards `Authorization` |
 | Q5 | Exact table/view/reducer names | **In flux** | Live schema in `spacetimedb/src/` |
@@ -1127,7 +1128,7 @@ stelofinance/
 - [x] `config.owner` at init; owner connect for CLI SQL
 - [x] `client_connected`: BitAuth iss/aud + User upsert (`Identity` PK, `preferred_username`)
 - [x] `User.is_admin` + `require_admin` helper (admin reducers TBD)
-- [x] BitAuth OIDC on **Go** parallel routes + cookies (`stdb_id_token`) — historical spike
+- [x] BitAuth OIDC on **Go** parallel routes + cookies (`bitauth_token`) — historical spike
 - [x] Go STDB connect smoke (`/auth/bitauth/stdb-connect`) — historical
 - [x] Document OIDC claims + cookie names (§5.2 / §7.2)
 - [x] `create_ledger` + `create_account` + transfers + seed + views + ACL + webhooks + apps + account tokens/HTTP
@@ -1157,7 +1158,7 @@ Track status in §8.7 inventory. Minimum P1 exit:
 | `gensql` models | Module tables + **Rust** client bindings |
 | `accounts.CreateTransfer` | `create_transfer` reducer |
 | `accounts.EventTransfer` + NATS publish | STDB row updates + webhook schedule |
-| JetStream sessions KV | `stdb_id_token` cookie (+ module `User`) |
+| JetStream sessions KV | `bitauth_token` cookie (+ module `User`) |
 | JetStream account tokens | **`account_token` + module HTTP** + edge reverse-proxy |
 | JetStream webhook stream | `webhook_delivery` + `deliver_webhook` |
 | `AppAccountsUpdates` NATS subs | STDB subscribe on views → Datastar |
@@ -1232,6 +1233,7 @@ Work items: tick §8.7 inventory and §18.2 as they land.
 | 2026-08-01 | `create_account_token` returns `Result<String, String>` instead of panicking on validation errors (avoids fatal WASM procedure errors) |
 | 2026-08-01 | HTTP account API: `GET /account`, list/create transfers, `PUT /account/transfer` finalize; shared transfer cores + `TransferActor` |
 | 2026-08-01 | Public HTTP account search: `GET /accounts?term&ledgerid` (limit default 10 max 50) |
+| 2026-08-03 | Topcoat BitAuth: cookies `bitauth_token` (30m) / `bitauth_refresh_token`; Secure iff `ENV=prod`; refuse start without BitAuth env; modules `src/auth/*`; logout yes, no session debug |
 | 2026-08-02 | **Edge language change:** replace Go lite server with **Rust Topcoat**; official STDB Rust client; BitJita / `ADMIN_KEY` / PostHog / legacy `/api` shape **dropped**; Identity pool first milestone after connect; reverse-proxy for module HTTP on our domain; full edge inventory §8.7; phases/repo layout/decisions updated |
 
 ---
