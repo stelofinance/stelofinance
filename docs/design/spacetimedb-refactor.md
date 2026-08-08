@@ -1,9 +1,9 @@
 # Design Doc: SpacetimeDB Refactor
 
-**Status:** Outline + **domain core done; Topcoat edge P1 in progress (BitAuth + C1–C2 done; C3 Identity pool designed as einro)** (§7–§8)  
-**Date:** 2026-07-24 (updated 2026-08-04)  
+**Status:** Outline + **domain core done; Topcoat edge P1 in progress (BitAuth + C1–C3 done; marketing home ported; app HTML surfaces next)** (§7–§8)  
+**Date:** 2026-07-24 (updated 2026-08-08)  
 **Author:** Stelo maintainers + design discussion  
-**Related:** Current stack is Go + SQLite (sqlc/goose) + embedded NATS/JetStream + Datastar; target edge is **Rust Topcoat** + first-party STDB client; module + BitAuth remain. **C3 pool design:** [einro-identity-pool.md](./einro-identity-pool.md).
+**Related:** Current stack is Go + SQLite (sqlc/goose) + embedded NATS/JetStream + Datastar; target edge is **Rust Topcoat** + first-party STDB client; module + BitAuth remain. **C3 pool design:** [einro-identity-pool.md](./einro-identity-pool.md). **HTML app feature parity (pages, reactivity, build order):** [app-surface-parity.md](./app-surface-parity.md) — agents porting `/app` pages should load that doc alongside this one.
 
 ---
 
@@ -862,6 +862,8 @@ Work through these **one by one**. Status: `todo` until implemented in Topcoat. 
 
 #### H — App HTML surfaces (call module; no domain rules)
 
+**Full parity inventory (content, actions, reactivity, gaps, build order):** [app-surface-parity.md](./app-surface-parity.md). Tick both that doc and the rows below as surfaces land. Chrome redesign is allowed; capabilities there are the floor.
+
 | ID | Surface | Go routes (reference) | Status |
 |----|---------|----------------------|--------|
 | H1 | Accounts list + create + live updates | `GET/POST /app/accounts`, `GET .../updates` | todo |
@@ -870,7 +872,11 @@ Work through these **one by one**. Status: `todo` until implemented in Topcoat. 
 | H4 | Payment request | `GET /app/request`, `POST .../transfers` | todo |
 | H5 | Logout | clear cookies / end_session | todo |
 
-#### I — API reverse-proxy
+Also covered in the parity doc (not separate H rows): marketing home (D2, **rough done**), login (D3), app home `/app`, shell chrome.
+
+#### I — API reverse-proxy (required; not HTML pages)
+
+Third-party **JSON HTTP** is **cutover-required**, not part of the Datastar page port. Domain lives in module HTTP (§7.10); edge must **reverse-proxy** onto our domain with a **new path shape** (not legacy Go `/api/...`). Full Go `/api/*` route list and mapping notes: [app-surface-parity.md § Non-HTML surfaces](./app-surface-parity.md#non-html-surfaces) + §9 below.
 
 | ID | System | Notes | Status |
 |----|--------|-------|--------|
@@ -917,8 +923,8 @@ Work through these **one by one**. Status: `todo` until implemented in Topcoat. 
 5. **Identity connection pool** (C3).
 6. One app page from STDB + Datastar subscribe (C4–C5, H1 slice).
 7. Error mapping polish (C6).
-8. Remaining app surfaces (H2–H5, D6 case-by-case).
-9. Module HTTP reverse-proxy (I1–I3).
+8. Remaining app surfaces (H2–H5, D6 case-by-case) — **detail + HTML build order:** [app-surface-parity.md](./app-surface-parity.md).
+9. Module HTTP reverse-proxy (I1–I3) — **required for JSON API cutover** (§9); not a page port.
 10. Fly + GHA cutover; delete Go edge (K4–K6, §8.6).
 
 ---
@@ -927,7 +933,9 @@ Work through these **one by one**. Status: `todo` until implemented in Topcoat. 
 
 ### 9.1 External JSON API
 
-**Target:** module HTTP handlers (§7.10) are the domain implementation. The **Topcoat edge reverse-proxies** them onto **our domain** with a **new public path shape** (not legacy Go `/api/...`). Edge may reshape routes (e.g. path params) when STDB module HTTP cannot express them yet (§8.5).
+**Required product surface (not optional HTML work):** partners and tools that use plain HTTP/JSON must keep working after cutover. Domain implementation is **module HTTP** (§7.10). The **Topcoat edge reverse-proxies** those handlers onto **our domain** with a **new public path shape** (not legacy Go `/api/...`). Edge may reshape routes (e.g. path params) when STDB module HTTP cannot express them yet (§8.5, inventory **I1–I3**).
+
+HTML Datastar pages are inventoried separately in [app-surface-parity.md](./app-surface-parity.md); that doc only **points** at this section for API work.
 
 | Area | Strategy |
 |------|----------|
@@ -937,6 +945,8 @@ Work through these **one by one**. Status: `todo` until implemented in Topcoat. 
 | Webhooks get/put/delete | Views + reducers / HTTP + proxy when needed |
 
 **Breaking change vs Go `/api`:** intentional. Update `docs/api/*` when edge public paths land. STDB IDs may differ from old SQLite integers (u64 vs int64) — document at cutover.
+
+**Must not drop at cutover:** account-scoped token auth + transfer/webhook/account read surfaces that third parties use today (see Go `/api/accounts/{id}/*` and module §7.10). Path strings may change; document the break.
 
 ### 9.2 Direct STDB clients (apps)
 
@@ -1004,8 +1014,8 @@ STDB module payload (breaking vs legacy `code` int — documented in `docs/api/w
 |-------|------|----------------|
 | **P0 — Module spike** | Module skeleton + BitAuth connect + tables; transfers, views, ACL, webhooks, apps, tokens | Domain core usable via STDB (largely **done**) |
 | **P1 — Topcoat edge foundation** | Topcoat skeleton, theme/assets, BitAuth, STDB connect, **Identity pool**, one STDB-backed page + Datastar | Browser login + one live page without Go domain path |
-| **P2 — App surface parity** | Port remaining `/app` pages/actions (inventory §8.7 H*) | Full web UX on Topcoat + STDB |
-| **P3 — API reverse-proxy** | Edge proxy of module HTTP; new public paths; docs | Third parties hit our domain; no Go `/api` |
+| **P2 — App surface parity** | Port `/app` pages/actions per [app-surface-parity.md](./app-surface-parity.md) + §8.7 H* | Full web UX on Topcoat + STDB |
+| **P3 — API reverse-proxy** | Edge proxy of module HTTP; new public paths; docs (**required** JSON cutover, §9 / I*) | Third parties hit our domain; no Go `/api` |
 | **P4 — Domain leftovers** | Admin reducers, any missing HTTP routes | Parity matrix green |
 | **P5 — Import** | Script/reducer import of users/accounts/balances/transfers | Audit invariant holds; tester accounts usable |
 | **P6 — Cutover** | Mainnet module; Topcoat on Fly (stateless); GHA deploys; decommission Go + SQLite + NATS volumes | Stable prod; old DB read-only archive |
@@ -1190,14 +1200,14 @@ Any admin balance patch must either:
 1. ~~Module domain core (tables, views, transfers, ACL, webhooks, apps, tokens/HTTP)~~ **done** (§7).
 2. ~~Document Topcoat edge decision + full migration inventory~~ **done** (§5, §6 D2/D26–D34, §8).
 3. ~~Topcoat skeleton + BitAuth + C1 (SDK + `spacetime generate` bindings)~~ **done**.
-4. ~~**C2 connect-as-user**~~ **done** (`src/stdb/*`, `GET /stdb-smoke`). **C3 Identity pool** next.
-5. One STDB-backed app page + Datastar live updates (C4–C5 / H1 slice).
-6. Remaining app surfaces (§8.7 H*); case-by-case partials (D6).
-7. Module HTTP reverse-proxy (§8.5 / I*); update `docs/api/*`.
+4. ~~**C2 connect-as-user** + **C3 einro pool**~~ **done** (`src/stdb/*`, `src/einro/*`).
+5. ~~Marketing homepage (D2)~~ **rough done** (`src/app.rs` + `src/ui/*`).
+6. App HTML surfaces per [app-surface-parity.md](./app-surface-parity.md) (shell → H1 accounts → H3 transfers → H2 account admin → H4 payment request → H5 logout in chrome).
+7. Module HTTP reverse-proxy (**required** JSON API cutover: §8.5 / I* / §9); update `docs/api/*`.
 8. Admin reducers on module (parallel track).
 9. Fly stateless + GHA (module publish + edge deploy); cut over; delete Go.
 
-Work items: tick §8.7 inventory and §18.2 as they land.
+Work items: tick §8.7 inventory, [app-surface-parity.md](./app-surface-parity.md), and §18.2 as they land.
 
 ---
 
@@ -1242,9 +1252,11 @@ Work items: tick §8.7 inventory and §18.2 as they land.
 | 2026-08-05 | **einro v1:** connection-only pool (`src/einro/`); shared handles; JWT peek; Stelo `StdbConnector`; smoke uses pool; subs remain app-owned; design doc trimmed |
 | 2026-08-05 | **einro policy B:** verify-then-reuse; untrusted peek removed; `TokenValidator` + Stelo `OidcJwtValidator` (`jsonwebtoken` + BitAuth JWKS); blocks pool piggyback on forged/expired tokens |
 | 2026-08-05 | **einro pivot:** token-string key only; no JWT peek/verify/Identity in pool; idle TTL; STDB owns auth at connect; **E1 expiry testing strongly required** |
+| 2026-08-08 | Marketing homepage ported to Topcoat (`src/ui/*` chrome/icons + `home` page); public nav/footer |
+| 2026-08-08 | **App HTML parity doc:** [app-surface-parity.md](./app-surface-parity.md) — Go pages, reactivity map, build order; linked from §8.7 H*, §8.8, §9, §21 |
 
 ---
 
 ## SOURCE OF TRUTH
 
-This document should remain the source of truth during this refactor. If the user presents things contrary to this document or in addition to this document, inform the user of that deviation/addition and **update this document** to reflect their decision. Live schema details in `spacetimedb/src/` win on drift until synced here.
+This document should remain the source of truth during this refactor. **HTML app surface parity** (what each Go page does, reactivity, suggested build order) lives in [app-surface-parity.md](./app-surface-parity.md) — load it when porting browser pages. If the user presents things contrary to this document or in addition to this document, inform the user of that deviation/addition and **update this document** (and the parity doc when page scope changes) to reflect their decision. Live schema details in `spacetimedb/src/` win on drift until synced here.
