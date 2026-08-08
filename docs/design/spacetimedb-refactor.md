@@ -1,9 +1,9 @@
 # Design Doc: SpacetimeDB Refactor
 
-**Status:** Outline + **domain core + webhooks + apps + account HTTP tokens done; Topcoat edge migration inventory next** (§7.7–§7.10, §8)  
-**Date:** 2026-07-24 (updated 2026-08-02)  
+**Status:** Outline + **domain core done; Topcoat edge P1 in progress (BitAuth + C1–C2 done; C3 Identity pool designed as einro)** (§7–§8)  
+**Date:** 2026-07-24 (updated 2026-08-04)  
 **Author:** Stelo maintainers + design discussion  
-**Related:** Current stack is Go + SQLite (sqlc/goose) + embedded NATS/JetStream + Datastar; target edge is **Rust Topcoat** + first-party STDB client; module + BitAuth remain
+**Related:** Current stack is Go + SQLite (sqlc/goose) + embedded NATS/JetStream + Datastar; target edge is **Rust Topcoat** + first-party STDB client; module + BitAuth remain. **C3 pool design:** [einro-identity-pool.md](./einro-identity-pool.md).
 
 ---
 
@@ -800,7 +800,7 @@ Work through these **one by one**. Status: `todo` until implemented in Topcoat. 
 | B3 | Cookie jar | `bitauth_token` (30m), `bitauth_refresh_token`, oauth state/nonce/pkce/redirect; Secure iff `ENV=prod` | **done** (`src/auth/cookies.rs`) |
 | B4 | Open-redirect protection | Relative path only | **done** |
 | B5 | Authed `/app` gate | Cookie required; no JetStream `sid` | todo |
-| B6 | Token auto-refresh near expiry | Best effort before STDB connect (D29) | todo |
+| B6 | Token auto-refresh near expiry | Best effort before STDB connect (D29): `ensure_bearer` + `BitAuth::refresh`; skew **15s** (STDB connect leeway ~60s) | **done** (`src/auth/session.rs`) |
 | B7 | ~~BitJita login~~ | **Drop** | n/a |
 | B8 | ~~JetStream user sessions~~ | **Drop** | n/a |
 | B9 | ~~Edge `ADMIN_KEY`~~ | **Drop** — `User.is_admin` only | n/a |
@@ -809,9 +809,9 @@ Work through these **one by one**. Status: `todo` until implemented in Topcoat. 
 
 | ID | System | Notes | Status |
 |----|--------|-------|--------|
-| C1 | Official Rust STDB SDK + bindings | `spacetime generate` into edge crate | todo |
-| C2 | Connect-as-user | Cookie ID token → WithToken | todo |
-| C3 | Per-Identity connection pool | **First milestone after C2** (§5.3) | todo |
+| C1 | Official Rust STDB SDK + bindings | `spacetimedb-sdk` 2.7.* + `spacetime generate` → `src/module_bindings/`; `task stdb:generate` | **done** |
+| C2 | Connect-as-user | Cookie `bitauth_token` → `with_token`; `STDB_HOST`/`STDB_DATABASE`; validated via temporary smoke (removed) | **done** |
+| C3 | Connection pool (token-keyed) | [einro](./einro-identity-pool.md): exact token → conn; no JWT in pool; idle TTL | **in progress** |
 | C4 | Page-load queries / reducers | Views + CallReducer via pool | todo |
 | C5 | Live subscribe for Datastar | my_accounts / my_transfers etc. | todo |
 | C6 | Error mapping | Toasts vs full pages vs JSON (D30) | todo |
@@ -1139,10 +1139,11 @@ stelofinance/
 
 Track status in §8.7 inventory. Minimum P1 exit:
 
-- [ ] Topcoat skeleton + auto-discovery routes + layout + theme/fonts/favicon
-- [ ] BitAuth OIDC on Topcoat + login page (“Login with BitAuth”)
-- [ ] Official Rust STDB client + generated bindings; connect-as-user
-- [ ] Per-Identity connection pool
+- [x] Topcoat skeleton + auto-discovery routes + layout + theme/fonts/favicon (partial — marketing chrome/icons later)
+- [x] BitAuth OIDC on Topcoat + login page (“Login with BitAuth”)
+- [x] Official Rust STDB client + generated bindings (`spacetimedb-sdk` + `src/module_bindings`)
+- [x] Connect-as-user (C2): cookie token → STDB (temporary smoke removed after validation)
+- [x] Token-keyed connection pool (C3 / einro) + `ensure_bearer` refresh (B6)
 - [ ] One app page from STDB + Datastar subscribe → patch on transfer
 - [ ] Health check for deploy; stdout logging
 - [ ] (Follow-on) reverse-proxy slice for module `ping` routes
@@ -1188,9 +1189,9 @@ Any admin balance patch must either:
 
 1. ~~Module domain core (tables, views, transfers, ACL, webhooks, apps, tokens/HTTP)~~ **done** (§7).
 2. ~~Document Topcoat edge decision + full migration inventory~~ **done** (§5, §6 D2/D26–D34, §8).
-3. **P1 — Topcoat foundation:** skeleton, layout, Tailwind/fonts/icons, BitAuth, STDB connect (follow §8.8 order).
-4. **Identity connection pool** immediately after connect works.
-5. One STDB-backed app page + Datastar live updates.
+3. ~~Topcoat skeleton + BitAuth + C1 (SDK + `spacetime generate` bindings)~~ **done**.
+4. ~~**C2 connect-as-user**~~ **done** (`src/stdb/*`, `GET /stdb-smoke`). **C3 Identity pool** next.
+5. One STDB-backed app page + Datastar live updates (C4–C5 / H1 slice).
 6. Remaining app surfaces (§8.7 H*); case-by-case partials (D6).
 7. Module HTTP reverse-proxy (§8.5 / I*); update `docs/api/*`.
 8. Admin reducers on module (parallel track).
@@ -1235,6 +1236,12 @@ Work items: tick §8.7 inventory and §18.2 as they land.
 | 2026-08-01 | Public HTTP account search: `GET /accounts?term&ledgerid` (limit default 10 max 50) |
 | 2026-08-03 | Topcoat BitAuth: cookies `bitauth_token` (30m) / `bitauth_refresh_token`; Secure iff `ENV=prod`; refuse start without BitAuth env; modules `src/auth/*`; logout yes, no session debug |
 | 2026-08-02 | **Edge language change:** replace Go lite server with **Rust Topcoat**; official STDB Rust client; BitJita / `ADMIN_KEY` / PostHog / legacy `/api` shape **dropped**; Identity pool first milestone after connect; reverse-proxy for module HTTP on our domain; full edge inventory §8.7; phases/repo layout/decisions updated |
+| 2026-08-04 | **C1 done:** edge dep `spacetimedb-sdk` 2.7.*; `spacetime generate --lang rust` → `src/module_bindings/`; `task stdb:generate`; `stdb:dev` regenerates (no `--skip-generate`); `stdb:publish`/`reset` depend on generate |
+| 2026-08-04 | **C2 done (smoke):** `StdbConfig` from `STDB_HOST`/`STDB_DATABASE`; one-shot connect + subscribe `my_user`; page `GET /stdb-smoke`; no cookie overwrite with WS token |
+| 2026-08-04 | **C3 design (einro):** `docs/design/einro-identity-pool.md` — Identity keying via `from_claims`, exclusive checkout, external refresh, experiments E1–E4 |
+| 2026-08-05 | **einro v1:** connection-only pool (`src/einro/`); shared handles; JWT peek; Stelo `StdbConnector`; smoke uses pool; subs remain app-owned; design doc trimmed |
+| 2026-08-05 | **einro policy B:** verify-then-reuse; untrusted peek removed; `TokenValidator` + Stelo `OidcJwtValidator` (`jsonwebtoken` + BitAuth JWKS); blocks pool piggyback on forged/expired tokens |
+| 2026-08-05 | **einro pivot:** token-string key only; no JWT peek/verify/Identity in pool; idle TTL; STDB owns auth at connect; **E1 expiry testing strongly required** |
 
 ---
 

@@ -1,7 +1,7 @@
 use openidconnect::{
 	AuthorizationCode, ClientId, ClientSecret, CsrfToken, EndpointMaybeSet, EndpointNotSet,
 	EndpointSet, IssuerUrl, Nonce, OAuth2TokenResponse, PkceCodeChallenge, PkceCodeVerifier,
-	ProviderMetadataWithLogout, RedirectUrl, Scope, TokenResponse,
+	ProviderMetadataWithLogout, RedirectUrl, RefreshToken, Scope, TokenResponse,
 	core::{CoreAuthenticationFlow, CoreClient, CoreTokenResponse},
 	reqwest,
 	url::Url,
@@ -147,6 +147,40 @@ impl BitAuth {
 				&Nonce::new(nonce.to_owned()),
 			)
 			.map_err(|e| format!("id_token verify: {e}"))?;
+
+		Ok(AuthTokens {
+			id_token: id_token.to_string(),
+			refresh_token: token_response.refresh_token().map(|t| t.secret().clone()),
+		})
+	}
+
+	/// Exchange a refresh token for a new ID token (and possibly a rotated refresh token).
+	///
+	/// Verifies the new ID token signature / iss / aud / exp. Nonce is not checked
+	/// (refresh responses are not bound to the original authorize nonce).
+	pub async fn refresh(&self, refresh_token: &str) -> Result<AuthTokens, String> {
+		let token_response: CoreTokenResponse = self
+			.inner
+			.client
+			.exchange_refresh_token(&RefreshToken::new(refresh_token.to_owned()))
+			.map_err(|e| format!("refresh config: {e}"))?
+			.add_scope(Scope::new("openid".to_owned()))
+			.add_scope(Scope::new("profile".to_owned()))
+			.request_async(&self.inner.http)
+			.await
+			.map_err(|e| format!("refresh request: {e}"))?;
+
+		let id_token = token_response
+			.id_token()
+			.ok_or_else(|| "provider did not return an id_token on refresh".to_owned())?
+			.clone();
+
+		id_token
+			.claims(
+				&self.inner.client.id_token_verifier(),
+				|_: Option<&Nonce>| Ok(()),
+			)
+			.map_err(|e| format!("id_token verify (refresh): {e}"))?;
 
 		Ok(AuthTokens {
 			id_token: id_token.to_string(),

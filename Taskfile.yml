@@ -94,21 +94,37 @@ tasks:
     cmds:
       - spacetime build -p spacetimedb --debug
 
+  stdb:generate:
+    desc: Generate Rust client bindings into src/module_bindings (builds module first)
+    cmds:
+      - mkdir -p src/module_bindings
+      - spacetime generate --lang rust --out-dir src/module_bindings --module-path spacetimedb -y
+    sources:
+      - spacetimedb/src/**/*.rs
+      - spacetimedb/Cargo.toml
+      - spacetime.json
+      - spacetime.dev.json
+    generates:
+      - src/module_bindings/**/*
+
   stdb:publish:
     desc: Build and publish module to local DB (stelofinance)
     cmds:
       - spacetime publish --env dev -y
+    deps: [stdb:generate]
 
   stdb:reset:
     desc: Publish module and wipe DB data (destructive; use when schema thrashing)
     cmds:
       - spacetime publish --env dev -y --delete-data=always
+    deps: [stdb:generate]
 
   stdb:dev:
-    desc: Watch module source; rebuild + republish on change (requires stdb:start)
+    desc: Watch module source; rebuild, republish, and regenerate client bindings (requires stdb:start)
     cmds:
-      # --server-only: no client app; --skip-generate: no client bindings yet
-      - spacetime dev --server-only --skip-generate -y
+      # --server-only: Topcoat edge is started separately (task live:topcoat)
+      # Default bindings path is src/module_bindings; --client-lang rust for the edge crate
+      - spacetime dev --server-only --client-lang rust --module-bindings-path src/module_bindings -y
 
   stdb:live:
     desc: Module live reload (alias for stdb:dev; run stdb:start in another terminal)

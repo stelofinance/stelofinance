@@ -12,6 +12,7 @@ mod auth;
 mod login;
 
 use crate::auth::bitauth::BitAuth;
+use crate::stdb::StdbState;
 
 const SOURCE_CODE_PRO: Font = font! {
 	"Source Code Pro",
@@ -33,15 +34,23 @@ const SOURCE_CODE_PRO: Font = font! {
 ///
 /// Requires BitAuth env (`BITAUTH_CLIENT_ID`, `BITAUTH_CLIENT_SECRET`,
 /// `BITAUTH_REDIRECT_URL`, …); refuses to start if discovery/config fails.
+///
+/// STDB: `STDB_HOST` + `STDB_DATABASE` (defaults: local standalone + `stelofinance`).
 pub async fn router() -> Router {
 	let bitauth = BitAuth::from_env()
 		.await
 		.unwrap_or_else(|e| panic!("BitAuth required to start: {e}"));
+	let stdb = StdbState::from_env();
+	eprintln!(
+		"stdb: host={} database={} (einro token-keyed pool)",
+		stdb.config.host, stdb.config.database
+	);
 
 	module_router!()
 		.discover()
 		.cookies()
 		.app_context(bitauth)
+		.app_context(stdb)
 		.assets(
 			AssetBundle::load()
 				.expect("asset bundle missing — run `topcoat asset bundle` or `topcoat dev`"),
@@ -85,12 +94,13 @@ async fn home() -> Result {
 				"Edge skeleton"
 			</h1>
 			<p class="max-w-lg text-center text-neutral-300">
-				"Topcoat layout, Stelo theme, and BitAuth login are wired. "
-				"SpacetimeDB connection pool comes next."
+				"Topcoat layout, BitAuth, einro STDB pool, and token auto-refresh are wired."
 			</p>
-			<a href="/login" class="text-anakiwa underline hover:text-anakiwa-300">
-				"Login"
-			</a>
+			<div class="flex flex-wrap items-center justify-center gap-4">
+				<a href="/login" class="text-anakiwa underline hover:text-anakiwa-300">
+					"Login"
+				</a>
+			</div>
 			<p class="text-sm text-neutral-500">
 				"lite webserver · Rust / Topcoat"
 			</p>

@@ -13,6 +13,8 @@ result
 spacetimedb/target/
 spacetime.local.json
 spacetime.*.local.json
+# StDB client bindings
+src/module_bindings
 
 
 # Added by cargo

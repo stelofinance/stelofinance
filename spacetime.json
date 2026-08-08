@@ -1,4 +1,8 @@
 {
+  "dev": {
+    "run": "task live:topcoat"
+  },
   "database": "stelofinance",
-  "module-path": "./spacetimedb"
+  "module-path": "./spacetimedb",
+  "server": "local"
 }

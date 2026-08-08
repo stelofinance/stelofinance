@@ -1,6 +1,7 @@
+use crate::auth::bitauth::AuthTokens;
 use topcoat::{
 	context::Cx,
-	cookie::{Cookie, Cookies, SameSite, cookies as root_cookies},
+	cookie::{Cookie, Cookies, SameSite, cookies as root_cookies, time::Duration},
 };
 
 pub const COOKIE_TOKEN: &str = "bitauth_token";
@@ -14,6 +15,12 @@ pub const COOKIE_OAUTH_REDIRECT: &str = "bitauth_oauth_redirect";
 pub const OAUTH_ROUNDTRIP_MAX_AGE_SECS: i64 = 10 * 60;
 pub const TOKEN_MAX_AGE_SECS: i64 = 20 * 60;
 pub const REFRESH_MAX_AGE_SECS: i64 = 14 * 24 * 60 * 60;
+/// Refresh when ID token `exp` is within this many seconds (or already past).
+///
+/// SpacetimeDB accepts connect JWTs with ~60s post-`exp` leeway and does not
+/// close live sockets when the connect token later expires, so a short skew is
+/// enough: refresh near expiry so new acquires stay well inside that leeway.
+pub const TOKEN_REFRESH_SKEW_SECS: u64 = 15;
 
 pub fn cookies(cx: &Cx) -> impl Cookies {
 	root_cookies(cx)
@@ -34,6 +41,23 @@ pub fn clear_cookie(cx: &Cx, name: &str) {
 pub fn clear_auth_cookies(cx: &Cx) {
 	clear_cookie(cx, COOKIE_TOKEN);
 	clear_cookie(cx, COOKIE_REFRESH);
+}
+
+/// Write `bitauth_token` (+ optional rotated refresh) after login or refresh.
+pub fn set_auth_cookies(cx: &Cx, tokens: AuthTokens) {
+	let jar = cookies(cx);
+	jar.add(
+		Cookie::build((COOKIE_TOKEN, tokens.id_token))
+			.max_age(Duration::seconds(TOKEN_MAX_AGE_SECS))
+			.build(),
+	);
+	if let Some(refresh) = tokens.refresh_token {
+		jar.add(
+			Cookie::build((COOKIE_REFRESH, refresh))
+				.max_age(Duration::seconds(REFRESH_MAX_AGE_SECS))
+				.build(),
+		);
+	}
 }
 
 pub fn clear_oauth_cookies(cx: &Cx) {

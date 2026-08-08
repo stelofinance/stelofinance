@@ -4,9 +4,14 @@
 	edition = "2024"
 
 [dependencies]
+	base64 = "0.22"
 	openidconnect = "4.0.1"
-	tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros"] }
+	spacetimedb-sdk = "2.7.*"
+	tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 	topcoat = { version = "0.5.0", features = ["tailwind"] }
+
+[dev-dependencies]
+	tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 
 [build-dependencies]
 	topcoat = { version = "0.5.0", default-features = false, features = [

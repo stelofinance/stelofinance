@@ -2,14 +2,12 @@ use crate::auth::{
 	bitauth::BitAuth,
 	cookies::{
 		COOKIE_OAUTH_NONCE, COOKIE_OAUTH_PKCE, COOKIE_OAUTH_REDIRECT, COOKIE_OAUTH_STATE,
-		COOKIE_REFRESH, COOKIE_TOKEN, REFRESH_MAX_AGE_SECS, TOKEN_MAX_AGE_SECS,
-		clear_oauth_cookies, cookies, get_cookie, is_valid_redirect,
+		clear_oauth_cookies, get_cookie, is_valid_redirect, set_auth_cookies,
 	},
 };
 use topcoat::{
 	Result,
 	context::{Cx, app_context},
-	cookie::{Cookie, Cookies, time::Duration},
 	router::{
 		error::{SeeOther, bad_request, see_other},
 		query_params, route,
@@ -66,19 +64,7 @@ async fn callback(cx: &Cx) -> Result<SeeOther> {
 			bad_request("token exchange failed")
 		})?;
 
-	let jar = cookies(cx);
-	jar.add(
-		Cookie::build((COOKIE_TOKEN, tokens.id_token))
-			.max_age(Duration::seconds(TOKEN_MAX_AGE_SECS))
-			.build(),
-	);
-	if let Some(refresh) = tokens.refresh_token {
-		jar.add(
-			Cookie::build((COOKIE_REFRESH, refresh))
-				.max_age(Duration::seconds(REFRESH_MAX_AGE_SECS))
-				.build(),
-		);
-	}
+	set_auth_cookies(cx, tokens);
 
 	let mut dest = "/".to_owned();
 	if let Some(redir) = get_cookie(cx, COOKIE_OAUTH_REDIRECT) {
