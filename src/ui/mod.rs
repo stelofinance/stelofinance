@@ -6,6 +6,8 @@ pub mod illustrations;
 pub mod nav;
 
 pub use footer::public_footer;
-pub use icons::{discord, github, logo_colored, right_arrow};
+pub use icons::{
+	activity, discord, github, logo_colored, logo_full, right_arrow, transfer, wallet,
+};
 pub use illustrations::nintron;
 pub use nav::public_nav;

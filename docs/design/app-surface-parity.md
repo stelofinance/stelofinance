@@ -41,7 +41,10 @@ This document is the **hard feature-parity floor** for browser HTML surfaces. Re
 | 7 | Transfers | Filter account; history; send + recipient search + memo + idempotency | **Yes** (history/bal) | H3 |
 | 8 | Payment request | Query-prefilled pay flow | No (one-shot submit) | H4 |
 
-**Chrome capability:** reach Home / Accounts / Transfers / Logout (exact UI may change).
+**Chrome capability (Topcoat Option A, 2026-08-08):**  
+Desktop/tablet top: logo→`/app` · Accounts · Activity · Transfer▾ (Send / Deposit / Withdraw) · username→`/app/me`.  
+Mobile top: logo + username only; bottom: Accounts · Activity · Transfer (send).  
+Logout lives on `/app/me` (profile page — more content planned).
 
 ---
 

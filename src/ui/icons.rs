@@ -26,6 +26,21 @@ const DISCORD: IconData = IconData::unescaped_unchecked(
 	include_str!("svg/discord.svg"),
 );
 
+const WALLET: IconData = IconData::unescaped_unchecked(
+	ViewBox::new(0.0, 0.0, 24.0, 24.0),
+	include_str!("svg/wallet.svg"),
+);
+
+const TRANSFER: IconData = IconData::unescaped_unchecked(
+	ViewBox::new(0.0, 0.0, 24.0, 24.0),
+	include_str!("svg/transfer.svg"),
+);
+
+const ACTIVITY: IconData = IconData::unescaped_unchecked(
+	ViewBox::new(0.0, 0.0, 24.0, 24.0),
+	include_str!("svg/activity.svg"),
+);
+
 /// Colored hexagonal star (hero). Non-square; size via `class`.
 #[component]
 pub async fn logo_colored(#[into] class: String) -> Result {
@@ -90,6 +105,39 @@ pub async fn discord(#[into] class: String) -> Result {
 		icon(
 			data: DISCORD,
 			label: "Discord Icon",
+			attrs: attributes! { class=(class) },
+		)
+	}
+}
+
+#[component]
+pub async fn wallet(#[into] class: String) -> Result {
+	view! {
+		icon(
+			data: WALLET,
+			label: "Accounts",
+			attrs: attributes! { class=(class) },
+		)
+	}
+}
+
+#[component]
+pub async fn transfer(#[into] class: String) -> Result {
+	view! {
+		icon(
+			data: TRANSFER,
+			label: "Transfer",
+			attrs: attributes! { class=(class) },
+		)
+	}
+}
+
+#[component]
+pub async fn activity(#[into] class: String) -> Result {
+	view! {
+		icon(
+			data: ACTIVITY,
+			label: "Activity",
 			attrs: attributes! { class=(class) },
 		)
 	}

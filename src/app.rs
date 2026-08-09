@@ -9,6 +9,7 @@ use topcoat::{
 	view::view,
 };
 
+mod app;
 mod auth;
 mod login;
 
@@ -79,12 +80,17 @@ async fn root_layout(slot: Result) -> Result {
 				<link rel="icon" href=(asset!("assets/favicon.png"))>
 				topcoat::font::link(font: SOURCE_CODE_PRO)
 				<link rel="stylesheet" href=(tailwind::stylesheet!())>
+				// Datastar client (inline data-* handlers, e.g. Transfer menu hover).
+				<script
+					type="module"
+					src=(asset!("https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.2/bundles/datastar.js"))
+				></script>
 				topcoat::dev::script()
 			</head>
 			<body class="bg-neutral-900 font-source-code-pro text-white">
-				public_nav()
+				// Document shell only. Marketing pages opt into public_nav/footer;
+				// `/app/*` uses its own chrome in `app::app` layout.
 				(slot?)
-				public_footer()
 			</body>
 		</html>
 	}
@@ -140,6 +146,7 @@ async fn home(cx: &Cx) -> Result {
 	let cta_label = if is_authed { "Dashboard" } else { "Log In" };
 
 	view! {
+		public_nav()
 		<main>
 			<div class="relative flex h-screen-available flex-col items-center justify-center">
 				<div class="mb-40 flex flex-col items-center gap-4 text-white lg:flex-row lg:gap-10 2xl:gap-14">
@@ -266,5 +273,6 @@ async fn home(cx: &Cx) -> Result {
 				nintron(class: "hidden xl:block")
 			</div>
 		</main>
+		public_footer()
 	}
 }

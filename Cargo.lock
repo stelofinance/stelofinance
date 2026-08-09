@@ -3447,6 +3447,7 @@ dependencies = [
  "topcoat-cookie",
  "topcoat-core",
  "topcoat-core-macro",
+ "topcoat-datastar",
  "topcoat-font",
  "topcoat-font-macro",
  "topcoat-icon",
@@ -3535,6 +3536,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "topcoat-datastar"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fa8c06075f0982f6095113cd4e27ea1597da25354ca26a49a0e2de41820c5c9"
+dependencies = [
+ "futures-util",
+ "http",
+ "serde",
+ "serde_json",
+ "topcoat-core",
+ "topcoat-router",
+]
+
+[[package]]
 name = "topcoat-font"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3581,9 +3596,13 @@ version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "156f6c4fa5b119a8d0d9702d4824d998622c4f8b99dc5ef2678f68ff535b3471"
 dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
  "topcoat-core",
  "topcoat-view",
  "topcoat-view-macro",
+ "ureq",
 ]
 
 [[package]]

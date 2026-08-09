@@ -2,10 +2,12 @@
 
 mod config;
 mod connector;
+mod user;
 
 pub use config::StdbConfig;
 #[allow(unused_imports)] // used by app pages once STDB-backed routes land
 pub use connector::{StdbConn, StdbConnector};
+pub use user::fetch_my_user;
 
 use crate::einro::{IdentityPool, PoolConfig};
 

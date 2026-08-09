@@ -799,7 +799,7 @@ Work through these **one by one**. Status: `todo` until implemented in Topcoat. 
 | B2 | Login / callback / logout routes | `/login`, `/auth/bitauth/*` | **done** |
 | B3 | Cookie jar | `bitauth_token` (30m), `bitauth_refresh_token`, oauth state/nonce/pkce/redirect; Secure iff `ENV=prod` | **done** (`src/auth/cookies.rs`) |
 | B4 | Open-redirect protection | Relative path only | **done** |
-| B5 | Authed `/app` gate | Cookie required; no JetStream `sid` | todo |
+| B5 | Authed `/app` gate | Cookie required; no JetStream `sid`. Topcoat `require_user` + `/app` layout (not middleware); STDB `my_user` | **done** (`src/auth/user.rs`, `src/app/app/`) |
 | B6 | Token auto-refresh near expiry | Best effort before STDB connect (D29): `ensure_bearer` + `BitAuth::refresh`; skew **15s** (STDB connect leeway ~60s) | **done** (`src/auth/session.rs`) |
 | B7 | ~~BitJita login~~ | **Drop** | n/a |
 | B8 | ~~JetStream user sessions~~ | **Drop** | n/a |
@@ -812,7 +812,7 @@ Work through these **one by one**. Status: `todo` until implemented in Topcoat. 
 | C1 | Official Rust STDB SDK + bindings | `spacetimedb-sdk` 2.7.* + `spacetime generate` → `src/module_bindings/`; `task stdb:generate` | **done** |
 | C2 | Connect-as-user | Cookie `bitauth_token` → `with_token`; `STDB_HOST`/`STDB_DATABASE`; validated via temporary smoke (removed) | **done** |
 | C3 | Connection pool (token-keyed) | [einro](./einro-identity-pool.md): exact token → conn; no JWT in pool; idle TTL | **in progress** |
-| C4 | Page-load queries / reducers | Views + CallReducer via pool | todo |
+| C4 | Page-load queries / reducers | Views + CallReducer via pool | partial (`my_user` for session; more with H*) |
 | C5 | Live subscribe for Datastar | my_accounts / my_transfers etc. | todo |
 | C6 | Error mapping | Toasts vs full pages vs JSON (D30) | todo |
 
@@ -820,11 +820,11 @@ Work through these **one by one**. Status: `todo` until implemented in Topcoat. 
 
 | ID | System | Notes | Status |
 |----|--------|-------|--------|
-| D1 | HTML shell layout | Public vs app chrome (Topcoat `#[layout]`) | todo |
+| D1 | HTML shell layout | Public vs app chrome (Topcoat `#[layout]`) | partial (app chrome Option A; public chrome on marketing pages) |
 | D2 | Marketing page `GET /` | Port index content | todo |
 | D3 | Login page | **“Login with BitAuth”** button only (no BitJita UI) | todo |
 | D4 | App pages | home, accounts, account detail, transfers, payment request | todo |
-| D5 | Chrome components | nav, footer, app-nav, app-menu | todo |
+| D5 | Chrome components | nav, footer, app-nav, app-menu | partial (`src/app/app/chrome.rs` Option A; full app menu replaced) |
 | D6 | Partial / component patches | Case-by-case (e.g. transfer recipient) | todo |
 | D7 | Display formatting | Asset-scale balances, relative times | todo |
 | D8 | Idempotency keys in forms | Generate on render (uuid) | todo |
@@ -1254,6 +1254,8 @@ Work items: tick §8.7 inventory, [app-surface-parity.md](./app-surface-parity.m
 | 2026-08-05 | **einro pivot:** token-string key only; no JWT peek/verify/Identity in pool; idle TTL; STDB owns auth at connect; **E1 expiry testing strongly required** |
 | 2026-08-08 | Marketing homepage ported to Topcoat (`src/ui/*` chrome/icons + `home` page); public nav/footer |
 | 2026-08-08 | **App HTML parity doc:** [app-surface-parity.md](./app-surface-parity.md) — Go pages, reactivity map, build order; linked from §8.7 H*, §8.8, §9, §21 |
+| 2026-08-08 | **B5 `/app` auth gate:** Topcoat `require_user` / `current_user` (`src/auth/user.rs`) — cookie → `ensure_bearer` → einro → `my_user`; `#[layout]` under `src/app/app/` + thin `/app` home; login forwards `?redirect=` |
+| 2026-08-08 | **App chrome Option A:** desktop top nav (Accounts / Activity / Transfer▾) + username→`/app/me`; mobile bottom bar; stubs for accounts/activity/transfer/deposit/withdraw/me; root layout is document-only |
 
 ---
 
