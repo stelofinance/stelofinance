@@ -1,4 +1,5 @@
 use crate::effective_role;
+use crate::normalize_label;
 use crate::normalize_webhook;
 use crate::require_principal;
 use crate::require_registered_user;
@@ -216,6 +217,36 @@ pub fn set_account_webhook(
 
     log::info!(
         "set_account_webhook account={} cleared={} by={}",
+        account_id,
+        cleared,
+        ctx.sender()
+    );
+    Ok(())
+}
+
+/// Set or clear the account nickname. `None` (or blank after trim) clears.
+/// Caller must be Admin+ on the account. Visible only to account members.
+#[reducer]
+pub fn set_account_label(
+    ctx: &ReducerContext,
+    account_id: u64,
+    label: Option<String>,
+) -> Result<(), String> {
+    require_principal(ctx)?;
+
+    let mut account = load_account(ctx, account_id)?;
+    let caller_role = caller_role_on(ctx, account_id)?;
+    if role_rank(caller_role) < role_rank(Role::Admin) {
+        return Err("admin or owner required".to_string());
+    }
+
+    let label = normalize_label(label)?;
+    let cleared = label.is_none();
+    account.label = label;
+    ctx.db.account().id().update(account);
+
+    log::info!(
+        "set_account_label account={} cleared={} by={}",
         account_id,
         cleared,
         ctx.sender()

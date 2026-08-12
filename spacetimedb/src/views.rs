@@ -17,6 +17,8 @@ pub struct MyUserRow {
 pub struct MyAccountRow {
     pub account_id: u64,
     pub address: String,
+    /// Nickname visible to every member of this account (not the public directory).
+    pub label: Option<String>,
     pub kind: AccountKind,
     /// Available balance (posted − opposing posted/pending), by account kind.
     pub balance: u64,
@@ -135,6 +137,7 @@ fn my_accounts(ctx: &ViewContext) -> Vec<MyAccountRow> {
         out.push(MyAccountRow {
             account_id: acc.id,
             address: acc.address.clone(),
+            label: acc.label.clone(),
             kind: acc.kind,
             balance: computed_balance(&acc),
             ledger_id: ledger.id,

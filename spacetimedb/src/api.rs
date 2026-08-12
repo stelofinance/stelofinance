@@ -621,6 +621,7 @@ fn account_to_json(acc: &Account) -> serde_json::Value {
     serde_json::json!({
         "id": acc.id,
         "address": acc.address,
+        "label": acc.label,
         "kind": kind,
         "balance": computed_balance(acc),
         "debitsPending": acc.debits_pending,

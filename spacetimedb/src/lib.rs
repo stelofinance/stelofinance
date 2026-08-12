@@ -52,6 +52,7 @@ const ADDRESS_STD_CHARS: &[u8] = b"ABCDEFGHJKMNPRTUVWXY";
 const MAX_ADDRESS_LENGTH: usize = 16;
 const DEFAULT_ADDRESS_LENGTH: usize = 8;
 const ADDRESS_GEN_ATTEMPTS: usize = 4;
+const MAX_LABEL_LEN: usize = 32;
 
 #[reducer(init)]
 pub fn init(ctx: &ReducerContext) -> Result<(), String> {
@@ -154,6 +155,7 @@ pub fn create_account(
     kind: AccountKind,
     address: Option<String>,
     webhook: Option<String>,
+    label: Option<String>,
     is_primary: bool,
 ) -> Result<(), String> {
     require_registered_user(ctx)?;
@@ -185,6 +187,7 @@ pub fn create_account(
 
     let address = normalize_address(ctx, ledger_id, address_input)?;
     let webhook = normalize_webhook(webhook)?;
+    let label = normalize_label(label)?;
 
     // Ensure if they want to set primary, they have no other primary on this ledger.
     let sender = ctx.sender();
@@ -207,6 +210,7 @@ pub fn create_account(
         .try_insert(Account {
             id: 0,
             address: address.clone(),
+            label,
             webhook,
             user_id: if is_primary { sender } else { Identity::ZERO },
             debits_pending: 0,
@@ -492,4 +496,19 @@ pub(crate) fn normalize_webhook(webhook: Option<String>) -> Result<Option<String
         return Err("webhook must be a valid absolute URL".to_string());
     }
     Ok(Some(w.to_string()))
+}
+
+/// Validate account nickname: `None`/blank clears; otherwise trim and cap length.
+pub(crate) fn normalize_label(label: Option<String>) -> Result<Option<String>, String> {
+    let Some(raw) = label else {
+        return Ok(None);
+    };
+    let l = raw.trim();
+    if l.is_empty() {
+        return Ok(None);
+    }
+    if l.len() > MAX_LABEL_LEN {
+        return Err(format!("label exceeds max length ({MAX_LABEL_LEN})"));
+    }
+    Ok(Some(l.to_string()))
 }
