@@ -125,7 +125,9 @@ pub fn account_home_html(data: &AccountHomeData, chrome: &HomeChrome) -> String 
 
 	if can_send {
 		out.push_str(
-			r#"<div class="mt-5"><a href="/app/transfer" class="inline-flex cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600">Send</a></div>"#,
+			&format!(
+				r#"<div class="mt-5"><a href="/app/transfer?from={id}" class="inline-flex cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600">Send</a></div>"#
+			),
 		);
 	}
 

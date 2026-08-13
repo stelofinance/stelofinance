@@ -8,10 +8,16 @@ mod format;
 mod query;
 mod user;
 
+mod transfer;
+
 pub use accounts::{LiveAccounts, create_user_account, fetch_accounts_page, has_primary_on_ledger};
 pub use config::StdbConfig;
 pub use connector::{StdbConn, StdbConnector};
-pub use format::format_qty;
+pub use format::{format_qty, parse_qty};
+pub use transfer::{
+	DirectoryHit, create_user_transfer, map_transfer_error, new_idempotency_key, search_directory,
+	sendable_accounts,
+};
 pub use user::fetch_my_user;
 
 use crate::auth::{EnsureBearerError, ensure_bearer, require_user};

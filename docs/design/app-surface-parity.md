@@ -40,8 +40,8 @@ This document is the **hard feature-parity floor** for browser HTML surfaces. Re
 | 4 | App home | Something for logged-in user (Go: greeting only) | Optional | — |
 | 5 | Accounts list | List wallets + balances; create debit (credit/custom addr if platform admin); open detail | **Yes** (balances) | H1 |
 | 6 | Account home | Primary; members add/remove/roles; label | **Yes** | H2 **(home done; tokens/webhook/apps later)** |
-| 7a | Transfer send | From-account, recipient search, amount, memo, idempotency | **Yes** (bal) | H3 **next** |
-| 7b | Activity | Live transfer history (all or one account) | **Yes** | H3 (after send) |
+| 7a | Transfer send | From-account, recipient search, amount, memo, idempotency | **Yes** (bal) | H3a **done** |
+| 7b | Activity | Live transfer history (all or one account) | **Yes** | H3b **next** |
 | 8 | Payment request | Query-prefilled pay flow | No (one-shot submit) | H4 |
 
 **Chrome capability (Topcoat Option A, 2026-08-08):**  
@@ -154,25 +154,26 @@ Logout lives on `/app/me` (profile page — more content planned).
 
 ### 8. Transfer send — `GET /app/transfer` **and** Activity — `GET /app/activity`
 
-**Design:** H3 · **Topcoat:** stubs only · **Go template:** `app-transfers.html.tmpl` (capability reference — **do not copy layout**) · **Shell:** Transfer / Activity
+**Design:** H3 · **Topcoat:** send done (2026-08-12); Activity stub · **Go template:** `app-transfers.html.tmpl` (capability reference — **do not copy layout**) · **Shell:** Transfer / Activity
 
-Go combined send + history on one page. New chrome splits them. **Build send first**, then Activity.
+Go combined send + history on one page. New chrome splits them. **Send done**, Activity next.
 
-#### 8a. Send — `GET /app/transfer` (next)
+#### 8a. Send — `GET /app/transfer` (**done**)
 
 | | |
 |--|--|
 | **Content** | From-account picker (debit, Write+); recipient search; amount; optional memo; idempotency key; balance on selected account |
-| **Actions** | Choose from-account; search/select recipient; submit `create_transfer`; start over after send. Account home **Send** may preselect the account. |
-| **Reactive** | Recipient: debounce search (`account_directory` or module `GET /accounts?term&ledgerid`) → pick → chip + clear. Submit → PatchSignals; list/history updates via `my_transfers` if that pane exists. |
-| **Gaps** | Whole page is a stub. No pending / finalize UI (module has it). No send when no account selected. |
+| **Actions** | Choose from-account; search/select recipient; submit `create_transfer`; start over after send. Account home **Send** preselects `?from={id}`. |
+| **Reactive** | Recipient: debounce search of `account_directory` (edge filter/rank; `@`/`#` scope; same ledger; exclude sender; own other accounts show label) → pick → chip + clear. Submit → PatchSignals. |
+| **Gaps** | No pending / finalize UI (module has it). No live history on this page (H3b). |
 
-**Related (Go reference; new paths may differ):**
+**Related:**
 
 | Route | Role |
 |-------|------|
-| Recipient search | Public `account_directory` / HTTP `GET /accounts?term&ledgerid` |
-| `POST …/transfers` | `create_transfer` (Write+ on sender) |
+| `GET /app/transfer` | SSR send form; `?from=` preselect |
+| `GET /app/transfer/recipients` | Debounced directory search → `#recipient-results` |
+| `POST /app/transfer` | `create_transfer` (Write+ on sender); PatchSignals |
 
 #### 8b. Activity — `GET /app/activity` (after send)
 
@@ -253,7 +254,7 @@ Aligned with refactor §8.8 / H\*, adjusted for “real app first”:
 1. **App shell** + authed gate + username from `my_user`  
 2. ~~**Accounts list** + create + live balances (**H1**)~~ **done**  
 3. ~~**Account home** primary / people / label (**H2**)~~ **done** (leftovers: tokens, webhook, apps, request builder Read+, recent)  
-4. **Transfer send** (`/app/transfer`) — from-account, recipient search, `create_transfer` (**H3a**)  
+4. ~~**Transfer send** (`/app/transfer`) — from-account, recipient search, `create_transfer` (**H3a**)~~ **done**  
 5. **Activity** (`/app/activity`) — live `my_transfers` (**H3b**)  
 6. **Payment request** (**H4**)  
 7. **Logout** wired in chrome (**H5**) — already linked from `/app/me`  
