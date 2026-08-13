@@ -79,7 +79,7 @@ async fn empty_state() -> Result {
 	view! {
 		<div class="rounded-lg border border-neutral-800 bg-neutral-950 px-5 py-10 text-center">
 			<p class="text-neutral-300">"You need a writable account to send."</p>
-			<p class="mt-2 text-sm text-neutral-500">
+			<p class="mt-2 text-sm text-neutral-400">
 				"Create a debit account, or ask an owner to grant you Write."
 			</p>
 			<a
@@ -99,13 +99,13 @@ async fn send_form(accounts: Vec<MyAccountRow>, can_pick: bool, selected_id: u64
 			from_panel(accounts: accounts.clone(), can_pick: can_pick, selected_id: selected_id)
 
 			<div class="mt-5" data-show="$fromId != ''">
-				<p class="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-500">
+				<p class="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-400">
 					"To"
 				</p>
 				<div data-show="!$recipientId">
 					<input
 						type="text"
-						class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-600"
+						class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-400"
 						data-bind="recipientSearch"
 						placeholder="@username or #address"
 						autocomplete="off"
@@ -113,7 +113,7 @@ async fn send_form(accounts: Vec<MyAccountRow>, can_pick: bool, selected_id: u64
 						spellcheck="false"
 						data-on:input__debounce.300ms="@get('/app/transfer/recipients')"
 					>
-					<p class="mt-1 text-xs text-neutral-500">
+					<p class="mt-1 text-xs text-neutral-400">
 						"Same asset as the sending account. Prefix @ or # to search only that kind."
 					</p>
 					<div id="recipient-results"></div>
@@ -132,7 +132,7 @@ async fn send_form(accounts: Vec<MyAccountRow>, can_pick: bool, selected_id: u64
 						></p>
 						<p class="truncate text-sm text-neutral-100" data-text="$recipientName"></p>
 						<p
-							class="truncate text-xs text-neutral-500"
+							class="truncate text-xs text-neutral-400"
 							data-show="$recipientAddr"
 							data-text="$recipientAddr"
 							style="display: none"
@@ -140,7 +140,7 @@ async fn send_form(accounts: Vec<MyAccountRow>, can_pick: bool, selected_id: u64
 					</div>
 					<button
 						type="button"
-						class="ml-3 shrink-0 cursor-pointer text-sm text-neutral-400 hover:text-white"
+						class="ml-3 shrink-0 cursor-pointer text-sm text-neutral-300 hover:text-white"
 						data-on:click="$recipientId = ''; $recipientName = ''; $recipientAddr = ''; $recipientLabel = ''; $recipientSearch = ''; $sendError = ''"
 					>
 						"Clear"
@@ -149,14 +149,14 @@ async fn send_form(accounts: Vec<MyAccountRow>, can_pick: bool, selected_id: u64
 			</div>
 
 			<div class="mt-5" data-show="$fromId != ''">
-				<p class="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-500">
+				<p class="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-400">
 					"Amount"
 				</p>
 				<div class="flex items-center gap-2">
 					<input
 						type="text"
 						inputmode="decimal"
-						class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-600"
+						class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-400"
 						data-bind="amount"
 						placeholder="0"
 						autocomplete="off"
@@ -168,20 +168,20 @@ async fn send_form(accounts: Vec<MyAccountRow>, can_pick: bool, selected_id: u64
 
 			<div class="mt-5" data-show="$fromId != ''">
 				<div class="mb-2 flex items-baseline justify-between">
-					<p class="text-xs font-medium uppercase tracking-wide text-neutral-500">
+					<p class="text-xs font-medium uppercase tracking-wide text-neutral-400">
 						"Memo "
-						<span class="font-normal normal-case tracking-normal text-neutral-600">
+						<span class="font-normal normal-case tracking-normal text-neutral-400">
 							"(optional)"
 						</span>
 					</p>
 					<p
-						class="text-xs text-neutral-600"
+						class="text-xs text-neutral-400"
 						data-text="$memo.length + '/32'"
 					></p>
 				</div>
 				<input
 					type="text"
-					class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-600"
+					class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-400"
 					data-bind="memo"
 					maxlength="32"
 					placeholder="What's this for?"
@@ -213,7 +213,7 @@ async fn send_form(accounts: Vec<MyAccountRow>, can_pick: bool, selected_id: u64
 					"Sent "
 					<span data-text="$sentQty"></span>
 				</h2>
-				<p class="mt-1 text-sm text-neutral-400">
+				<p class="mt-1 text-sm text-neutral-300">
 					"to "
 					<span data-text="$sentTo"></span>
 					<span data-show="$sentAddr">
@@ -247,14 +247,14 @@ async fn ledger_suffix(acc: &MyAccountRow, selected: bool) -> Result {
 	let show = format!("$fromId == '{}'", acc.account_id);
 	if selected {
 		view! {
-			<span class="shrink-0 text-sm text-neutral-400" data-show=(show)>
+			<span class="shrink-0 text-sm text-neutral-300" data-show=(show)>
 				(acc.ledger_name.clone())
 			</span>
 		}
 	} else {
 		view! {
 			<span
-				class="shrink-0 text-sm text-neutral-400"
+				class="shrink-0 text-sm text-neutral-300"
 				data-show=(show)
 				style="display: none"
 			>
@@ -279,7 +279,7 @@ async fn avail_hint(acc: &MyAccountRow, selected: bool) -> Result {
 	let qty = crate::stdb::format_qty(acc.balance, acc.ledger_scale);
 	if selected {
 		view! {
-			<p class="mt-1 text-xs text-neutral-500" data-show=(show)>
+			<p class="mt-1 text-xs text-neutral-400" data-show=(show)>
 				"Available "
 				<span class="text-anakiwa">(qty)</span>
 			</p>
@@ -287,7 +287,7 @@ async fn avail_hint(acc: &MyAccountRow, selected: bool) -> Result {
 	} else {
 		view! {
 			<p
-				class="mt-1 text-xs text-neutral-500"
+				class="mt-1 text-xs text-neutral-400"
 				data-show=(show)
 				style="display: none"
 			>

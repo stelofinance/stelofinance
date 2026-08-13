@@ -62,7 +62,7 @@ async fn show(cx: &Cx) -> Result {
 			data-init=(updates)
 			data-effect="$leftAccount && (window.location.href = '/app/accounts')"
 		>
-			<a href="/app/accounts" class="text-sm text-neutral-400 hover:text-white">
+			<a href="/app/accounts" class="text-sm text-neutral-300 hover:text-white">
 				"← Accounts"
 			</a>
 			account_home(data: data, chrome: chrome)
@@ -89,16 +89,16 @@ async fn admin_forms(
 	let search = format!("@get('{users_url}')");
 	view! {
 		<section class="mt-8 rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5">
-			<h2 class="text-sm font-medium uppercase tracking-wide text-neutral-500">
+			<h2 class="text-sm font-medium uppercase tracking-wide text-neutral-400">
 				"Label"
 			</h2>
-			<p class="mt-1 text-sm text-neutral-500">
+			<p class="mt-1 text-sm text-neutral-400">
 				"A nickname only people on this account can see."
 			</p>
 			<div class="mt-3 flex flex-col gap-2 sm:flex-row">
 				<input
 					type="text"
-					class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm"
+					class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-400"
 					data-bind="label"
 					maxlength="32"
 					placeholder="e.g. Guild treasury"
@@ -116,17 +116,17 @@ async fn admin_forms(
 		</section>
 
 		<section class="mt-4 rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5">
-			<h2 class="text-sm font-medium uppercase tracking-wide text-neutral-500">
+			<h2 class="text-sm font-medium uppercase tracking-wide text-neutral-400">
 				"Add person"
 			</h2>
-			<p class="mt-1 text-sm text-neutral-500">
+			<p class="mt-1 text-sm text-neutral-400">
 				"Search a BitCraft username, then pick them. Read sees, Write can send, Admin manages people."
 			</p>
 			<input type="hidden" data-bind="memberId">
 			<div data-show="!$memberId">
 				<input
 					type="text"
-					class="mt-3 w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm"
+					class="mt-3 w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-400"
 					data-bind="userSearch"
 					placeholder="Search username…"
 					autocomplete="off"
@@ -145,7 +145,7 @@ async fn admin_forms(
 				</p>
 				<button
 					type="button"
-					class="cursor-pointer text-sm text-neutral-400 hover:text-white"
+					class="cursor-pointer text-sm text-neutral-300 hover:text-white"
 					data-on:click=(format!("$memberId = ''; $memberName = ''; $userSearch = ''; @get('{users_url}')"))
 				>
 					"Clear"

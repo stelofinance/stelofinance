@@ -53,12 +53,12 @@ pub fn account_home_html(data: &AccountHomeData, chrome: &HomeChrome) -> String 
 	));
 	if label.is_some() {
 		out.push_str(&format!(
-			r#"<p class="mt-0.5 text-sm text-neutral-400">{}</p>"#,
+			r#"<p class="mt-0.5 text-sm text-neutral-300">{}</p>"#,
 			escape_html(&acc.ledger_name)
 		));
 	} else {
 		out.push_str(&format!(
-			r#"<p class="mt-0.5 text-sm text-neutral-500">{}</p>"#,
+			r#"<p class="mt-0.5 text-sm text-neutral-400">{}</p>"#,
 			escape_html(ledger_kind_label(acc.ledger_kind))
 		));
 	}
@@ -87,16 +87,16 @@ pub fn account_home_html(data: &AccountHomeData, chrome: &HomeChrome) -> String 
 	));
 
 	out.push_str(
-		r#"<div class="mt-3 flex flex-wrap items-center gap-2 text-sm text-neutral-400">"#,
+		r#"<div class="mt-3 flex flex-wrap items-center gap-2 text-sm text-neutral-300">"#,
 	);
 	out.push_str(&format!("<span>#{addr}</span>"));
 	out.push_str(&format!(
-		r#"<button type="button" class="cursor-pointer rounded-md px-2 py-0.5 text-xs text-neutral-400 hover:bg-neutral-800 hover:text-white" data-address="{addr}" data-on:click="window.navigator.clipboard.writeText(el.dataset.address); $copiedId = 1" data-on:click__delay.2000ms="$copiedId = 0" data-text="$copiedId == 1 ? 'Copied' : 'Copy'" aria-label="Copy address {addr}">Copy</button>"#
+		r#"<button type="button" class="cursor-pointer rounded-md px-2 py-0.5 text-xs text-neutral-300 hover:bg-neutral-800 hover:text-white" data-address="{addr}" data-on:click="window.navigator.clipboard.writeText(el.dataset.address); $copiedId = 1" data-on:click__delay.2000ms="$copiedId = 0" data-text="$copiedId == 1 ? 'Copied' : 'Copy'" aria-label="Copy address {addr}">Copy</button>"#
 	));
 	out.push_str("</div>");
 
 	if debit {
-		out.push_str(r#"<p class="mt-3 text-sm text-neutral-400">"#);
+		out.push_str(r#"<p class="mt-3 text-sm text-neutral-300">"#);
 		if acc.is_primary {
 			out.push_str(&format!("People can send to @{username}."));
 		} else {
@@ -113,7 +113,7 @@ pub fn account_home_html(data: &AccountHomeData, chrome: &HomeChrome) -> String 
 			));
 		} else if data.has_other_primary {
 			out.push_str(
-				r#"<p class="text-sm text-neutral-500">You already have a primary account for this asset.</p>"#,
+				r#"<p class="text-sm text-neutral-400">You already have a primary account for this asset.</p>"#,
 			);
 		} else {
 			out.push_str(&format!(
@@ -154,7 +154,7 @@ fn push_people(
 	caller_is_owner: bool,
 ) {
 	out.push_str(
-		r#"<section class="mt-10"><h2 class="text-sm font-medium uppercase tracking-wide text-neutral-500">People</h2>"#,
+		r#"<section class="mt-10"><h2 class="text-sm font-medium uppercase tracking-wide text-neutral-400">People</h2>"#,
 	);
 	out.push_str(r#"<div class="mt-3 flex flex-col gap-2">"#);
 	for m in members {
@@ -169,11 +169,11 @@ fn push_people(
 			r#"<p class="truncate text-sm text-neutral-100">{name}"#
 		));
 		if self_row {
-			out.push_str(r#" <span class="text-neutral-500">(you)</span>"#);
+			out.push_str(r#" <span class="text-neutral-400">(you)</span>"#);
 		}
 		if matches!(m.kind, MemberKind::App) {
 			out.push_str(
-				r#" <span class="ml-1 rounded-full bg-neutral-800 px-2 py-0.5 text-xs text-neutral-400">App</span>"#,
+				r#" <span class="ml-1 rounded-full bg-neutral-800 px-2 py-0.5 text-xs text-neutral-300">App</span>"#,
 			);
 		}
 		out.push_str("</p></div>");
@@ -187,13 +187,13 @@ fn push_people(
 			));
 		} else {
 			out.push_str(&format!(
-				r#"<span class="text-sm text-neutral-400">{}</span>"#,
+				r#"<span class="text-sm text-neutral-300">{}</span>"#,
 				role_label(m.role)
 			));
 		}
 		if self_row && !matches!(caller_role, Role::Owner) {
 			out.push_str(&format!(
-				r#"<button type="button" class="cursor-pointer text-sm text-neutral-400 hover:text-white" data-on:click="@post('/app/accounts/{account_id}/leave')">Leave</button>"#
+				r#"<button type="button" class="cursor-pointer text-sm text-neutral-300 hover:text-white" data-on:click="@post('/app/accounts/{account_id}/leave')">Leave</button>"#
 			));
 		}
 		out.push_str("</div></div>");

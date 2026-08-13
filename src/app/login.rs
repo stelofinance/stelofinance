@@ -37,7 +37,7 @@ async fn login(cx: &Cx) -> Result {
 			>
 				"Login with BitAuth"
 			</a>
-			<p class="mb-40 mt-4 max-w-2xl px-4 text-center text-sm text-neutral-400">
+			<p class="mb-40 mt-4 max-w-2xl px-4 text-center text-sm text-neutral-300">
 				"Stelo is currently in a beta state, and as such you should expect an unfinished experience, "
 				"and occasional bugs or service interruption."
 			</p>

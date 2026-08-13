@@ -51,7 +51,7 @@ fn desktop_link_class(active: bool) -> &'static str {
 	if active {
 		"inline-flex items-center border-b-2 border-anakiwa px-2 py-1 text-sm font-medium text-white md:text-base"
 	} else {
-		"inline-flex items-center border-b-2 border-transparent px-2 py-1 text-sm font-medium text-neutral-400 hover:text-white md:text-base"
+		"inline-flex items-center border-b-2 border-transparent px-2 py-1 text-sm font-medium text-neutral-300 hover:text-white md:text-base"
 	}
 }
 
@@ -68,7 +68,7 @@ fn bottom_link_class(active: bool) -> &'static str {
 	if active {
 		"flex flex-1 flex-col items-center gap-0.5 rounded-lg px-2 py-1.5 text-xs text-white bg-anakiwa-700/40"
 	} else {
-		"flex flex-1 flex-col items-center gap-0.5 rounded-lg px-2 py-1.5 text-xs text-neutral-400"
+		"flex flex-1 flex-col items-center gap-0.5 rounded-lg px-2 py-1.5 text-xs text-neutral-300"
 	}
 }
 
@@ -84,19 +84,19 @@ pub async fn app_header(cx: &Cx, #[into] username: String) -> Result {
 	let transfer_label_class = if transfer_on {
 		"px-2 py-1 text-sm font-medium text-white md:text-base"
 	} else {
-		"px-2 py-1 text-sm font-medium text-neutral-400 hover:text-white md:text-base"
+		"px-2 py-1 text-sm font-medium text-neutral-300 hover:text-white md:text-base"
 	};
 
 	let transfer_summary_class = if transfer_on {
 		"flex cursor-pointer list-none items-center py-1 pr-1.5 pl-0.5 text-white [&::-webkit-details-marker]:hidden"
 	} else {
-		"flex cursor-pointer list-none items-center py-1 pr-1.5 pl-0.5 text-neutral-400 hover:text-white [&::-webkit-details-marker]:hidden"
+		"flex cursor-pointer list-none items-center py-1 pr-1.5 pl-0.5 text-neutral-300 hover:text-white [&::-webkit-details-marker]:hidden"
 	};
 
 	let username_class = if me_on {
 		"ml-auto max-w-[40vw] truncate text-sm text-white underline-offset-2 hover:underline md:text-base"
 	} else {
-		"ml-auto max-w-[40vw] truncate text-sm text-neutral-400 hover:text-white md:text-base"
+		"ml-auto max-w-[40vw] truncate text-sm text-neutral-300 hover:text-white md:text-base"
 	};
 
 	view! {
@@ -222,7 +222,7 @@ pub async fn stub_page(#[into] title: String, #[into] blurb: String) -> Result {
 	view! {
 		<main class="mx-auto max-w-5xl px-4 py-10 text-center text-white">
 			<h1 class="text-2xl font-medium md:text-3xl">(title)</h1>
-			<p class="mx-auto mt-3 max-w-md text-sm text-neutral-400 md:text-base">
+			<p class="mx-auto mt-3 max-w-md text-sm text-neutral-300 md:text-base">
 				(blurb)
 			</p>
 		</main>

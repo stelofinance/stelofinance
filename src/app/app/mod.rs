@@ -47,7 +47,7 @@ async fn home(cx: &Cx) -> Result {
 				"Hey " (user.bitcraft_username.clone()) ", "
 				<span class="text-nowrap">"welcome to Stelo Finance ^-^"</span>
 			</p>
-			<p class="mt-4 max-w-sm text-sm text-neutral-400">
+			<p class="mt-4 max-w-sm text-sm text-neutral-300">
 				"Use Accounts to manage wallets, Activity for history, and Transfer to send."
 			</p>
 			<div class="mt-8 flex flex-wrap justify-center gap-3 text-sm">

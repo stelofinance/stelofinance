@@ -228,7 +228,7 @@ async fn page_header(can_create: bool, initial_ledger_id: String) -> Result {
 async fn create_form(ledgers: Vec<Ledger>, username: String, is_admin: bool) -> Result {
 	if ledgers.is_empty() {
 		return view! {
-			<p class="mt-2 text-sm text-neutral-500">
+			<p class="mt-2 text-sm text-neutral-400">
 				"No assets are on the platform yet."
 			</p>
 		};
@@ -241,7 +241,7 @@ async fn create_form(ledgers: Vec<Ledger>, username: String, is_admin: bool) -> 
 			style="display: none"
 		>
 			<h2 class="text-lg font-medium">"New account"</h2>
-			<p class="mt-1 text-sm text-neutral-400">"Choose the asset this account will hold."</p>
+			<p class="mt-1 text-sm text-neutral-300">"Choose the asset this account will hold."</p>
 
 			<div class="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
 				for ledger in &ledgers {
@@ -254,18 +254,18 @@ async fn create_form(ledgers: Vec<Ledger>, username: String, is_admin: bool) -> 
 			}
 
 			<p
-				class="mt-3 text-sm text-neutral-400"
+				class="mt-3 text-sm text-neutral-300"
 				data-show="$accountKind == 'credit' && $ledgerId != ''"
 			>
 				"Credit accounts sit on the issuer side of this asset. They cannot be primary."
 			</p>
 
 			<label class="mt-4 block">
-				<span class="text-sm text-neutral-400">"Label "</span>
-				<span class="text-sm text-neutral-600">"(optional)"</span>
+				<span class="text-sm text-neutral-300">"Label "</span>
+				<span class="text-sm text-neutral-400">"(optional)"</span>
 				<input
 					type="text"
-					class="mt-1 w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-600"
+					class="mt-1 w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-400"
 					data-bind="label"
 					maxlength="32"
 					placeholder="e.g. Guild treasury"
@@ -323,7 +323,7 @@ async fn ledger_choice(ledger: &Ledger) -> Result {
 		>
 			<div class="min-w-0">
 				<p class="font-medium">(ledger.name.clone())</p>
-				<p class="mt-0.5 text-xs text-neutral-500">(kind)</p>
+				<p class="mt-0.5 text-xs text-neutral-400">(kind)</p>
 			</div>
 			<span
 				class="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-neutral-600"
@@ -356,8 +356,8 @@ async fn create_helper(ledger: &Ledger, username: String) -> Result {
 	let existing = format!("Friends sending to @{username} still go to your primary.");
 
 	view! {
-		<p class="mt-3 text-sm text-neutral-400" data-show=(show_first)>(first)</p>
-		<p class="mt-3 text-sm text-neutral-400" data-show=(show_existing)>(existing)</p>
+		<p class="mt-3 text-sm text-neutral-300" data-show=(show_first)>(first)</p>
+		<p class="mt-3 text-sm text-neutral-300" data-show=(show_existing)>(existing)</p>
 	}
 }
 
@@ -365,12 +365,12 @@ async fn create_helper(ledger: &Ledger, username: String) -> Result {
 async fn admin_advanced() -> Result {
 	view! {
 		<details class="mt-4 rounded-md border border-neutral-800">
-			<summary class="cursor-pointer px-3 py-2 text-sm text-neutral-400 hover:text-white">
+			<summary class="cursor-pointer px-3 py-2 text-sm text-neutral-300 hover:text-white">
 				"Advanced"
 			</summary>
 			<div class="flex flex-col gap-3 border-t border-neutral-800 px-3 py-3">
 				<label class="block">
-					<span class="text-sm text-neutral-400">"Kind"</span>
+					<span class="text-sm text-neutral-300">"Kind"</span>
 					<select
 						class="mt-1 w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm"
 						data-bind="accountKind"
@@ -380,11 +380,11 @@ async fn admin_advanced() -> Result {
 					</select>
 				</label>
 				<label class="block">
-					<span class="text-sm text-neutral-400">"Custom address "</span>
-					<span class="text-sm text-neutral-600">"(optional)"</span>
+					<span class="text-sm text-neutral-300">"Custom address "</span>
+					<span class="text-sm text-neutral-400">"(optional)"</span>
 					<input
 						type="text"
-						class="mt-1 w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm uppercase placeholder:text-neutral-600"
+						class="mt-1 w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm uppercase placeholder:text-neutral-400"
 						data-bind="address"
 						maxlength="16"
 						placeholder="Leave blank to generate"

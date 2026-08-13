@@ -35,7 +35,7 @@ pub fn accounts_list_html(rows: &[MyAccountRow]) -> String {
 		}
 		if !credit.is_empty() {
 			out.push_str(
-				r#"<h2 class="mt-4 mb-3 text-sm font-medium uppercase tracking-wide text-neutral-500">Issuer accounts</h2>"#,
+				r#"<h2 class="mt-4 mb-3 text-sm font-medium uppercase tracking-wide text-neutral-400">Issuer accounts</h2>"#,
 			);
 			for group in groups(&credit) {
 				push_ledger_group(&mut out, &group);
@@ -79,10 +79,10 @@ fn groups<'a>(rows: &[&'a MyAccountRow]) -> Vec<LedgerGroup<'a>> {
 fn push_ledger_group(out: &mut String, group: &LedgerGroup<'_>) {
 	out.push_str(r#"<section class="mb-5 last:mb-0">"#);
 	out.push_str(r#"<div class="mb-3 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">"#);
-	out.push_str(r#"<h2 class="text-sm font-medium uppercase tracking-wide text-neutral-400">"#);
+	out.push_str(r#"<h2 class="text-sm font-medium uppercase tracking-wide text-neutral-300">"#);
 	out.push_str(&escape_html(group.ledger_name));
 	out.push_str("</h2>");
-	out.push_str(r#"<span class="text-xs text-neutral-500">"#);
+	out.push_str(r#"<span class="text-xs text-neutral-400">"#);
 	out.push_str(escape_html(ledger_kind_label(group.ledger_kind)).as_str());
 	out.push_str("</span></div>");
 	out.push_str(r#"<div class="flex flex-col gap-3">"#);
@@ -131,14 +131,14 @@ fn push_account_card(out: &mut String, acc: &MyAccountRow) {
 	}
 
 	out.push_str(&format!(
-		r#"<p class="mt-1 truncate text-sm text-neutral-400">#{}{}</p>"#,
+		r#"<p class="mt-1 truncate text-sm text-neutral-300">#{}{}</p>"#,
 		addr,
 		meta_suffix(acc),
 	));
 	out.push_str("</a>");
 
 	out.push_str(&format!(
-		r#"<button type="button" class="shrink-0 cursor-pointer self-stretch border-l border-neutral-800 px-3 text-xs text-neutral-400 hover:bg-neutral-900 hover:text-white" data-address="{addr}" data-on:click="window.navigator.clipboard.writeText(el.dataset.address); $copiedId = {id}" data-on:click__delay.2000ms="$copiedId = 0" data-text="$copiedId == {id} ? 'Copied' : 'Copy'" aria-label="Copy address {addr}">Copy</button>"#,
+		r#"<button type="button" class="shrink-0 cursor-pointer self-stretch border-l border-neutral-800 px-3 text-xs text-neutral-300 hover:bg-neutral-900 hover:text-white" data-address="{addr}" data-on:click="window.navigator.clipboard.writeText(el.dataset.address); $copiedId = {id}" data-on:click__delay.2000ms="$copiedId = 0" data-text="$copiedId == {id} ? 'Copied' : 'Copy'" aria-label="Copy address {addr}">Copy</button>"#,
 		id = acc.account_id,
 	));
 	out.push_str("</article>");
@@ -176,7 +176,7 @@ fn meta_suffix(acc: &MyAccountRow) -> String {
 fn empty_state_html() -> &'static str {
 	r#"<div class="rounded-lg border border-neutral-800 bg-neutral-950 px-5 py-10 text-center" data-show="!$creatingAcc">
 		<p class="text-neutral-300">You don't have any accounts yet.</p>
-		<p class="mt-2 text-sm text-neutral-500">Create one to hold assets and receive from other players.</p>
+		<p class="mt-2 text-sm text-neutral-400">Create one to hold assets and receive from other players.</p>
 		<button type="button" class="mt-6 rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600" data-on:click="$creatingAcc = true; $createError = ''">Create an account</button>
 	</div>"#
 }

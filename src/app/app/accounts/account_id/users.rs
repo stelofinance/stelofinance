@@ -43,7 +43,7 @@ fn results_html(rows: &[crate::module_bindings::User], searched: bool) -> String
 	);
 	if rows.is_empty() {
 		out.push_str(
-			r#"<p class="px-3 py-2 text-sm text-neutral-500">No users match that name.</p>"#,
+			r#"<p class="px-3 py-2 text-sm text-neutral-400">No users match that name.</p>"#,
 		);
 	} else {
 		for row in rows {

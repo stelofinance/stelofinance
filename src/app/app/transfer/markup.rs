@@ -18,7 +18,7 @@ pub async fn from_panel(accounts: Vec<MyAccountRow>, can_pick: bool, selected_id
 pub fn from_panel_html(accounts: &[MyAccountRow], can_pick: bool, selected_id: u64) -> String {
 	let mut out = String::from(r#"<div id="from-panel">"#);
 	out.push_str(
-		r#"<p class="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-500">From</p>"#,
+		r#"<p class="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-400">From</p>"#,
 	);
 	for acc in accounts {
 		push_selected_card(&mut out, acc, can_pick, selected_id);
@@ -67,12 +67,12 @@ fn push_from_body(out: &mut String, acc: &MyAccountRow, show_ledger: bool) {
 	push_pills(out, acc);
 	out.push_str("</p>");
 	out.push_str(&format!(
-		r#"<p class="mt-1 truncate text-sm text-neutral-400">{}</p>"#,
+		r#"<p class="mt-1 truncate text-sm text-neutral-300">{}</p>"#,
 		from_subtitle(acc, show_ledger)
 	));
 	out.push_str("</div>");
 	out.push_str(&format!(
-		r#"<div class="shrink-0 text-right"><p class="text-2xl font-medium tabular-nums sm:text-3xl">{}</p><p class="mt-0.5 text-xs text-neutral-500">available</p></div>"#,
+		r#"<div class="shrink-0 text-right"><p class="text-2xl font-medium tabular-nums sm:text-3xl">{}</p><p class="mt-0.5 text-xs text-neutral-400">available</p></div>"#,
 		escape_html(&qty)
 	));
 }
@@ -83,7 +83,7 @@ fn push_picker(out: &mut String, accounts: &[MyAccountRow]) {
 	);
 	for group in groups(accounts) {
 		out.push_str(&format!(
-			r#"<p class="px-3 pt-3 pb-1 text-xs font-medium uppercase tracking-wide text-neutral-500">{}</p>"#,
+			r#"<p class="px-3 pt-3 pb-1 text-xs font-medium uppercase tracking-wide text-neutral-400">{}</p>"#,
 			escape_html(group.ledger_name)
 		));
 		for acc in group.accounts {
@@ -104,7 +104,7 @@ fn push_picker(out: &mut String, accounts: &[MyAccountRow]) {
 			push_pills(out, acc);
 			out.push_str("</p>");
 			out.push_str(&format!(
-				r#"<p class="mt-0.5 truncate text-xs text-neutral-400">{}</p></div>"#,
+				r#"<p class="mt-0.5 truncate text-xs text-neutral-300">{}</p></div>"#,
 				from_subtitle(acc, false)
 			));
 			out.push_str(&format!(
@@ -198,7 +198,7 @@ pub fn recipient_results_html(hits: &[DirectoryHit], searched: bool) -> String {
 		r#"<div id="recipient-results" class="mt-1 overflow-hidden rounded-md border border-neutral-800 bg-neutral-900" data-show="!$recipientId && $recipientSearch != ''">"#,
 	);
 	if hits.is_empty() {
-		out.push_str(r#"<p class="px-3 py-2 text-sm text-neutral-500">No accounts match.</p>"#);
+		out.push_str(r#"<p class="px-3 py-2 text-sm text-neutral-400">No accounts match.</p>"#);
 	} else {
 		for hit in hits {
 			push_hit(&mut out, hit);
@@ -233,7 +233,7 @@ fn push_hit(out: &mut String, hit: &DirectoryHit) {
 	));
 	if !addr.is_empty() {
 		out.push_str(&format!(
-			r#"<p class="truncate text-xs text-neutral-500">{}</p>"#,
+			r#"<p class="truncate text-xs text-neutral-400">{}</p>"#,
 			escape_html(&addr)
 		));
 	}
