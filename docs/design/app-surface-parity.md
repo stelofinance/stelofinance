@@ -7,6 +7,8 @@
 
 This document is the **hard feature-parity floor** for browser HTML surfaces. Redesign nav, headers, and layout freely; preserve the **capabilities** listed here unless this doc or the refactor doc is updated.
 
+**Do not copy Go HTML.** H1/H2 were reimagined (asset + balance first, noun **Accounts**, marketing-like cards). Remaining pages (H3+) must follow that, not `web/templates/pages/*` layout or styling. Go templates are a capability reference only.
+
 **Out of scope here:** third-party JSON API and module HTTP reverse-proxy. Those are **required cutover work** but not Datastar pages — track them in the refactor doc (§8.7 I*, §9). See [Non-HTML surfaces](#non-html-surfaces) below for a short pointer only.
 
 ---
@@ -37,8 +39,9 @@ This document is the **hard feature-parity floor** for browser HTML surfaces. Re
 | 3 | Logout | Clear session → home | No | H5 |
 | 4 | App home | Something for logged-in user (Go: greeting only) | Optional | — |
 | 5 | Accounts list | List wallets + balances; create debit (credit/custom addr if platform admin); open detail | **Yes** (balances) | H1 |
-| 6 | Account admin | Primary; members add/remove/roles; label; API tokens mint/revoke | Partial (H2 home done; tokens later) | H2 |
-| 7 | Transfers | Filter account; history; send + recipient search + memo + idempotency | **Yes** (history/bal) | H3 |
+| 6 | Account home | Primary; members add/remove/roles; label | **Yes** | H2 **(home done; tokens/webhook/apps later)** |
+| 7a | Transfer send | From-account, recipient search, amount, memo, idempotency | **Yes** (bal) | H3 **next** |
+| 7b | Activity | Live transfer history (all or one account) | **Yes** | H3 (after send) |
 | 8 | Payment request | Query-prefilled pay flow | No (one-shot submit) | H4 |
 
 **Chrome capability (Topcoat Option A, 2026-08-08):**  
@@ -133,7 +136,7 @@ Logout lives on `/app/me` (profile page — more content planned).
 | **Content** | Back to Accounts. Title = **label** or ledger name; large **balance**; `#address` + Copy; Primary / Credit / Shared·role chips. Debit: receive copy uses `@bitcraft_username`. **People**: users + apps, role, (you). |
 | **Actions** | Owner + debit: set/clear primary (`POST .../primary`). Write+ debit: **Send** → `/app/transfer`. Admin+: save label (`POST .../label`); search public `user` then grant Identity (`POST .../members`); change role; remove. Non-owner: **Leave**. Owner can promote another member to Owner (clear primary first — module rule). |
 | **Reactive** | SSR from `my_accounts` + `my_accounts_members`. `data-init` → `GET .../updates` live sub patches `#account-home` only (forms/signals survive). Mutations are command-only PatchSignals (`$accountError`, `$leftAccount` → `/app/accounts`). |
-| **Gaps** | Request link builder (Read+). Recent transfers. Deposit/Withdraw preselect. Developers (tokens, webhook). App tickets. |
+| **Gaps (H2 leftovers — do not rebuild people/primary)** | Request link builder (**Read+**, not Admin+). Recent transfers on this page. Deposit/Withdraw preselect. Developers (tokens, webhook). App tickets. |
 
 **Related routes:**
 
@@ -149,24 +152,36 @@ Logout lives on `/app/me` (profile page — more content planned).
 
 ---
 
-### 8. Transfers — `GET /app/transfers`
+### 8. Transfer send — `GET /app/transfer` **and** Activity — `GET /app/activity`
 
-**Design:** H3 · **Template:** `app-transfers.html.tmpl` · **Shell:** `transfers`
+**Design:** H3 · **Topcoat:** stubs only · **Go template:** `app-transfers.html.tmpl` (capability reference — **do not copy layout**) · **Shell:** Transfer / Activity
+
+Go combined send + history on one page. New chrome splits them. **Build send first**, then Activity.
+
+#### 8a. Send — `GET /app/transfer` (next)
 
 | | |
 |--|--|
-| **Content** | Account filter select (“All Accounts” + `#addr/ledger`); if one account selected: **Send** form (recipient, qty, memo, idempotency key, balance label); **Transfers list** (direction, relative time, from→to, amount+ledger, memo) |
-| **Actions** | Change selected account; search/select recipient; submit transfer; “Start Over” after send |
-| **Reactive** | `data-init` + `change` → `GET /app/transfers/updates` (SSE; NATS scoped to selected or all accounts); filter change with `Send-Initial-State` reloads list+form; recipient field: debounced search + radio select → `GET /app/transfers/form-recipient` patches fieldset; submit → `POST /app/accounts/{id}/transfers` → signal `$sentMessage`; indicators `$sending`. Signals: `$accId`, `$recipientSearch`, `$recipientAccId`, `$sentMessage`, `$sending` |
-| **Gaps** | • Template comment “TODO: Add in transfer section” is **stale** — send form exists when account selected • **No send when “All Accounts”** • **No pending / finalize UI** (module has pending + `finalize_transfer`; Go prod was posted-only) • **No transfer detail page** • Balance max on qty input **commented out** • No error toasts (status codes only) • After send, success is signal-only; list relies on NATS/SSE for new row • Idempotency “Start Over” re-fetches for new key |
+| **Content** | From-account picker (debit, Write+); recipient search; amount; optional memo; idempotency key; balance on selected account |
+| **Actions** | Choose from-account; search/select recipient; submit `create_transfer`; start over after send. Account home **Send** may preselect the account. |
+| **Reactive** | Recipient: debounce search (`account_directory` or module `GET /accounts?term&ledgerid`) → pick → chip + clear. Submit → PatchSignals; list/history updates via `my_transfers` if that pane exists. |
+| **Gaps** | Whole page is a stub. No pending / finalize UI (module has it). No send when no account selected. |
 
-**Related routes:**
+**Related (Go reference; new paths may differ):**
 
 | Route | Role |
 |-------|------|
-| `GET /app/transfers/updates` | SSE live list (+ initial state headers) |
-| `GET /app/transfers/form-recipient` | Datastar partial: recipient fieldset (search / pick / clear) |
-| `POST /app/accounts/{account_id}/transfers` | Create transfer (Admin+); `$sentMessage` |
+| Recipient search | Public `account_directory` / HTTP `GET /accounts?term&ledgerid` |
+| `POST …/transfers` | `create_transfer` (Write+ on sender) |
+
+#### 8b. Activity — `GET /app/activity` (after send)
+
+| | |
+|--|--|
+| **Content** | Transfer history for all accounts or one: direction, relative time, from→to, amount + ledger, memo |
+| **Actions** | Filter by account |
+| **Reactive** | Subscribe `my_transfers` → Datastar list patches (same CQRS as H1: first SSE connect seed-only; reconnect one snapshot; ignore subscribe-apply inserts) |
+| **Gaps** | Stub. No transfer detail page. No pending / finalize UI. |
 
 ---
 
@@ -207,10 +222,10 @@ Track so redesign can optionally exceed Go UI without forgetting product capabil
 | Capability | Go UI | Module / notes |
 |------------|-------|----------------|
 | Webhook URL set/clear | API only | `set_account_webhook` + view field |
-| Account label set/clear | No | `set_account_label` + `my_accounts.label` |
+| Account label set/clear | H2 Admin+ | `set_account_label` + `my_accounts.label` |
 | Pending transfer finalize | No | `finalize_transfer` |
 | Apps + SpacetimeAuth tickets | No | §7.9 reducers/views |
-| Role-granular ACL UI | TODO in template | `Role` + grant/revoke |
+| Role-granular ACL UI | H2 people section | `Role` + grant/revoke |
 | Admin credit/custom address | API | `create_account` rules |
 | Ledger audit | API | `ledger_audit` view |
 | Market | Commented menu only | Non-goal unless reopened |
@@ -237,12 +252,13 @@ Aligned with refactor §8.8 / H\*, adjusted for “real app first”:
 
 1. **App shell** + authed gate + username from `my_user`  
 2. ~~**Accounts list** + create + live balances (**H1**)~~ **done**  
-3. ~~**Account home** primary / people / label (**H2**)~~ **done** (tokens later)  
-4. **Transfers** list + send + recipient search + live updates (**H3**)  
-5. **Payment request** (**H4**)  
-6. **Logout** wired in chrome (**H5**)  
-7. **App home** redesign (low Go surface)  
-8. Stretch beyond Go UI: webhooks, apps, pending finalize, richer roles  
+3. ~~**Account home** primary / people / label (**H2**)~~ **done** (leftovers: tokens, webhook, apps, request builder Read+, recent)  
+4. **Transfer send** (`/app/transfer`) — from-account, recipient search, `create_transfer` (**H3a**)  
+5. **Activity** (`/app/activity`) — live `my_transfers` (**H3b**)  
+6. **Payment request** (**H4**)  
+7. **Logout** wired in chrome (**H5**) — already linked from `/app/me`  
+8. **App home** redesign (low Go surface)  
+9. Stretch: H2 leftovers (tokens, webhook, apps), pending finalize  
 
 Prerequisites already largely landed on Topcoat: BitAuth, STDB connect-as-user, einro pool (C1–C3). Marketing home (D2) and BitAuth login (D3) are in progress / partial.
 

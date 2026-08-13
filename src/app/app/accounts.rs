@@ -33,14 +33,14 @@ async fn page(cx: &Cx) -> Result {
 	} else {
 		String::new()
 	};
-	let primary_ledger_ids: Vec<u64> = data
-		.accounts
-		.iter()
-		.filter(|a| a.is_primary)
-		.map(|a| a.ledger_id)
-		.collect();
+	let primary_ids = encode_primary_ids(
+		data.accounts
+			.iter()
+			.filter(|a| a.is_primary)
+			.map(|a| a.ledger_id),
+	);
 	let signals = format!(
-		"{{creatingAcc:false,ledgerId:'{initial_ledger_id}',accountKind:'debit',address:'',label:'',createError:'',copiedId:0}}"
+		"{{creatingAcc:false,ledgerId:'{initial_ledger_id}',accountKind:'debit',address:'',label:'',createError:'',copiedId:0,primaryIds:'{primary_ids}'}}"
 	);
 
 	view! {
@@ -55,7 +55,6 @@ async fn page(cx: &Cx) -> Result {
 				ledgers: data.ledgers,
 				username: user.bitcraft_username.clone(),
 				is_admin: user.is_admin,
-				primary_ledger_ids: primary_ledger_ids,
 			)
 			accounts_list(rows: data.accounts)
 		</main>
@@ -68,10 +67,10 @@ async fn create(cx: &Cx, Signals(form): Signals<CreateAccountSignals>) -> Result
 	let user = require_user(cx).await?;
 	let ledger_id = form.ledger_id.trim();
 	if ledger_id.is_empty() {
-		return create_signals(true, "Choose an asset.", &form, None);
+		return create_signals(true, "Choose an asset.", &form, None, None);
 	}
 	let Ok(ledger_id) = ledger_id.parse::<u64>() else {
-		return create_signals(true, "Choose an asset.", &form, None);
+		return create_signals(true, "Choose an asset.", &form, None, None);
 	};
 
 	let kind = match form.account_kind.trim() {
@@ -81,6 +80,7 @@ async fn create(cx: &Cx, Signals(form): Signals<CreateAccountSignals>) -> Result
 				true,
 				"Only platform admins can create credit accounts.",
 				&form,
+				None,
 				None,
 			);
 		}
@@ -93,7 +93,7 @@ async fn create(cx: &Cx, Signals(form): Signals<CreateAccountSignals>) -> Result
 	} else if user.is_admin {
 		Some(address.to_owned())
 	} else {
-		return create_signals(true, "Custom address is admin-only.", &form, None);
+		return create_signals(true, "Custom address is admin-only.", &form, None, None);
 	};
 
 	let label = form.label.trim();
@@ -106,14 +106,31 @@ async fn create(cx: &Cx, Signals(form): Signals<CreateAccountSignals>) -> Result
 	let conn = acquire_user_db(cx).await?;
 	let snapshot = match fetch_accounts_page(conn.get()).await {
 		Ok(p) => p,
-		Err(e) => return create_signals(true, &e, &form, None),
+		Err(e) => return create_signals(true, &e, &form, None, None),
 	};
 	let is_primary =
 		matches!(kind, AccountKind::Debit) && !has_primary_on_ledger(&snapshot.accounts, ledger_id);
 
 	match create_user_account(conn.get(), ledger_id, kind, address, label, is_primary).await {
-		Ok(()) => create_signals(false, "", &form, Some("debit")),
-		Err(e) => create_signals(true, &e, &form, None),
+		Ok(()) => {
+			let mut ids: Vec<u64> = snapshot
+				.accounts
+				.iter()
+				.filter(|a| a.is_primary)
+				.map(|a| a.ledger_id)
+				.collect();
+			if is_primary && !ids.contains(&ledger_id) {
+				ids.push(ledger_id);
+			}
+			create_signals(
+				false,
+				"",
+				&form,
+				Some("debit"),
+				Some(encode_primary_ids(ids)),
+			)
+		}
+		Err(e) => create_signals(true, &e, &form, None, None),
 	}
 }
 
@@ -141,6 +158,20 @@ struct CreateAccountPatch {
 	account_kind: String,
 	address: String,
 	label: String,
+	#[serde(rename = "primaryIds", skip_serializing_if = "Option::is_none")]
+	primary_ids: Option<String>,
+}
+
+pub(super) fn encode_primary_ids(ids: impl IntoIterator<Item = u64>) -> String {
+	let mut out = String::new();
+	for id in ids {
+		if out.is_empty() {
+			out.push('|');
+		}
+		out.push_str(&id.to_string());
+		out.push('|');
+	}
+	out
 }
 
 fn create_signals(
@@ -148,6 +179,7 @@ fn create_signals(
 	error: &str,
 	form: &CreateAccountSignals,
 	reset_kind: Option<&str>,
+	primary_ids: Option<String>,
 ) -> Result<PatchSignals> {
 	let success = !creating_acc && error.is_empty();
 	PatchSignals::json(&CreateAccountPatch {
@@ -165,6 +197,7 @@ fn create_signals(
 		} else {
 			form.label.clone()
 		},
+		primary_ids,
 	})
 }
 
@@ -192,12 +225,7 @@ async fn page_header(can_create: bool, initial_ledger_id: String) -> Result {
 }
 
 #[component]
-async fn create_form(
-	ledgers: Vec<Ledger>,
-	username: String,
-	is_admin: bool,
-	primary_ledger_ids: Vec<u64>,
-) -> Result {
+async fn create_form(ledgers: Vec<Ledger>, username: String, is_admin: bool) -> Result {
 	if ledgers.is_empty() {
 		return view! {
 			<p class="mt-2 text-sm text-neutral-500">
@@ -222,11 +250,7 @@ async fn create_form(
 			</div>
 
 			for ledger in &ledgers {
-				create_helper(
-					ledger: ledger,
-					has_primary: primary_ledger_ids.contains(&ledger.id),
-					username: username.clone(),
-				)
+				create_helper(ledger: ledger, username: username.clone())
 			}
 
 			<p
@@ -317,19 +341,23 @@ async fn ledger_choice(ledger: &Ledger) -> Result {
 }
 
 #[component]
-async fn create_helper(ledger: &Ledger, has_primary: bool, username: String) -> Result {
-	let show = format!("$ledgerId == '{}' && $accountKind != 'credit'", ledger.id);
-	let helper = if has_primary {
-		format!("Friends sending to @{username} still go to your primary.")
-	} else {
-		format!(
-			"This will be your primary {} account. People can send to @{username}.",
-			ledger.name
-		)
-	};
+async fn create_helper(ledger: &Ledger, username: String) -> Result {
+	let id = ledger.id;
+	let show_first = format!(
+		"$ledgerId == '{id}' && $accountKind != 'credit' && !$primaryIds.includes('|{id}|')"
+	);
+	let show_existing = format!(
+		"$ledgerId == '{id}' && $accountKind != 'credit' && $primaryIds.includes('|{id}|')"
+	);
+	let first = format!(
+		"This will be your primary {} account. People can send to @{username}.",
+		ledger.name
+	);
+	let existing = format!("Friends sending to @{username} still go to your primary.");
 
 	view! {
-		<p class="mt-3 text-sm text-neutral-400" data-show=(show)>(helper)</p>
+		<p class="mt-3 text-sm text-neutral-400" data-show=(show_first)>(first)</p>
+		<p class="mt-3 text-sm text-neutral-400" data-show=(show_existing)>(existing)</p>
 	}
 }
 
