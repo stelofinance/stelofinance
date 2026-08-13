@@ -167,7 +167,7 @@ Pool key is **STDB Identity** (or stable token identity), not OIDC client_id. Ev
 | D16 | User bootstrap | **`client_connected` only** (no separate `ensure_user`) | Upsert on connect; no JWT → reject (except owner) |
 | D17 | App admin | **`User.is_admin: bool`** + `require_admin` | Bootstrap first admin via owner SQL; **no edge `ADMIN_KEY`** |
 | D18 | DB owner / CLI | **Store owner in `config` at `init`** | Owner may connect for SQL without BitAuth; not product admin |
-| D19 | Private tables | **Default private; public only `ledger` (catalog)** | Host enforces client visibility; owner SQL can read private |
+| D19 | Private tables | **Default private; public `ledger` (catalog) and `user` (username directory)** | Host enforces client visibility; owner SQL can read private |
 | D20 | Composite uniqueness | **Reducer-enforced** (STDB 2.7 has no multi-col unique) | Indexes for lookup (e.g. idempotency `by_account_and_key`) |
 | D21 | Idempotency storage | **Separate `transfer_idempotency` table** | Scope `(account_id, key)` → transfer + request_hash |
 | D22 | ~~Go STDB client~~ | **Superseded by D10** | Go digitalxero spike remains only until edge cutover |
@@ -197,7 +197,7 @@ All core tables **private** unless noted. Enums used instead of opaque integer c
 | Table | Accessor | Purpose | Notes |
 |-------|----------|---------|--------|
 | `config` | `config` | Singleton owner Identity | Written in `init` from `ctx.sender()` (publisher). PK = `owner` |
-| `user` | `user` | Stelo user profile | **PK = `Identity`**. Unique `bitcraft_username`. `is_admin` (default false) |
+| `user` | `user` | Stelo user profile | **Public**. **PK = `Identity`**. Unique `bitcraft_username`. `is_admin` (default false) |
 | `ledger` | `ledger` | Asset type / scale / kind | **Public** catalog. `LedgerKind`: Digital / Derivation / Physical |
 | `account` | `account` | Wallet / balances | `AccountKind` Credit/Debit; optional member-only `label` nickname; `user_id` = primary or **`Identity::ZERO`**; multi-col index `by_user_and_ledger`; single-col `ledger_id` + `address` |
 | `account_member` | `account_member` (`AccountMember`) | User **or** app ↔ account ACL | `MemberKind` + `Role`; multi-col `by_account_and_member`; single-col `member_id` |
@@ -210,7 +210,7 @@ All core tables **private** unless noted. Enums used instead of opaque integer c
 
 **`webhook_delivery` columns:** `id` (PK auto), `scheduled_at` (`ScheduleAt`), `account_id`, `transfer_id`, `url` (snapshot), `payload_json`, `attempts`.
 
-**Public surface:** prefer **views** for balances/PII; public base tables only when intentionally world-readable (`ledger`).
+**Public surface:** prefer **views** for balances/PII; public base tables only when intentionally world-readable (`ledger`, `user`).
 
 **Private table visibility (platform, not app code):**
 
@@ -451,7 +451,7 @@ Source: live Go routes/handlers/SQL/JetStream vs `spacetimedb/`. Goal: **finish 
 | List my wallets + balances | `account`, `account_member`, `ledger` | `my_accounts` (Owner-role username, not primary) | — |
 | Create debit wallet | `account` | — | `create_account` **done** |
 | Account settings page | | `my_accounts` (+ SQL filter), `my_accounts_members` | grant/revoke/primary **done**, apps **done** |
-| Add/remove members | `account_member` | `my_accounts_members` | `grant_account_member`, `revoke_account_member` **done** |
+| Add/remove members | `account_member` | `my_accounts_members`; public `user` for username search | `grant_account_member`, `revoke_account_member` **done** |
 | Set primary wallet | `account.user_id` | | `set_account_primary` **done** |
 | Transfer recipient search | public catalog | `account_directory` | HTTP `GET /accounts?term&ledgerid` **done**; view for STDB clients |
 | Send transfer | `transfer`, balances | `my_transfers` | `create_transfer` **done** + webhook enqueue |
@@ -869,7 +869,7 @@ Work through these **one by one**. Status: `todo` until implemented in Topcoat. 
 | ID | Surface | Go routes (reference) | Status |
 |----|---------|----------------------|--------|
 | H1 | Accounts list + create + live updates | `GET/POST /app/accounts`, `GET .../updates` | **done** (portfolio redesign; cards link, H2 later) |
-| H2 | Account admin | detail, primary, users, tokens | todo |
+| H2 | Account home | detail, primary, people, label | **done** (tokens/webhook/apps later) |
 | H3 | Transfers UI | list, select, recipient search, submit | todo |
 | H4 | Payment request | `GET /app/request`, `POST .../transfers` | todo |
 | H5 | Logout | clear cookies / end_session | todo |
@@ -1260,6 +1260,7 @@ Work items: tick §8.7 inventory, [app-surface-parity.md](./app-surface-parity.m
 | 2026-08-08 | **App chrome Option A:** desktop top nav (Accounts / Activity / Transfer▾) + username→`/app/me`; mobile bottom bar; stubs for accounts/activity/transfer/deposit/withdraw/me; root layout is document-only |
 | 2026-08-12 | **H1 accounts:** GET SSR `my_accounts` + public `ledger` selector; POST `create_account` (debit, signals only); `GET /app/accounts/updates` live sub patches `#accounts-list` (CQRS). Cards not links (H2). |
 | 2026-08-12 | **H1 portfolio UI:** group by ledger; label + copy address; issuer section; auto-primary first debit; create sheet (`@username` helper); platform-admin Advanced (credit + custom address); cards link to H2. |
+| 2026-08-12 | **H2 account home:** overview + receive/primary + people. Add-person: public `user` table search → select Identity → `grant_account_member`. Live `#account-home`. |
 | 2026-08-12 | **Account label:** optional `account.label` nickname (members only). `create_account(..., label, …)`; `set_account_label` Admin+ (`None`/blank clears, max 32); `my_accounts` + HTTP `GET /account` expose it; not on `account_directory`. |
 
 ---

@@ -1,5 +1,6 @@
 //! SpacetimeDB edge: config, einro adapter, helpers.
 
+pub mod account;
 mod accounts;
 mod config;
 mod connector;

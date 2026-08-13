@@ -1,5 +1,6 @@
 //! `GET/POST /app/accounts` — H1 portfolio + create. Live patches: `updates`.
 
+mod account_id;
 mod list;
 mod updates;
 

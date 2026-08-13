@@ -9,7 +9,7 @@ pub struct Config {
 	pub owner: Identity,
 }
 
-#[table(accessor = user)]
+#[table(accessor = user, public)]
 #[derive(Clone, Debug)]
 pub struct User {
 	#[primary_key]

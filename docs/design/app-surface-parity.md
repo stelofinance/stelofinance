@@ -36,8 +36,8 @@ This document is the **hard feature-parity floor** for browser HTML surfaces. Re
 | 2 | Login (BitAuth) | Sign in, return to app | No | D3 |
 | 3 | Logout | Clear session → home | No | H5 |
 | 4 | App home | Something for logged-in user (Go: greeting only) | Optional | — |
-| 5 | Accounts list | List wallets + balances; create debit (credit/custom addr if platform admin); open detail | **Yes** (balances) | H1 **(portfolio redesign; cards link, H2 stub later)** |
-| 6 | Account admin | Primary; members add/remove; API tokens mint/revoke | Partial (action patches only) | H2 |
+| 5 | Accounts list | List wallets + balances; create debit (credit/custom addr if platform admin); open detail | **Yes** (balances) | H1 |
+| 6 | Account admin | Primary; members add/remove/roles; label; API tokens mint/revoke | Partial (H2 home done; tokens later) | H2 |
 | 7 | Transfers | Filter account; history; send + recipient search + memo + idempotency | **Yes** (history/bal) | H3 |
 | 8 | Payment request | Query-prefilled pay flow | No (one-shot submit) | H4 |
 
@@ -113,7 +113,7 @@ Logout lives on `/app/me` (profile page — more content planned).
 | **Content** | Heading **Accounts**. Debit accounts grouped by ledger (name + kind in plain language). Each card: large balance, optional **label** nickname, `#address`, Yours vs Shared·role·owned by, Primary pill; **Copy** for the address. Credit accounts in a trailing **Issuer accounts** section, still grouped by ledger, Credit chip. Empty: hold assets / receive from other players (no hardcoded asset name). |
 | **Actions** | **New account** sheet: pick asset (cards), optional label, helper copy uses `@bitcraft_username`. First debit on a ledger is **auto-primary**. Platform admin **Advanced**: Credit kind + custom address. Whole card (except Copy) links to `/app/accounts/{id}` (H2). |
 | **Reactive** | GET SSR from `my_accounts` + public `ledger`. `data-init="@get('/app/accounts/updates')"` — long-lived STDB subscribe on `my_accounts` → patch `#accounts-list` only (create sheet / signals survive). First SSE connect seeds `Last-Event-Id` with an empty patch (no list remorph). Reconnect (`Last-Event-Id` set) sends one snapshot. Subscribe-apply `on_insert`s are ignored. Multi-row txns coalesce to one fat morph via a watch slot. POST `create_account` is command-only (PatchSignals close form or `$createError`). |
-| **Gaps** | H2 account home not built (links 404 until then). No in-list Send. |
+| **Gaps** | No in-list Send (Send lives on H2 / Transfer). |
 
 **Related routes (not separate pages):**
 
@@ -124,26 +124,28 @@ Logout lives on `/app/me` (profile page — more content planned).
 
 ---
 
-### 7. Account admin — `GET /app/accounts/{account_id}`
+### 7. Account home — `GET /app/accounts/{account_id}`
 
-**Design:** H2 · **Template:** `app-account.html.tmpl` · **Shell:** `account` · **Authz:** Admin on account
+**Design:** H2 · **Topcoat:** done (2026-08-12, home slice) · **Go template:** `app-account.html.tmpl` (do not copy layout) · **Shell:** accounts · **Authz:** any member (Read+)
 
 | | |
 |--|--|
-| **Content** | Breadcrumb `#addr-ledger`; if admin: **Primary** toggle; **Permissions** user list; **Tokens** total count + one-time secret after mint |
-| **Actions** | Set/clear primary (`PUT .../user-id`); add user by username (`POST .../users`); remove user (`DELETE .../users/{id}`); create token (`POST .../tokens`); revoke all tokens (`DELETE .../tokens`). Payment **Request** link builder is **Read+** (not Admin+). |
-| **Reactive** | Actions return Datastar **PatchElements** of full page content. Signals: `$primary`, `$addingUser`, `$addUsername`, `$token` (after create) |
-| **Gaps** | • Template TODO: **per-permission roles** (only coarse admin gate; no edit perms) • **No balance / address display** beyond title • **No webhook URL CRUD** (API-only in Go; module has `set_account_webhook`) • **No account label CRUD** (module has `set_account_label` + `my_accounts.label`) • **No apps / tickets** (module has apps; no HTML) • **No live updates** if another tab changes members/tokens • Token list is **count only**, not per-token labels/ids (module view has metadata) • Revoke is **all** only (module can revoke by ids) |
+| **Content** | Back to Accounts. Title = **label** or ledger name; large **balance**; `#address` + Copy; Primary / Credit / Shared·role chips. Debit: receive copy uses `@bitcraft_username`. **People**: users + apps, role, (you). |
+| **Actions** | Owner + debit: set/clear primary (`POST .../primary`). Write+ debit: **Send** → `/app/transfer`. Admin+: save label (`POST .../label`); search public `user` then grant Identity (`POST .../members`); change role; remove. Non-owner: **Leave**. Owner can promote another member to Owner (clear primary first — module rule). |
+| **Reactive** | SSR from `my_accounts` + `my_accounts_members`. `data-init` → `GET .../updates` live sub patches `#account-home` only (forms/signals survive). Mutations are command-only PatchSignals (`$accountError`, `$leftAccount` → `/app/accounts`). |
+| **Gaps** | Request link builder (Read+). Recent transfers. Deposit/Withdraw preselect. Developers (tokens, webhook). App tickets. |
 
 **Related routes:**
 
 | Route | Role |
 |-------|------|
-| `PUT /app/accounts/{id}/user-id` | Primary on/off (signal `$primary`) |
-| `POST /app/accounts/{id}/users` | Grant member (username → user) |
-| `DELETE /app/accounts/{id}/users/{user_id}` | Revoke member |
-| `POST /app/accounts/{id}/tokens` | Mint API token (show secret once) |
-| `DELETE /app/accounts/{id}/tokens` | Revoke all tokens |
+| `GET /app/accounts/{id}/updates` | SSE: live `#account-home` |
+| `POST /app/accounts/{id}/primary` | Owner; toggle primary |
+| `POST /app/accounts/{id}/label` | Admin+; set/clear nickname |
+| `GET /app/accounts/{id}/users` | Admin+ UI; debounce search → `#user-search-results` |
+| `POST /app/accounts/{id}/members` | Admin+; grant/change role by Identity (`$memberId` / `$editMemberId`) |
+| `POST /app/accounts/{id}/revoke` | Admin+; remove member by identity hex |
+| `POST /app/accounts/{id}/leave` | Non-owner; revoke self |
 
 ---
 
@@ -235,8 +237,8 @@ Aligned with refactor §8.8 / H\*, adjusted for “real app first”:
 
 1. **App shell** + authed gate + username from `my_user`  
 2. ~~**Accounts list** + create + live balances (**H1**)~~ **done**  
-3. **Transfers** list + send + recipient search + live updates (**H3**)  
-4. **Account admin** primary / members / tokens (**H2**)  
+3. ~~**Account home** primary / people / label (**H2**)~~ **done** (tokens later)  
+4. **Transfers** list + send + recipient search + live updates (**H3**)  
 5. **Payment request** (**H4**)  
 6. **Logout** wired in chrome (**H5**)  
 7. **App home** redesign (low Go surface)  
