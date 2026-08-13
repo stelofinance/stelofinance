@@ -59,6 +59,7 @@ curl -s "$STDB/v1/database/stelofinance/route/account" \
 {
   "id": 42,
   "address": "ANSYZS",
+  "label": "treasury",       // null if unset
   "kind": "Debit",           // "Debit" | "Credit"
   "balance": 300,
   "debitsPending": 0,

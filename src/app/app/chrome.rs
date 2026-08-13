@@ -106,7 +106,7 @@ pub async fn app_header(cx: &Cx, #[into] username: String) -> Result {
 		>
 			// Full viewport width; progressive horizontal padding (no max-width).
 			<nav class="flex w-full items-center gap-1 px-3 py-2 sm:px-5 md:gap-3 md:px-8 md:py-3 lg:px-12 xl:px-16 2xl:px-24">
-				<a href="/app" class="shrink-0" aria-label="Stelo app home">
+				<a href="/app" class="shrink-0 mr-4" aria-label="Stelo app home">
 					logo_full(class: "h-auto w-24 md:w-28")
 				</a>
 
@@ -145,7 +145,8 @@ pub async fn app_header(cx: &Cx, #[into] username: String) -> Result {
 							</summary>
 							// pt-1 bridge so the pointer stays inside the control when moving to the menu.
 							<div
-								class="absolute left-0 top-full z-40 min-w-40 pt-1"
+								// Center under the Transfer control: 50% from left, then pull back half of menu width.
+								class="absolute left-1/2 top-full z-40 min-w-40 -translate-x-1/2 pt-1"
 								role="menu"
 							>
 								<div class="rounded-md border border-neutral-700 bg-neutral-900 py-1 shadow-lg">

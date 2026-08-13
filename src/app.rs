@@ -16,9 +16,7 @@ mod login;
 use crate::auth::bitauth::BitAuth;
 use crate::auth::cookies::{COOKIE_REFRESH, COOKIE_TOKEN, get_cookie};
 use crate::stdb::StdbState;
-use crate::ui::{
-	discord, github, logo_colored, nintron, public_footer, public_nav, right_arrow,
-};
+use crate::ui::{discord, github, logo_colored, nintron, public_footer, public_nav, right_arrow};
 
 const SOURCE_CODE_PRO: Font = font! {
 	"Source Code Pro",

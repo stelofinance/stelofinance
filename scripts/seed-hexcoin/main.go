@@ -143,6 +143,7 @@ func main() {
 		Kind:      accountKindCredit,
 		Address:   &addr,
 		Webhook:   nil,
+		Label:     nil,
 		IsPrimary: false,
 	}); err != nil {
 		log.Fatalf("create_account credit: %v", err)
@@ -167,6 +168,7 @@ func main() {
 			Kind:      accountKindDebit,
 			Address:   nil, // auto-generate
 			Webhook:   nil,
+			Label:     nil,
 			IsPrimary: false,
 		}); err != nil {
 			log.Fatalf("create_account debit: %v", err)
@@ -635,6 +637,7 @@ type createAccountArgs struct {
 	Kind      uint8 // unit enum tag
 	Address   *string
 	Webhook   *string
+	Label     *string
 	IsPrimary bool
 }
 
@@ -643,6 +646,7 @@ func (a *createAccountArgs) WriteBsatn(w bsatn.Writer) {
 	bsatn.WriteSumUnit(w, a.Kind)
 	writeOptString(w, a.Address)
 	writeOptString(w, a.Webhook)
+	writeOptString(w, a.Label)
 	w.PutBool(a.IsPrimary)
 }
 

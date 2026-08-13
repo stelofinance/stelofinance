@@ -36,7 +36,7 @@ This document is the **hard feature-parity floor** for browser HTML surfaces. Re
 | 2 | Login (BitAuth) | Sign in, return to app | No | D3 |
 | 3 | Logout | Clear session → home | No | H5 |
 | 4 | App home | Something for logged-in user (Go: greeting only) | Optional | — |
-| 5 | Accounts list | List wallets + balances; create debit; open detail | **Yes** (balances) | H1 |
+| 5 | Accounts list | List wallets + balances; create debit (credit/custom addr if platform admin); open detail | **Yes** (balances) | H1 **(portfolio redesign; cards link, H2 stub later)** |
 | 6 | Account admin | Primary; members add/remove; API tokens mint/revoke | Partial (action patches only) | H2 |
 | 7 | Transfers | Filter account; history; send + recipient search + memo + idempotency | **Yes** (history/bal) | H3 |
 | 8 | Payment request | Query-prefilled pay flow | No (one-shot submit) | H4 |
@@ -106,21 +106,21 @@ Logout lives on `/app/me` (profile page — more content planned).
 
 ### 6. Accounts list — `GET /app/accounts`
 
-**Design:** H1 · **Template:** `app-accounts.html.tmpl` · **Shell:** `accounts`
+**Design:** H1 · **Topcoat:** redesigned portfolio (2026-08-12) · **Go template:** `app-accounts.html.tmpl` (do not copy layout) · **Shell:** `accounts`
 
 | | |
 |--|--|
-| **Content** | User’s accounts: address, ledger type badge (item), primary badge, ledger name, **formatted balance**; credit-ish accounts left border; ledger list for create form |
-| **Actions** | Navigate → account detail; **Create Account** (pick ledger → debit wallet) |
-| **Reactive** | `data-init="@get('/app/accounts/updates')"` — long-lived SSE; NATS `accounts.transfers.{id}.*` / `*.{id}` → full `#page-content` re-render (balances update on transfer). Create → Datastar **PatchElements** of full list. Client signals: `$creatingAcc` |
-| **Gaps** | Create only **debit (GA)**; no credit/custom address in UI. No live update if *membership* changes while open. **STDB target:** `my_accounts` + `create_account` + view subscribe (not NATS). |
+| **Content** | Heading **Accounts**. Debit accounts grouped by ledger (name + kind in plain language). Each card: large balance, optional **label** nickname, `#address`, Yours vs Shared·role·owned by, Primary pill; **Copy** for the address. Credit accounts in a trailing **Issuer accounts** section, still grouped by ledger, Credit chip. Empty: hold assets / receive from other players (no hardcoded asset name). |
+| **Actions** | **New account** sheet: pick asset (cards), optional label, helper copy uses `@bitcraft_username`. First debit on a ledger is **auto-primary**. Platform admin **Advanced**: Credit kind + custom address. Whole card (except Copy) links to `/app/accounts/{id}` (H2). |
+| **Reactive** | GET SSR from `my_accounts` + public `ledger`. `data-init="@get('/app/accounts/updates')"` — long-lived STDB subscribe on `my_accounts` → patch `#accounts-list` only (create sheet / signals survive). First SSE connect seeds `Last-Event-Id` with an empty patch (no list remorph). Reconnect (`Last-Event-Id` set) sends one snapshot. Subscribe-apply `on_insert`s are ignored. Multi-row txns coalesce to one fat morph via a watch slot. POST `create_account` is command-only (PatchSignals close form or `$createError`). |
+| **Gaps** | H2 account home not built (links 404 until then). No in-list Send. |
 
 **Related routes (not separate pages):**
 
 | Route | Role |
 |-------|------|
 | `GET /app/accounts/updates` | SSE stream for list patches |
-| `POST /app/accounts` | Create debit account → patch list |
+| `POST /app/accounts` | Create debit account → PatchSignals only; list via `/updates` |
 
 ---
 
@@ -131,9 +131,9 @@ Logout lives on `/app/me` (profile page — more content planned).
 | | |
 |--|--|
 | **Content** | Breadcrumb `#addr-ledger`; if admin: **Primary** toggle; **Permissions** user list; **Tokens** total count + one-time secret after mint |
-| **Actions** | Set/clear primary (`PUT .../user-id`); add user by username (`POST .../users`); remove user (`DELETE .../users/{id}`); create token (`POST .../tokens`); revoke all tokens (`DELETE .../tokens`) |
+| **Actions** | Set/clear primary (`PUT .../user-id`); add user by username (`POST .../users`); remove user (`DELETE .../users/{id}`); create token (`POST .../tokens`); revoke all tokens (`DELETE .../tokens`). Payment **Request** link builder is **Read+** (not Admin+). |
 | **Reactive** | Actions return Datastar **PatchElements** of full page content. Signals: `$primary`, `$addingUser`, `$addUsername`, `$token` (after create) |
-| **Gaps** | • Template TODO: **per-permission roles** (only coarse admin gate; no edit perms) • **No balance / address display** beyond title • **No webhook URL CRUD** (API-only in Go; module has `set_account_webhook`) • **No apps / tickets** (module has apps; no HTML) • **No live updates** if another tab changes members/tokens • Token list is **count only**, not per-token labels/ids (module view has metadata) • Revoke is **all** only (module can revoke by ids) |
+| **Gaps** | • Template TODO: **per-permission roles** (only coarse admin gate; no edit perms) • **No balance / address display** beyond title • **No webhook URL CRUD** (API-only in Go; module has `set_account_webhook`) • **No account label CRUD** (module has `set_account_label` + `my_accounts.label`) • **No apps / tickets** (module has apps; no HTML) • **No live updates** if another tab changes members/tokens • Token list is **count only**, not per-token labels/ids (module view has metadata) • Revoke is **all** only (module can revoke by ids) |
 
 **Related routes:**
 
@@ -205,6 +205,7 @@ Track so redesign can optionally exceed Go UI without forgetting product capabil
 | Capability | Go UI | Module / notes |
 |------------|-------|----------------|
 | Webhook URL set/clear | API only | `set_account_webhook` + view field |
+| Account label set/clear | No | `set_account_label` + `my_accounts.label` |
 | Pending transfer finalize | No | `finalize_transfer` |
 | Apps + SpacetimeAuth tickets | No | §7.9 reducers/views |
 | Role-granular ACL UI | TODO in template | `Role` + grant/revoke |
@@ -233,7 +234,7 @@ Realtime product goal (refactor §10): replace NATS transfer subjects with STDB 
 Aligned with refactor §8.8 / H\*, adjusted for “real app first”:
 
 1. **App shell** + authed gate + username from `my_user`  
-2. **Accounts list** + create + live balances (**H1**)  
+2. ~~**Accounts list** + create + live balances (**H1**)~~ **done**  
 3. **Transfers** list + send + recipient search + live updates (**H3**)  
 4. **Account admin** primary / members / tokens (**H2**)  
 5. **Payment request** (**H4**)  

@@ -1,6 +1,9 @@
 //! Public marketing footer.
 
-use topcoat::{Result, view::{component, view}};
+use topcoat::{
+	Result,
+	view::{component, view},
+};
 
 use super::icons::logo_full;
 

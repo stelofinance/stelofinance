@@ -1,6 +1,6 @@
 # Design Doc: SpacetimeDB Refactor
 
-**Status:** Outline + **domain core done; Topcoat edge P1 in progress (BitAuth + C1–C3 done; marketing home ported; app HTML surfaces next)** (§7–§8)  
+**Status:** Outline + **domain core done; Topcoat edge P1 in progress (BitAuth + C1–C3 done; H1 accounts live page done; remaining app HTML next)** (§7–§8)  
 **Date:** 2026-07-24 (updated 2026-08-08)  
 **Author:** Stelo maintainers + design discussion  
 **Related:** Current stack is Go + SQLite (sqlc/goose) + embedded NATS/JetStream + Datastar; target edge is **Rust Topcoat** + first-party STDB client; module + BitAuth remain. **C3 pool design:** [einro-identity-pool.md](./einro-identity-pool.md). **HTML app feature parity (pages, reactivity, build order):** [app-surface-parity.md](./app-surface-parity.md) — agents porting `/app` pages should load that doc alongside this one.
@@ -199,7 +199,7 @@ All core tables **private** unless noted. Enums used instead of opaque integer c
 | `config` | `config` | Singleton owner Identity | Written in `init` from `ctx.sender()` (publisher). PK = `owner` |
 | `user` | `user` | Stelo user profile | **PK = `Identity`**. Unique `bitcraft_username`. `is_admin` (default false) |
 | `ledger` | `ledger` | Asset type / scale / kind | **Public** catalog. `LedgerKind`: Digital / Derivation / Physical |
-| `account` | `account` | Wallet / balances | `AccountKind` Credit/Debit; `user_id` = primary or **`Identity::ZERO`**; multi-col index `by_user_and_ledger`; single-col `ledger_id` + `address` |
+| `account` | `account` | Wallet / balances | `AccountKind` Credit/Debit; optional member-only `label` nickname; `user_id` = primary or **`Identity::ZERO`**; multi-col index `by_user_and_ledger`; single-col `ledger_id` + `address` |
 | `account_member` | `account_member` (`AccountMember`) | User **or** app ↔ account ACL | `MemberKind` + `Role`; multi-col `by_account_and_member`; single-col `member_id` |
 | `account_token` | `account_token` | HTTP API tokens per account | **done** (§7.10): secret plaintext unique, `label`, `created_by`; index `account_id` |
 | `app` | `app` | Third-party / bot principal | **PK = Identity** (SpacetimeAuth). Unique `name`. `created_by` human |
@@ -319,10 +319,10 @@ Views use `ViewContext` / `AnonymousViewContext` and (for per-user views) filter
 | View | Returns | Auth / visibility | Status |
 |------|---------|-------------------|--------|
 | `my_user` | Caller’s profile (`MyUserRow`) | Caller row only; empty/`None` if anonymous/unregistered | **done** |
-| `my_accounts` | Accessible accounts: computed `balance` + `kind`, ledger name/scale/kind, caller `role`, `is_primary`, **Owner-role** username (not primary `user_id`), `webhook` only if role ≥ Admin | Via `account_member` for `ctx.sender()`; **not** app-admin god-mode | **done** |
+| `my_accounts` | Accessible accounts: computed `balance` + `kind`, optional `label` (all members), ledger name/scale/kind, caller `role`, `is_primary`, **Owner-role** username (not primary `user_id`), `webhook` only if role ≥ Admin | Via `account_member` for `ctx.sender()`; **not** app-admin god-mode | **done** |
 | `my_accounts_members` | Users + apps on accessible accounts (`MemberKind`, display `name`, role) | Caller has **any** role (Read+) on that account | **done** |
 | `my_transfers` | Transfers on caller’s accounts; enriched addresses, primary usernames, ledger name/scale | Debit **or** credit account in caller’s ACL; **no dedupe** if both sides match (may emit twice); no view `primary_key` until deduped | **done** |
-| `account_directory` | Public: `account_id`, `address`, `ledger_id`, `primary_username` (if `user_id != ZERO`) | **Anonymous OK**; all credit+debit accounts; world-readable addresses | **done** |
+| `account_directory` | Public: `account_id`, `address`, `ledger_id`, `primary_username` (if `user_id != ZERO`); **no** `label` | **Anonymous OK**; all credit+debit accounts; world-readable addresses | **done** |
 | `ledger_audit` | Per-ledger debit-normal vs credit-normal nets + `balanced` | App admin (`User.is_admin`) only; others empty | **done** |
 | ~~`my_accounts_users`~~ / ~~`my_accounts_apps`~~ | — | Replaced by `my_accounts_members` | **Removed** |
 | `my_accounts_tokens` | Token metadata (id, account_id, label, created_by, created_at; **never** secret) | Caller Admin+ on account | **done** (§7.10) |
@@ -346,7 +346,7 @@ All reducers: validate sender, load permission, enforce domain rules, mutate onl
 | `require_principal` / `effective_role` / `has_minimum_role` (helpers) | User **or** app; role from `account_member` | **done** |
 | `create_account_token` (procedure) / `revoke_account_tokens` | Admin+ manage tokens; create → `Result<String, String>` (no panic) | **done** (§7.10 / `api.rs`) |
 | `create_ledger` | Admin; public catalog row | **done** |
-| `create_account` | Owner = `ctx.sender()`. Debit open; Credit admin; custom address admin; Owner ACL row. **Users only** | **done** |
+| `create_account` | Owner = `ctx.sender()`. Debit open; Credit admin; custom address admin; optional `label`/`webhook`; Owner ACL row. **Users only** | **done** |
 | `create_transfer` | Kind authz; idempotency; pending/posted; balance rules; webhook enqueue | **done** |
 | `finalize_transfer` | Pending only → post amount or void; idempotent replay; webhook enqueue | **done** |
 | `grant_account_member` | Upsert by `Identity`; kind from `user`/`app` tables; see §7.8 | **done** |
@@ -356,6 +356,7 @@ All reducers: validate sender, load permission, enforce domain rules, mutate onl
 | `client_connected` app bind | SpacetimeAuth + ticket by `sub` → create/replace `app` | **done** |
 | `set_account_primary` | Owner sets/clears own primary (`account_id`, `bool`); Debit only; **users only** | **done** |
 | `set_account_webhook` | Admin+; `Option<String>` (`None`/blank clears); http(s) URL validation | **done** |
+| `set_account_label` | Admin+; `Option<String>` (`None`/blank clears); trim + max 32 bytes; member-only nickname | **done** |
 | `update_account_address` | App admin; set address by account id (A–Z, unique in ledger) | **done** |
 | `admin_patch_balance` | Break-glass; prefer issue/redeem long-term | TODO |
 | `grant_admin` / `revoke_admin` | App admin flag after owner-SQL bootstrap | TODO |
@@ -435,7 +436,7 @@ Source: live Go routes/handlers/SQL/JetStream vs `spacetimedb/`. Goal: **finish 
 |------|--------|
 | Auth skeleton | `init`, `client_connected`, `User`, `require_admin` |
 | Ledgers | public `ledger` + `create_ledger` |
-| Accounts | `account` (+ `webhook` column) + `create_account` |
+| Accounts | `account` (+ `webhook` + `label` columns) + `create_account` |
 | ACL rows | `account_member` + Owner on create |
 | ACL reducers | `grant_account_member`, `revoke_account_member`, `set_account_primary` (**done**) |
 | Transfers | `create_transfer`, `finalize_transfer`, `transfer_idempotency` |
@@ -460,6 +461,7 @@ Source: live Go routes/handlers/SQL/JetStream vs `spacetimedb/`. Goal: **finish 
 | Account API tokens + JSON HTTP | `account_token` | `my_accounts_tokens` **done** | create procedure + revoke + HTTP ping **done** (§7.10) |
 | Legacy edge JSON `/api` + JetStream `stla_` | — | — | Superseded by §7.10 + edge reverse-proxy (§8.5); **no** legacy path shape |
 | Webhook URL CRUD | `account.webhook` | field on account view | `set_account_webhook` **done** |
+| Account label (nickname) | `account.label` | field on `my_accounts` (all members; not public directory) | `create_account` + `set_account_label` **done** |
 | Webhook delivery | **`webhook_delivery` schedule table** | — | enqueue + `deliver_webhook` **done** |
 | Public ledgers | `ledger` public **done** | (table itself; no view) | `create_ledger` **done** |
 | Ledger audit | `account` | `ledger_audit` **done** | — |
@@ -811,34 +813,34 @@ Work through these **one by one**. Status: `todo` until implemented in Topcoat. 
 |----|--------|-------|--------|
 | C1 | Official Rust STDB SDK + bindings | `spacetimedb-sdk` 2.7.* + `spacetime generate` → `src/module_bindings/`; `task stdb:generate` | **done** |
 | C2 | Connect-as-user | Cookie `bitauth_token` → `with_token`; `STDB_HOST`/`STDB_DATABASE`; validated via temporary smoke (removed) | **done** |
-| C3 | Connection pool (token-keyed) | [einro](./einro-identity-pool.md): exact token → conn; no JWT in pool; idle TTL | **in progress** |
-| C4 | Page-load queries / reducers | Views + CallReducer via pool | partial (`my_user` for session; more with H*) |
-| C5 | Live subscribe for Datastar | my_accounts / my_transfers etc. | todo |
-| C6 | Error mapping | Toasts vs full pages vs JSON (D30) | todo |
+| C3 | Connection pool (token-keyed) | [einro](./einro-identity-pool.md): exact token → conn; no JWT in pool; idle TTL | **done** (`src/einro/`) |
+| C4 | Page-load queries / reducers | Views + CallReducer via pool | partial (`my_user`; H1 `my_accounts` + `ledger` + `create_account`) |
+| C5 | Live subscribe for Datastar | my_accounts / my_transfers etc. | partial (`my_accounts` on `GET /app/accounts/updates`) |
+| C6 | Error mapping | Toasts vs full pages vs JSON (D30) | partial (H1 inline `$createError`) |
 
 #### D — Templates / UI structure
 
 | ID | System | Notes | Status |
 |----|--------|-------|--------|
 | D1 | HTML shell layout | Public vs app chrome (Topcoat `#[layout]`) | partial (app chrome Option A; public chrome on marketing pages) |
-| D2 | Marketing page `GET /` | Port index content | todo |
-| D3 | Login page | **“Login with BitAuth”** button only (no BitJita UI) | todo |
-| D4 | App pages | home, accounts, account detail, transfers, payment request | todo |
+| D2 | Marketing page `GET /` | Port index content | **rough done** |
+| D3 | Login page | **“Login with BitAuth”** button only (no BitJita UI) | **done** |
+| D4 | App pages | home, accounts, account detail, transfers, payment request | partial (home thin; **H1 accounts done**) |
 | D5 | Chrome components | nav, footer, app-nav, app-menu | partial (`src/app/app/chrome.rs` Option A; full app menu replaced) |
-| D6 | Partial / component patches | Case-by-case (e.g. transfer recipient) | todo |
-| D7 | Display formatting | Asset-scale balances, relative times | todo |
+| D6 | Partial / component patches | Case-by-case (e.g. transfer recipient) | partial (H1 patches `#accounts-list` only) |
+| D7 | Display formatting | Asset-scale balances, relative times | partial (`format_qty` for H1) |
 | D8 | Idempotency keys in forms | Generate on render (uuid) | todo |
 
 #### E — Datastar
 
 | ID | System | Notes | Status |
 |----|--------|-------|--------|
-| E1 | Datastar JS asset | Topcoat `datastar` feature + asset pipeline | todo |
-| E2 | SSE PatchElements | Accounts/transfers live updates + form actions | todo |
-| E3 | Signals I/O | Topcoat `Signals` extractor | todo |
-| E4 | Form posts | `@post` / form content type parity | todo |
+| E1 | Datastar JS asset | Topcoat `datastar` feature + asset pipeline | **done** (CDN script in root layout) |
+| E2 | SSE PatchElements | Accounts/transfers live updates + form actions | partial (H1 `#accounts-list`) |
+| E3 | Signals I/O | Topcoat `Signals` extractor | partial (H1 create) |
+| E4 | Form posts | `@post` / form content type parity | partial (H1 `@post` + signals JSON) |
 | E5 | Hot reload | **Topcoat dev CLI** (`topcoat dev`) — no custom `/hotreload` | n/a (framework) |
-| E6 | SSE reconnect / Last-Event-Id | Port where needed | todo |
+| E6 | SSE reconnect / Last-Event-Id | Port where needed | partial (H1: first connect seed-only; reconnect one snapshot) |
 
 #### F — CSS / fonts / static assets
 
@@ -866,7 +868,7 @@ Work through these **one by one**. Status: `todo` until implemented in Topcoat. 
 
 | ID | Surface | Go routes (reference) | Status |
 |----|---------|----------------------|--------|
-| H1 | Accounts list + create + live updates | `GET/POST /app/accounts`, `GET .../updates` | todo |
+| H1 | Accounts list + create + live updates | `GET/POST /app/accounts`, `GET .../updates` | **done** (portfolio redesign; cards link, H2 later) |
 | H2 | Account admin | detail, primary, users, tokens | todo |
 | H3 | Transfers UI | list, select, recipient search, submit | todo |
 | H4 | Payment request | `GET /app/request`, `POST .../transfers` | todo |
@@ -1154,7 +1156,7 @@ Track status in §8.7 inventory. Minimum P1 exit:
 - [x] Official Rust STDB client + generated bindings (`spacetimedb-sdk` + `src/module_bindings`)
 - [x] Connect-as-user (C2): cookie token → STDB (temporary smoke removed after validation)
 - [x] Token-keyed connection pool (C3 / einro) + `ensure_bearer` refresh (B6)
-- [ ] One app page from STDB + Datastar subscribe → patch on transfer
+- [x] One app page from STDB + Datastar subscribe → patch `#accounts-list` (H1; transfer-driven balance updates use the same sub)
 - [ ] Health check for deploy; stdout logging
 - [ ] (Follow-on) reverse-proxy slice for module `ping` routes
 
@@ -1202,7 +1204,7 @@ Any admin balance patch must either:
 3. ~~Topcoat skeleton + BitAuth + C1 (SDK + `spacetime generate` bindings)~~ **done**.
 4. ~~**C2 connect-as-user** + **C3 einro pool**~~ **done** (`src/stdb/*`, `src/einro/*`).
 5. ~~Marketing homepage (D2)~~ **rough done** (`src/app.rs` + `src/ui/*`).
-6. App HTML surfaces per [app-surface-parity.md](./app-surface-parity.md) (shell → H1 accounts → H3 transfers → H2 account admin → H4 payment request → H5 logout in chrome).
+6. App HTML surfaces per [app-surface-parity.md](./app-surface-parity.md) (~~shell~~ → ~~H1 accounts~~ → H3 transfers → H2 account admin → H4 payment request → H5 logout in chrome).
 7. Module HTTP reverse-proxy (**required** JSON API cutover: §8.5 / I* / §9); update `docs/api/*`.
 8. Admin reducers on module (parallel track).
 9. Fly stateless + GHA (module publish + edge deploy); cut over; delete Go.
@@ -1256,6 +1258,9 @@ Work items: tick §8.7 inventory, [app-surface-parity.md](./app-surface-parity.m
 | 2026-08-08 | **App HTML parity doc:** [app-surface-parity.md](./app-surface-parity.md) — Go pages, reactivity map, build order; linked from §8.7 H*, §8.8, §9, §21 |
 | 2026-08-08 | **B5 `/app` auth gate:** Topcoat `require_user` / `current_user` (`src/auth/user.rs`) — cookie → `ensure_bearer` → einro → `my_user`; `#[layout]` under `src/app/app/` + thin `/app` home; login forwards `?redirect=` |
 | 2026-08-08 | **App chrome Option A:** desktop top nav (Accounts / Activity / Transfer▾) + username→`/app/me`; mobile bottom bar; stubs for accounts/activity/transfer/deposit/withdraw/me; root layout is document-only |
+| 2026-08-12 | **H1 accounts:** GET SSR `my_accounts` + public `ledger` selector; POST `create_account` (debit, signals only); `GET /app/accounts/updates` live sub patches `#accounts-list` (CQRS). Cards not links (H2). |
+| 2026-08-12 | **H1 portfolio UI:** group by ledger; label + copy address; issuer section; auto-primary first debit; create sheet (`@username` helper); platform-admin Advanced (credit + custom address); cards link to H2. |
+| 2026-08-12 | **Account label:** optional `account.label` nickname (members only). `create_account(..., label, …)`; `set_account_label` Admin+ (`None`/blank clears, max 32); `my_accounts` + HTTP `GET /account` expose it; not on `account_directory`. |
 
 ---
 
