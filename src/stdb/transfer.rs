@@ -1,11 +1,10 @@
-//! Transfer send: directory search + `create_transfer`.
+//! Transfer send: `account_search` procedure + `create_transfer`.
 
 use std::time::Duration;
 
 use crate::module_bindings::{
-	AccountDirectoryRow, AccountDirectoryTableAccess, AccountKind, MyAccountRow,
-	MyAccountsTableAccess, Role, account_directoryQueryTableAccess, create_transfer,
-	my_accountsQueryTableAccess,
+	AccountKind, AccountSearchHit, AccountSearchScope, MyAccountRow, MyAccountsTableAccess, Role,
+	account_search, create_transfer, my_accountsQueryTableAccess,
 };
 use spacetimedb_sdk::{DbContext, Table};
 use tokio::task::spawn_blocking;
@@ -15,9 +14,8 @@ use super::connector::StdbConn;
 use super::query::subscribe_once;
 
 const REDUCER_TIMEOUT: Duration = Duration::from_secs(15);
-const SEARCH_LIMIT: usize = 10;
 
-/// One recipient hit after ledger filter + ranking.
+/// One recipient hit after procedure search + own-label attach.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DirectoryHit {
 	pub account_id: u64,
@@ -56,19 +54,27 @@ pub fn parse_recipient_term(raw: &str) -> Option<(SearchScope, String)> {
 		if term.is_empty() {
 			return None;
 		}
-		Some((SearchScope::Username, term.to_ascii_lowercase()))
+		Some((SearchScope::Username, term.to_ascii_uppercase()))
 	} else if let Some(rest) = t.strip_prefix('#') {
 		let term = rest.trim();
 		if term.is_empty() {
 			return None;
 		}
-		Some((SearchScope::Address, term.to_ascii_lowercase()))
+		Some((SearchScope::Address, term.to_ascii_uppercase()))
 	} else {
-		Some((SearchScope::Both, t.to_ascii_lowercase()))
+		Some((SearchScope::Both, t.to_ascii_uppercase()))
 	}
 }
 
-/// One-shot `account_directory` + `my_accounts` (for own labels). Filter/rank on the edge.
+fn scope_arg(scope: SearchScope) -> Option<AccountSearchScope> {
+	match scope {
+		SearchScope::Username => Some(AccountSearchScope::Username),
+		SearchScope::Address => Some(AccountSearchScope::Address),
+		SearchScope::Both => None,
+	}
+}
+
+/// Procedure prefix search + `my_accounts` (for own labels).
 pub async fn search_directory(
 	conn: &StdbConn,
 	ledger_id: u64,
@@ -78,112 +84,74 @@ pub async fn search_directory(
 	let Some((scope, needle)) = parse_recipient_term(term) else {
 		return Ok(Vec::new());
 	};
+	let hits = call_account_search(conn, needle, ledger_id, scope_arg(scope)).await?;
+	let mine = fetch_own_labels(conn).await?;
+	Ok(attach_own_labels(hits, &mine, exclude_id))
+}
+
+async fn call_account_search(
+	conn: &StdbConn,
+	term: String,
+	ledger_id: u64,
+	scope: Option<AccountSearchScope>,
+) -> Result<Vec<AccountSearchHit>, String> {
+	let (tx, rx) = std::sync::mpsc::sync_channel(1);
+	conn.db()
+		.procedures
+		.account_search_then(term, ledger_id, scope, move |_ctx, result| {
+			let outcome = match result {
+				Ok(Ok(hits)) => Ok(hits),
+				Ok(Err(e)) => Err(e),
+				Err(e) => Err(e.to_string()),
+			};
+			let _ = tx.send(outcome);
+		});
+	let wait = spawn_blocking(move || {
+		rx.recv_timeout(REDUCER_TIMEOUT)
+			.map_err(|_| "account_search timed out".to_owned())
+	})
+	.await
+	.map_err(|e| format!("account_search wait task: {e}"))?;
+	wait?
+}
+
+async fn fetch_own_labels(conn: &StdbConn) -> Result<Vec<(u64, Option<String>)>, String> {
 	subscribe_once(
 		conn,
-		|b| {
-			b.add_query(|q| q.from.account_directory())
-				.add_query(|q| q.from.my_accounts())
-				.subscribe()
-		},
-		move |ctx| {
-			let mine: Vec<(u64, Option<String>)> = ctx
-				.db()
+		|b| b.add_query(|q| q.from.my_accounts()).subscribe(),
+		|ctx| {
+			ctx.db()
 				.my_accounts()
 				.iter()
 				.map(|a| (a.account_id, a.label.clone()))
-				.collect();
-			rank_hits(
-				ctx.db().account_directory().iter(),
-				&mine,
-				ledger_id,
-				exclude_id,
-				scope,
-				&needle,
-				SEARCH_LIMIT,
-			)
+				.collect()
 		},
 	)
 	.await
 }
 
-pub fn rank_hits(
-	rows: impl Iterator<Item = AccountDirectoryRow>,
+fn attach_own_labels(
+	hits: Vec<AccountSearchHit>,
 	mine: &[(u64, Option<String>)],
-	ledger_id: u64,
 	exclude_id: u64,
-	scope: SearchScope,
-	needle: &str,
-	limit: usize,
 ) -> Vec<DirectoryHit> {
-	let mut scored: Vec<(u8, u8, String, DirectoryHit)> = Vec::new();
-	for row in rows {
-		if row.ledger_id != ledger_id || row.account_id == exclude_id {
-			continue;
-		}
-		let Some((rank, field)) = best_rank(&row, scope, needle) else {
-			continue;
-		};
-		let own_label = mine
-			.iter()
-			.find(|(id, _)| *id == row.account_id)
-			.and_then(|(_, l)| {
-				l.as_deref()
-					.map(str::trim)
-					.filter(|s| !s.is_empty())
-					.map(str::to_owned)
-			});
-		let sort_name = row
-			.primary_username
-			.as_deref()
-			.map(str::to_ascii_lowercase)
-			.unwrap_or_else(|| row.address.to_ascii_lowercase());
-		scored.push((
-			rank,
-			field,
-			sort_name,
-			DirectoryHit {
-				account_id: row.account_id,
-				address: row.address,
-				primary_username: row.primary_username,
-				own_label,
-			},
-		));
-	}
-	scored.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
-	scored.into_iter().take(limit).map(|s| s.3).collect()
-}
-
-/// Lower is better. Field 0 = username, 1 = address (username wins ties).
-fn best_rank(row: &AccountDirectoryRow, scope: SearchScope, needle: &str) -> Option<(u8, u8)> {
-	let user = row
-		.primary_username
-		.as_deref()
-		.filter(|s| !s.is_empty())
-		.and_then(|u| field_rank(u, needle).map(|r| (r, 0u8)));
-	let addr = field_rank(&row.address, needle).map(|r| (r, 1u8));
-	match scope {
-		SearchScope::Username => user,
-		SearchScope::Address => addr,
-		SearchScope::Both => match (user, addr) {
-			(Some(u), Some(a)) => Some(if u.0 <= a.0 { u } else { a }),
-			(Some(u), None) => Some(u),
-			(None, Some(a)) => Some(a),
-			(None, None) => None,
-		},
-	}
-}
-
-fn field_rank(hay: &str, needle: &str) -> Option<u8> {
-	let h = hay.to_ascii_lowercase();
-	if h == needle {
-		Some(0)
-	} else if h.starts_with(needle) {
-		Some(1)
-	} else if h.contains(needle) {
-		Some(2)
-	} else {
-		None
-	}
+	hits.into_iter()
+		.filter(|h| h.account_id != exclude_id)
+		.map(|h| DirectoryHit {
+			account_id: h.account_id,
+			address: h.address,
+			primary_username: h.primary_username,
+			own_label: mine
+				.iter()
+				.find(|(id, _)| *id == h.account_id)
+				.and_then(|(_, l)| {
+					l.as_deref()
+						.map(str::trim)
+						.filter(|s| !s.is_empty())
+						.map(str::to_owned)
+				}),
+		})
+		.collect()
 }
 
 pub fn new_idempotency_key() -> String {
@@ -252,11 +220,11 @@ pub async fn create_user_transfer(
 mod tests {
 	use super::*;
 
-	fn row(id: u64, address: &str, ledger: u64, user: Option<&str>) -> AccountDirectoryRow {
-		AccountDirectoryRow {
+	fn hit(id: u64, address: &str, user: Option<&str>) -> AccountSearchHit {
+		AccountSearchHit {
 			account_id: id,
 			address: address.to_owned(),
-			ledger_id: ledger,
+			ledger_id: 1,
 			primary_username: user.map(str::to_owned),
 		}
 	}
@@ -265,70 +233,30 @@ mod tests {
 	fn prefix_scope() {
 		assert_eq!(
 			parse_recipient_term("@Nin"),
-			Some((SearchScope::Username, "nin".into()))
+			Some((SearchScope::Username, "NIN".into()))
 		);
 		assert_eq!(
 			parse_recipient_term("#hex"),
-			Some((SearchScope::Address, "hex".into()))
+			Some((SearchScope::Address, "HEX".into()))
 		);
 		assert_eq!(
 			parse_recipient_term("  nin  "),
-			Some((SearchScope::Both, "nin".into()))
+			Some((SearchScope::Both, "NIN".into()))
 		);
 		assert!(parse_recipient_term("@").is_none());
 		assert!(parse_recipient_term("").is_none());
 	}
 
 	#[test]
-	fn ranks_exact_then_prefix_then_contains() {
-		let rows = [
-			row(1, "XXNINXX", 1, Some("xninx")),
-			row(2, "OTHER", 1, Some("nintron")),
-			row(3, "NINWALLET", 1, None),
-			row(4, "ZZZ", 1, Some("bob")),
-			row(5, "SKIP", 2, Some("nintron")),
-			row(6, "MINE", 1, Some("me")),
-		];
-		let mine = [(6, Some("Guild chest".into()))];
-		let hits = rank_hits(rows.into_iter(), &mine, 1, 6, SearchScope::Both, "nin", 10);
-		let ids: Vec<u64> = hits.iter().map(|h| h.account_id).collect();
-		// nintron = username prefix (1,0); NINWALLET = address prefix (1,1);
-		// xninx = username contains (2,0). Exclude 6; drop other ledger.
-		assert_eq!(ids, vec![2, 3, 1]);
-	}
-
-	#[test]
-	fn at_prefix_skips_address_only() {
-		let rows = [
-			row(1, "NINWALLET", 1, None),
-			row(2, "ZZ", 1, Some("nintron")),
-		];
-		let hits = rank_hits(
-			rows.into_iter(),
-			&[],
-			1,
-			0,
-			SearchScope::Username,
-			"nin",
-			10,
-		);
-		assert_eq!(hits.len(), 1);
-		assert_eq!(hits[0].account_id, 2);
-	}
-
-	#[test]
-	fn own_label_attached() {
-		let rows = [row(9, "HEXGUILD", 1, None)];
-		let mine = [(9, Some("Guild chest".into()))];
-		let hits = rank_hits(
-			rows.into_iter(),
+	fn own_label_attached_and_sender_excluded() {
+		let mine = [(9, Some("Guild chest".into())), (1, Some("Me".into()))];
+		let hits = attach_own_labels(
+			vec![hit(9, "HEXGUILD", None), hit(1, "MINE", None)],
 			&mine,
 			1,
-			1,
-			SearchScope::Address,
-			"hex",
-			10,
 		);
+		assert_eq!(hits.len(), 1);
+		assert_eq!(hits[0].account_id, 9);
 		assert_eq!(hits[0].own_label.as_deref(), Some("Guild chest"));
 	}
 }

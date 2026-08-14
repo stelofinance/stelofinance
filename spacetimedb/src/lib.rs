@@ -1,6 +1,7 @@
 mod acl;
 mod api;
 mod apps;
+mod search;
 mod tables;
 mod transfers;
 mod views;

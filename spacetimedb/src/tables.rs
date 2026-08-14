@@ -56,7 +56,8 @@ pub enum AccountKind {
 
 #[spacetimedb::table(
     accessor = account,
-    index(accessor = by_user_and_ledger, btree(columns = [user_id, ledger_id]))
+    index(accessor = by_user_and_ledger, btree(columns = [user_id, ledger_id])),
+    index(accessor = by_ledger_and_address, btree(columns = [ledger_id, address]))
 )]
 #[derive(Clone, Debug)]
 pub struct Account {
@@ -68,7 +69,7 @@ pub struct Account {
 	#[index(btree)]
 	pub address: String,
 
-	/// Optional nickname. Visible to account members only (not `account_directory`).
+	/// Optional nickname. Visible to account members only (not the public search catalog).
 	pub label: Option<String>,
 
 	pub webhook: Option<String>,

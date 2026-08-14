@@ -1,5 +1,5 @@
 use crate::tables::*;
-use spacetimedb::{AnonymousViewContext, Identity, SpacetimeType, Timestamp, ViewContext, view};
+use spacetimedb::{Identity, SpacetimeType, Timestamp, ViewContext, view};
 
 // ---------------------------------------------------------------------------
 // Row types
@@ -68,14 +68,6 @@ pub struct MyTransferRow {
 	pub memo: Option<String>,
 	pub created_at: Timestamp,
 	pub finalized_at: Option<Timestamp>,
-}
-
-#[derive(SpacetimeType, Clone, Debug)]
-pub struct AccountDirectoryRow {
-	pub account_id: u64,
-	pub address: String,
-	pub ledger_id: u64,
-	pub primary_username: Option<String>,
 }
 
 #[derive(SpacetimeType, Clone, Debug)]
@@ -219,24 +211,6 @@ fn my_transfers(ctx: &ViewContext) -> Vec<MyTransferRow> {
 	}
 
 	out
-}
-
-/// Public recipient / search catalog. Anonymous callers allowed.
-/// Edge applies LIKE-style term filtering client-side or via SQL on this view.
-#[view(accessor = account_directory, public, primary_key = account_id)]
-fn account_directory(ctx: &AnonymousViewContext) -> Vec<AccountDirectoryRow> {
-	// Full scan via ranged index on ledger_id (views may not use table `.iter()`).
-	ctx.db
-		.account()
-		.ledger_id()
-		.filter(0u64..)
-		.map(|acc| AccountDirectoryRow {
-			account_id: acc.id,
-			address: acc.address,
-			ledger_id: acc.ledger_id,
-			primary_username: username_for(&ctx.db, acc.user_id),
-		})
-		.collect()
 }
 
 /// App-admin ledger conservation check. Non-admins get an empty result.
