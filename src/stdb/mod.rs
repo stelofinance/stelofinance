@@ -2,6 +2,7 @@
 
 pub mod account;
 mod accounts;
+mod activity;
 mod config;
 mod connector;
 mod format;
@@ -11,9 +12,13 @@ mod user;
 mod transfer;
 
 pub use accounts::{LiveAccounts, create_user_account, fetch_accounts_page, has_primary_on_ledger};
+pub use activity::{
+	ActivitySnapshot, LiveActivity, display_amount, fetch_activity_page, selected_account_id,
+	sender_receiver, timestamp_micros,
+};
 pub use config::StdbConfig;
 pub use connector::{StdbConn, StdbConnector};
-pub use format::{format_qty, parse_qty};
+pub use format::{day_heading, format_qty, format_rel_time, parse_qty, unix_now_micros};
 pub use transfer::{
 	DirectoryHit, create_user_transfer, map_transfer_error, new_idempotency_key, search_directory,
 	sendable_accounts,

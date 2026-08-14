@@ -41,7 +41,7 @@ This document is the **hard feature-parity floor** for browser HTML surfaces. Re
 | 5 | Accounts list | List wallets + balances; create debit (credit/custom addr if platform admin); open detail | **Yes** (balances) | H1 |
 | 6 | Account home | Primary; members add/remove/roles; label | **Yes** | H2 **(home done; tokens/webhook/apps later)** |
 | 7a | Transfer send | From-account, recipient search, amount, memo, idempotency | **Yes** (bal) | H3a **done** |
-| 7b | Activity | Live transfer history (all or one account) | **Yes** | H3b **next** |
+| 7b | Activity | Live transfer history (all or one account) | **Yes** | H3b **done** |
 | 8 | Payment request | Query-prefilled pay flow | No (one-shot submit) | H4 |
 
 **Chrome capability (Topcoat Option A, 2026-08-08):**  
@@ -154,9 +154,9 @@ Logout lives on `/app/me` (profile page — more content planned).
 
 ### 8. Transfer send — `GET /app/transfer` **and** Activity — `GET /app/activity`
 
-**Design:** H3 · **Topcoat:** send done (2026-08-12); Activity stub · **Go template:** `app-transfers.html.tmpl` (capability reference — **do not copy layout**) · **Shell:** Transfer / Activity
+**Design:** H3 · **Topcoat:** send done (2026-08-12); Activity done (2026-08-13) · **Go template:** `app-transfers.html.tmpl` (capability reference — **do not copy layout**) · **Shell:** Transfer / Activity
 
-Go combined send + history on one page. New chrome splits them. **Send done**, Activity next.
+Go combined send + history on one page. New chrome splits them. **Send + Activity done.**
 
 #### 8a. Send — `GET /app/transfer` (**done**)
 
@@ -165,7 +165,7 @@ Go combined send + history on one page. New chrome splits them. **Send done**, A
 | **Content** | From-account picker (debit, Write+); recipient search; amount; optional memo; idempotency key; balance on selected account |
 | **Actions** | Choose from-account; search/select recipient; submit `create_transfer`; start over after send. Account home **Send** preselects `?from={id}`. |
 | **Reactive** | Recipient: debounce search of `account_directory` (edge filter/rank; `@`/`#` scope; same ledger; exclude sender; own other accounts show label) → pick → chip + clear. Submit → PatchSignals. |
-| **Gaps** | No pending / finalize UI (module has it). No live history on this page (H3b). |
+| **Gaps** | No pending / finalize UI (module has it). History lives on `/app/activity` (H3b). |
 
 **Related:**
 
@@ -175,14 +175,21 @@ Go combined send + history on one page. New chrome splits them. **Send done**, A
 | `GET /app/transfer/recipients` | Debounced directory search → `#recipient-results` |
 | `POST /app/transfer` | `create_transfer` (Write+ on sender); PatchSignals |
 
-#### 8b. Activity — `GET /app/activity` (after send)
+#### 8b. Activity — `GET /app/activity` (**done**)
 
 | | |
 |--|--|
-| **Content** | Transfer history for all accounts or one: direction, relative time, from→to, amount + ledger, memo |
-| **Actions** | Filter by account |
-| **Reactive** | Subscribe `my_transfers` → Datastar list patches (same CQRS as H1: first SSE connect seed-only; reconnect one snapshot; ignore subscribe-apply inserts) |
-| **Gaps** | Stub. No transfer detail page. No pending / finalize UI. |
+| **Content** | Heading **Activity** + Send. Chips: All + one per account (label → `#address`). Day-grouped cards: counterparty, signed amount, verb, ledger, relative time, memo. Filter-relative verbs: Received / Sent / Moved (both legs yours + All) / Issued / Redeemed. Pending / Finalizing pills only (no finalize action). `?account=` deep-link. |
+| **Actions** | Filter by account (client `data-show`; URL via `replaceState`). Send → `/app/transfer`. |
+| **Reactive** | SSR from `my_transfers` + `my_accounts`. `data-init="@get('/app/activity/updates')"`. First SSE seed-only; reconnect one snapshot. Subscribe-apply ignored. Edge dedupes view doubles. Filter does not reopen the stream. |
+| **Gaps** | No transfer detail page. No pending / finalize UI. |
+
+**Related:**
+
+| Route | Role |
+|-------|------|
+| `GET /app/activity` | SSR chips + list; `?account=` |
+| `GET /app/activity/updates` | SSE: live `#activity-body` |
 
 ---
 
@@ -255,7 +262,7 @@ Aligned with refactor §8.8 / H\*, adjusted for “real app first”:
 2. ~~**Accounts list** + create + live balances (**H1**)~~ **done**  
 3. ~~**Account home** primary / people / label (**H2**)~~ **done** (leftovers: tokens, webhook, apps, request builder Read+, recent)  
 4. ~~**Transfer send** (`/app/transfer`) — from-account, recipient search, `create_transfer` (**H3a**)~~ **done**  
-5. **Activity** (`/app/activity`) — live `my_transfers` (**H3b**)  
+5. ~~**Activity** (`/app/activity`) — live `my_transfers` (**H3b**)~~ **done**  
 6. **Payment request** (**H4**)  
 7. **Logout** wired in chrome (**H5**) — already linked from `/app/me`  
 8. **App home** redesign (low Go surface)  
