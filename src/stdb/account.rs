@@ -171,20 +171,65 @@ pub async fn grant_member(
 
 const USER_SEARCH_LIMIT: usize = 10;
 
-/// Case-insensitive username substring search on the public `user` table.
+/// Exclusive end of a prefix range: `"JA"` → `Some("JB")`.
+/// `None` means no upper bound (prefix is empty after carry, or last scalar is `char::MAX`).
+fn exclusive_prefix_end(prefix: &str) -> Option<String> {
+	let mut chars: Vec<char> = prefix.chars().collect();
+	while let Some(c) = chars.pop() {
+		let next_cp = (c as u32).saturating_add(1);
+		if let Some(next) = char::from_u32(next_cp) {
+			chars.push(next);
+			return Some(chars.into_iter().collect());
+		}
+		// Skip the UTF-16 surrogate gap so the bound stays a valid exclusive end.
+		if next_cp == 0xD800 {
+			chars.push('\u{E000}');
+			return Some(chars.into_iter().collect());
+		}
+	}
+	None
+}
+
+/// Case-insensitive username prefix search on the public `user` table.
 pub async fn search_users(
 	conn: &StdbConn,
 	term: &str,
 	exclude: &[Identity],
 ) -> Result<Vec<User>, String> {
-	let term = term.trim().to_ascii_lowercase();
-	if term.is_empty() {
+	let start = term.trim().to_ascii_uppercase();
+	if start.is_empty() {
 		return Ok(Vec::new());
 	}
+	let end = exclusive_prefix_end(&start);
 	let exclude: Vec<Identity> = exclude.to_vec();
+	let start_for_collect = start.clone();
 	subscribe_once(
 		conn,
-		|b| b.add_query(|q| q.from.user()).subscribe(),
+		|b| match end {
+			Some(end) => {
+				let start = start.clone();
+				b.add_query(move |q| {
+					let start = start.clone();
+					let end = end.clone();
+					q.from.user().r#where(move |u| {
+						u.bitcraft_username_normalized
+							.gte(start.clone())
+							.and(u.bitcraft_username_normalized.lt(end.clone()))
+					})
+				})
+				.subscribe()
+			}
+			None => {
+				let start = start.clone();
+				b.add_query(move |q| {
+					let start = start.clone();
+					q.from
+						.user()
+						.r#where(move |u| u.bitcraft_username_normalized.gte(start.clone()))
+				})
+				.subscribe()
+			}
+		},
 		move |ctx| {
 			let mut rows: Vec<User> = ctx
 				.db()
@@ -192,7 +237,8 @@ pub async fn search_users(
 				.iter()
 				.filter(|u| {
 					!exclude.contains(&u.id)
-						&& u.bitcraft_username.to_ascii_lowercase().contains(&term)
+						&& u.bitcraft_username_normalized
+							.starts_with(&start_for_collect)
 				})
 				.collect();
 			rows.sort_by(|a, b| a.bitcraft_username.cmp(&b.bitcraft_username));
@@ -399,5 +445,25 @@ impl Drop for LiveAccountHome {
 		if let Some(sub) = self.sub.take() {
 			let _ = sub.unsubscribe();
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::exclusive_prefix_end;
+
+	#[test]
+	fn exclusive_prefix_end_ascii() {
+		assert_eq!(exclusive_prefix_end("JA").as_deref(), Some("JB"));
+		assert_eq!(exclusive_prefix_end("JZ").as_deref(), Some("J["));
+		assert_eq!(exclusive_prefix_end("Z").as_deref(), Some("["));
+		assert_eq!(exclusive_prefix_end(""), None);
+	}
+
+	#[test]
+	fn exclusive_prefix_end_max_char_carries() {
+		let prefix = format!("A{}", char::MAX);
+		assert_eq!(exclusive_prefix_end(&prefix).as_deref(), Some("B"));
+		assert_eq!(exclusive_prefix_end(&char::MAX.to_string()), None);
 	}
 }

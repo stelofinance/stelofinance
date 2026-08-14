@@ -21,6 +21,10 @@ pub struct User {
 	pub created_at: Timestamp,
 	#[default(false)]
 	pub is_admin: bool,
+
+	/// ASCII-upper search key. Btree for prefix range subscriptions.
+	#[index(btree)]
+	pub bitcraft_username_normalized: String,
 }
 
 #[derive(SpacetimeType, Clone, Copy, Debug, PartialEq, Eq)]
