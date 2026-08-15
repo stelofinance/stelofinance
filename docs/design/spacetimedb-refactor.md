@@ -1,7 +1,7 @@
 # Design Doc: SpacetimeDB Refactor
 
-**Status:** Outline + **domain core done; Topcoat edge P1 in progress (BitAuth + C1–C3 done; H1 + H2 done; H3a Transfer send done; H3b Activity done; H4 next)** (§7–§8)  
-**Date:** 2026-07-24 (updated 2026-08-13)  
+**Status:** Outline + **domain core done; Topcoat edge P1 in progress (BitAuth + C1–C3 done; H1–H4 done; H5 next)** (§7–§8)  
+**Date:** 2026-07-24 (updated 2026-08-14)  
 **Author:** Stelo maintainers + design discussion  
 **Related:** Current stack is Go + SQLite (sqlc/goose) + embedded NATS/JetStream + Datastar; target edge is **Rust Topcoat** + first-party STDB client; module + BitAuth remain. **C3 pool design:** [einro-identity-pool.md](./einro-identity-pool.md). **HTML app feature parity (pages, reactivity, build order):** [app-surface-parity.md](./app-surface-parity.md) — agents porting `/app` pages should load that doc alongside this one.
 
@@ -314,7 +314,7 @@ Views use `ViewContext` / `AnonymousViewContext` and (for per-user views) filter
 | Subscriptions | Generally deliver the **full** current view result for realtime consistency; client-side windowing is OK for UI chrome |
 | Future | Re-enable parameterized views; or keyset via indexed `created_at` ranges once args work; or dedicated “page window” tables |
 
-**For now:** views return the full authorized set (no hard LIMIT inside the view). Revisit when transfer history grows.
+**For now:** views return the full authorized set (no hard LIMIT inside the view). **H3b Activity ships the full set.** UI pagination / keyset when history grows is **Q15** (do not block H4).
 
 | View | Returns | Auth / visibility | Status |
 |------|---------|-------------------|--------|
@@ -322,7 +322,7 @@ Views use `ViewContext` / `AnonymousViewContext` and (for per-user views) filter
 | `my_accounts` | Accessible accounts: computed `balance` + `kind`, optional `label` (all members), ledger name/scale/kind, caller `role`, `is_primary`, **Owner-role** username (not primary `user_id`), `webhook` only if role ≥ Admin | Via `account_member` for `ctx.sender()`; **not** app-admin god-mode | **done** |
 | `my_accounts_members` | Users + apps on accessible accounts (`MemberKind`, display `name`, role) | Caller has **any** role (Read+) on that account | **done** |
 | `my_transfers` | Transfers on caller’s accounts; enriched addresses, primary usernames, ledger name/scale | Debit **or** credit account in caller’s ACL; **no dedupe** if both sides match (may emit twice); no view `primary_key` until deduped | **done** |
-| `account_directory` | Public: `account_id`, `address`, `ledger_id`, `primary_username` (if `user_id != ZERO`); **no** `label` | **Anonymous OK**; all credit+debit accounts; world-readable addresses | **done** |
+| `account_directory` | Public: `account_id`, `address`, `ledger_id`, `primary_username` (if `user_id != ZERO`); **no** `label` | **Not in module.** H3a uses `account_search`; H4 uses `account_lookup(account_id)` (same hit shape). Full directory view still optional | **skipped** (procedures instead) |
 | `ledger_audit` | Per-ledger debit-normal vs credit-normal nets + `balanced` | App admin (`User.is_admin`) only; others empty | **done** |
 | ~~`my_accounts_users`~~ / ~~`my_accounts_apps`~~ | — | Replaced by `my_accounts_members` | **Removed** |
 | `my_accounts_tokens` | Token metadata (id, account_id, label, created_by, created_at; **never** secret) | Caller Admin+ on account | **done** (§7.10) |
@@ -814,7 +814,7 @@ Work through these **one by one**. Status: `todo` until implemented in Topcoat. 
 | C1 | Official Rust STDB SDK + bindings | `spacetimedb-sdk` 2.7.* + `spacetime generate` → `src/module_bindings/`; `task stdb:generate` | **done** |
 | C2 | Connect-as-user | Cookie `bitauth_token` → `with_token`; `STDB_HOST`/`STDB_DATABASE`; validated via temporary smoke (removed) | **done** |
 | C3 | Connection pool (token-keyed) | [einro](./einro-identity-pool.md): exact token → conn; no JWT in pool; idle TTL | **done** (`src/einro/`) |
-| C4 | Page-load queries / reducers | Views + CallReducer via pool | partial (`my_user`; H1/H2 accounts; H3a `create_transfer` + `account_directory`; H3b `my_transfers`) |
+| C4 | Page-load queries / reducers | Views + CallReducer via pool | partial (`my_user`; H1/H2 accounts; H3a `create_transfer` + `account_search`; H3b `my_transfers`; H4 `account_lookup` + `create_transfer`) |
 | C5 | Live subscribe for Datastar | my_accounts / my_transfers etc. | partial (`my_accounts` on accounts/H2; `my_transfers` + `my_accounts` on `GET /app/activity/updates`) |
 | C6 | Error mapping | Toasts vs full pages vs JSON (D30) | partial (H1 inline `$createError`) |
 
@@ -825,11 +825,11 @@ Work through these **one by one**. Status: `todo` until implemented in Topcoat. 
 | D1 | HTML shell layout | Public vs app chrome (Topcoat `#[layout]`) | partial (app chrome Option A; public chrome on marketing pages) |
 | D2 | Marketing page `GET /` | Port index content | **rough done** |
 | D3 | Login page | **“Login with BitAuth”** button only (no BitJita UI) | **done** |
-| D4 | App pages | home, accounts, account detail, transfer, activity, payment request | partial (home thin; **H1 + H2 + H3a send + H3b Activity done**; H4 next) |
+| D4 | App pages | home, accounts, account detail, transfer, activity, payment request | partial (home thin; **H1–H4 done**; H5 next) |
 | D5 | Chrome components | nav, footer, app-nav, app-menu | partial (`src/app/app/chrome.rs` Option A; full app menu replaced) |
 | D6 | Partial / component patches | Case-by-case (e.g. transfer recipient) | partial (H1 `#accounts-list`; H3a recipient results; H3b `#activity-body`) |
 | D7 | Display formatting | Asset-scale balances, relative times | partial (`format_qty` / `parse_qty`; H3b `format_rel_time` / `day_heading`) |
-| D8 | Idempotency keys in forms | Generate on render (uuid) | partial (H3a send; H4 still todo) |
+| D8 | Idempotency keys in forms | Generate on render (uuid) | **done** (H3a send; H4 pay) |
 
 #### E — Datastar
 
@@ -837,8 +837,8 @@ Work through these **one by one**. Status: `todo` until implemented in Topcoat. 
 |----|--------|-------|--------|
 | E1 | Datastar JS asset | Topcoat `datastar` feature + asset pipeline | **done** (CDN script in root layout) |
 | E2 | SSE PatchElements | Accounts/transfers live updates + form actions | partial (H1 `#accounts-list`; H3a recipient GET patch; H3b `#activity-body`) |
-| E3 | Signals I/O | Topcoat `Signals` extractor | partial (H1 create; H2; H3a send) |
-| E4 | Form posts | `@post` / form content type parity | partial (H1/H2/H3a `@post` + signals JSON) |
+| E3 | Signals I/O | Topcoat `Signals` extractor | partial (H1 create; H2; H3a send; H4 pay) |
+| E4 | Form posts | `@post` / form content type parity | partial (H1/H2/H3a/H4 `@post` + signals JSON) |
 | E5 | Hot reload | **Topcoat dev CLI** (`topcoat dev`) — no custom `/hotreload` | n/a (framework) |
 | E6 | SSE reconnect / Last-Event-Id | Port where needed | partial (H1 + H3b: first connect seed-only; reconnect one snapshot) |
 
@@ -871,7 +871,7 @@ Work through these **one by one**. Status: `todo` until implemented in Topcoat. 
 **H3 is two chrome destinations** (not Go’s one `/app/transfers` page):
 
 1. **`/app/transfer` (send — done)** — from-account, `account_directory` recipient search, amount, memo, idempotency, `create_transfer`. Account home **Send** links `?from=`.
-2. **`/app/activity` (done)** — live `my_transfers` history (all accounts or one).
+2. **`/app/activity` (done)** — live `my_transfers` history (all accounts or one). **Follow-up:** pagination (Q15).
 
 **Username search:** public `user` table (`id` + `bitcraft_username`); filter on the edge; grant with `grant_account_member(Identity)`.
 
@@ -879,8 +879,8 @@ Work through these **one by one**. Status: `todo` until implemented in Topcoat. 
 |----|---------|----------------------|--------|
 | H1 | Accounts list + create + live updates | `GET/POST /app/accounts`, `GET .../updates` | **done** (portfolio; cards → H2) |
 | H2 | Account home | detail, primary, people, label | **done** (tokens / webhook / apps / request builder / recent later) |
-| H3 | Transfer send + Activity history | Go combined `GET /app/transfers` | **done** (`/app/transfer` + `/app/activity`) |
-| H4 | Payment request | `GET /app/request`, `POST .../transfers` | todo |
+| H3 | Transfer send + Activity history | Go combined `GET /app/transfers` | **done** (`/app/transfer` + `/app/activity`). Activity pagination later (**Q15**) |
+| H4 | Payment request | `GET /app/request`, `POST .../transfers` | **done** (`/app/request` Pay; Write+; `account_lookup`) |
 | H5 | Logout | clear cookies / end_session | todo (route exists; linked from `/app/me`) |
 
 **H2 leftovers (do not rebuild people/primary):** tokens, webhook, apps/tickets, in-page payment-request builder (**Read+**, not Admin+), recent transfers on the account page, deposit/withdraw preselect.
@@ -1063,6 +1063,7 @@ STDB module payload (breaking vs legacy `code` int — documented in `docs/api/w
 | Q12 | Public edge API path prefix / shape | Open | Chosen when implementing I1; not legacy `/api` |
 | Q13 | CSS delivery: pure inline vs link vs cache-aware hybrid | **v1 = inline if practical** | Stretch goals in §8.7 F3 |
 | Q14 | Rust OIDC library choice | Open | Same BitAuth flow as Go spike |
+| Q15 | Activity history pagination | **Follow up later** | H3b shows the **full** authorized `my_transfers` set (no LIMIT). STDB 2.7 has no view args; live subs deliver the whole view (§7.3). When history grows: client window (first N + Load more) and/or SQL `LIMIT` on one-shot SSR; true keyset once parameterized views / `created_at` ranges work. Keep live newest-first. Do not block H4. |
 
 ---
 
@@ -1215,7 +1216,7 @@ Any admin balance patch must either:
 3. ~~Topcoat skeleton + BitAuth + C1 (SDK + `spacetime generate` bindings)~~ **done**.
 4. ~~**C2 connect-as-user** + **C3 einro pool**~~ **done** (`src/stdb/*`, `src/einro/*`).
 5. ~~Marketing homepage (D2)~~ **rough done** (`src/app.rs` + `src/ui/*`).
-6. App HTML surfaces per [app-surface-parity.md](./app-surface-parity.md) (~~shell~~ → ~~H1~~ → ~~H2 home~~ → ~~H3 Transfer send~~ → ~~Activity~~ → **H4 payment request** → H5 logout).
+6. App HTML surfaces per [app-surface-parity.md](./app-surface-parity.md) (~~shell~~ → ~~H1~~ → ~~H2 home~~ → ~~H3 Transfer send~~ → ~~Activity~~ → ~~H4 payment request~~ → **H5 logout**).
 7. Module HTTP reverse-proxy (**required** JSON API cutover: §8.5 / I* / §9); update `docs/api/*`.
 8. Admin reducers on module (parallel track).
 9. Fly stateless + GHA (module publish + edge deploy); cut over; delete Go.
@@ -1276,6 +1277,8 @@ Work items: tick §8.7 inventory, [app-surface-parity.md](./app-surface-parity.m
 | 2026-08-12 | **Account label:** optional `account.label` nickname (members only). `create_account(..., label, …)`; `set_account_label` Admin+ (`None`/blank clears, max 32); `my_accounts` + HTTP `GET /account` expose it; not on `account_directory`. |
 | 2026-08-12 | **H3a Transfer send:** `/app/transfer` from-picker (label > `#address`, grouped by ledger) + `account_directory` search (`@`/`#` scope, ranked) + `create_transfer` PatchSignals. H2 Send deep-links `?from=`. Activity (H3b) next. |
 | 2026-08-13 | **H3b Activity:** `/app/activity` live `my_transfers` (+ `my_accounts` labels). All/account chips (`?account=`), day groups, filter-relative verbs (Received/Sent/Moved/Issued/Redeemed), edge dedupe. First SSE seed-only; reconnect snapshot; `data-show` filter so the stream stays up. |
+| 2026-08-14 | **Q15:** Activity pagination follow-up (full view for now; window/keyset when history grows). Does not block H4. |
+| 2026-08-14 | **H4 Pay:** `GET/POST /app/request` (`ledgerid`/`recipientid`/`amount`/`memo`). Invoice card + H3a from-picker (Write+ debit on that ledger). Friendly invalid-link page. `account_lookup` procedure (no `account_directory` view). |
 
 ---
 

@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crate::module_bindings::{
 	AccountKind, AccountSearchHit, AccountSearchScope, MyAccountRow, MyAccountsTableAccess, Role,
-	account_search, create_transfer, my_accountsQueryTableAccess,
+	account_lookup, account_search, create_transfer, my_accountsQueryTableAccess,
 };
 use spacetimedb_sdk::{DbContext, Table};
 use tokio::task::spawn_blocking;
@@ -41,6 +41,28 @@ pub fn sendable_accounts(accounts: &[MyAccountRow]) -> Vec<MyAccountRow> {
 		})
 		.cloned()
 		.collect()
+}
+
+/// Writable debits on `ledger_id`, excluding `exclude_id` (the request recipient).
+pub fn pay_from_accounts(
+	accounts: &[MyAccountRow],
+	ledger_id: u64,
+	exclude_id: u64,
+) -> Vec<MyAccountRow> {
+	sendable_accounts(accounts)
+		.into_iter()
+		.filter(|a| a.ledger_id == ledger_id && a.account_id != exclude_id)
+		.collect()
+}
+
+/// Preferred from-account: explicit id, else primary, else first.
+pub fn pick_sendable(accounts: &[MyAccountRow], requested: Option<u64>) -> Option<&MyAccountRow> {
+	if let Some(id) = requested {
+		if let Some(a) = accounts.iter().find(|a| a.account_id == id) {
+			return Some(a);
+		}
+	}
+	accounts.iter().find(|a| a.is_primary).or(accounts.first())
 }
 
 /// Strip one leading `@` / `#` and decide which directory fields to match.
@@ -87,6 +109,28 @@ pub async fn search_directory(
 	let hits = call_account_search(conn, needle, ledger_id, scope_arg(scope)).await?;
 	let mine = fetch_own_labels(conn).await?;
 	Ok(attach_own_labels(hits, &mine, exclude_id))
+}
+
+/// Public directory row for one account (invoice chrome).
+pub async fn lookup_account(conn: &StdbConn, account_id: u64) -> Result<AccountSearchHit, String> {
+	let (tx, rx) = std::sync::mpsc::sync_channel(1);
+	conn.db()
+		.procedures
+		.account_lookup_then(account_id, move |_ctx, result| {
+			let outcome = match result {
+				Ok(Ok(hit)) => Ok(hit),
+				Ok(Err(e)) => Err(e),
+				Err(e) => Err(e.to_string()),
+			};
+			let _ = tx.send(outcome);
+		});
+	let wait = spawn_blocking(move || {
+		rx.recv_timeout(REDUCER_TIMEOUT)
+			.map_err(|_| "account_lookup timed out".to_owned())
+	})
+	.await
+	.map_err(|e| format!("account_lookup wait task: {e}"))?;
+	wait?
 }
 
 async fn call_account_search(

@@ -1,6 +1,6 @@
 //! `GET/POST /app/transfer` — H3a send. Recipient search: `recipients`.
 
-mod markup;
+pub(super) mod markup;
 mod recipients;
 
 use crate::auth::require_user;

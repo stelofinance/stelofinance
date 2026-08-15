@@ -42,7 +42,7 @@ This document is the **hard feature-parity floor** for browser HTML surfaces. Re
 | 6 | Account home | Primary; members add/remove/roles; label | **Yes** | H2 **(home done; tokens/webhook/apps later)** |
 | 7a | Transfer send | From-account, recipient search, amount, memo, idempotency | **Yes** (bal) | H3a **done** |
 | 7b | Activity | Live transfer history (all or one account) | **Yes** | H3b **done** |
-| 8 | Payment request | Query-prefilled pay flow | No (one-shot submit) | H4 |
+| 8 | Payment request | Query-prefilled pay flow | No (one-shot submit) | H4 **done** |
 
 **Chrome capability (Topcoat Option A, 2026-08-08):**  
 Desktop/tablet top: logo→`/app` · Accounts · Activity · Transfer▾ (Send / Deposit / Withdraw) · username→`/app/me`.  
@@ -182,7 +182,7 @@ Go combined send + history on one page. New chrome splits them. **Send + Activit
 | **Content** | Heading **Activity** + Send. Chips: All + one per account (label → `#address`). Day-grouped cards: counterparty, signed amount, verb, ledger, relative time, memo. Filter-relative verbs: Received / Sent / Moved (both legs yours + All) / Issued / Redeemed. Pending / Finalizing pills only (no finalize action). `?account=` deep-link. |
 | **Actions** | Filter by account (client `data-show`; URL via `replaceState`). Send → `/app/transfer`. |
 | **Reactive** | SSR from `my_transfers` + `my_accounts`. `data-init="@get('/app/activity/updates')"`. First SSE seed-only; reconnect one snapshot. Subscribe-apply ignored. Edge dedupes view doubles. Filter does not reopen the stream. |
-| **Gaps** | No transfer detail page. No pending / finalize UI. |
+| **Gaps** | No transfer detail page. No pending / finalize UI. No pagination (full view; follow-up **Q15** in the refactor doc). |
 
 **Related:**
 
@@ -193,19 +193,26 @@ Go combined send + history on one page. New chrome splits them. **Send + Activit
 
 ---
 
-### 9. Payment request — `GET /app/request?...`
+### 9. Payment request — `GET /app/request?...` (**done**)
 
-**Design:** H4 · **Template:** `app-request.html.tmpl` · **Shell:** `request`  
+**Design:** H4 · **Topcoat:** Pay confirm (2026-08-14) · **Go template:** `app-request.html.tmpl` (capability reference — **do not copy**) · **Shell:** none (not a nav dest)  
 **Query:** `ledgerid`, `recipientid`, `amount` required; `memo` optional (see `docs/payment-requests.md`)
 
 | | |
 |--|--|
-| **Content** | Prefilled amount/ledger/recipient/memo; sender account select (primary first + other debit accounts on that ledger) |
-| **Actions** | Choose from-account → SEND (create transfer to fixed recipient) |
-| **Reactive** | Submit → Datastar `$sentMessage`; `$sending` indicator; `$accId` bind for path |
-| **Gaps** | No live balance on selected from-account; no link builder in-app (external URL only); bad query → bare 400; not in bottom nav |
+| **Content** | Heading **Pay**. Invoice card: large qty + ledger, `to @user · #addr`, memo. From-picker (H3a cards; debit **Write+** on that ledger; recipient excluded; primary first). Available balance on the card. |
+| **Actions** | Change from-account → **Pay {qty} {ledger}**. Insufficient → hint + disabled. Success → View activity / Accounts. |
+| **Reactive** | Submit `@post('/app/request')` → PatchSignals `$sent` / `$sendError`. No SSE. Idempotency key on SSR. |
+| **Gaps** | No live balance subscribe. Request-link **builder** is an H2 leftover (Read+). Not in nav. |
 
-**Related:** `POST /app/request/{account_id}/transfers` (Admin+ on sender)
+**Related:**
+
+| Route | Role |
+|-------|------|
+| `GET /app/request` | SSR invoice + from-picker; bad/missing query → friendly invalid page (not 400) |
+| `POST /app/request` | `create_transfer` (Write+ on sender); PatchSignals |
+
+Go `POST /app/request/{id}/transfers` was Admin+. Topcoat matches the module / H3a (**Write+**).
 
 ---
 
@@ -263,7 +270,7 @@ Aligned with refactor §8.8 / H\*, adjusted for “real app first”:
 3. ~~**Account home** primary / people / label (**H2**)~~ **done** (leftovers: tokens, webhook, apps, request builder Read+, recent)  
 4. ~~**Transfer send** (`/app/transfer`) — from-account, recipient search, `create_transfer` (**H3a**)~~ **done**  
 5. ~~**Activity** (`/app/activity`) — live `my_transfers` (**H3b**)~~ **done**  
-6. **Payment request** (**H4**)  
+6. ~~**Payment request** (**H4**)~~ **done**  
 7. **Logout** wired in chrome (**H5**) — already linked from `/app/me`  
 8. **App home** redesign (low Go surface)  
 9. Stretch: H2 leftovers (tokens, webhook, apps), pending finalize  

@@ -20,6 +20,26 @@ pub struct AccountSearchHit {
 	pub primary_username: Option<String>,
 }
 
+/// Point lookup for payment-request (and similar) invoice chrome.
+///
+/// Same public fields as a search hit (`account_id`, `address`, `ledger_id`,
+/// primary username). `account` is private; this is the ID → directory path.
+#[procedure]
+pub fn account_lookup(
+	ctx: &mut ProcedureContext,
+	account_id: u64,
+) -> Result<AccountSearchHit, String> {
+	ctx.try_with_tx(move |tx| {
+		let acc = tx
+			.db
+			.account()
+			.id()
+			.find(&account_id)
+			.ok_or_else(|| "account not found".to_string())?;
+		Ok(hit_from_account(tx, &acc))
+	})
+}
+
 /// Prefix search on public address / primary username within one ledger.
 ///
 /// `scope = None` matches both fields. `term` is treated as an ASCII-upper prefix.

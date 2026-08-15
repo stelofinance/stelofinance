@@ -8,6 +8,7 @@ mod activity;
 mod chrome;
 mod deposit;
 mod me;
+mod request;
 mod transfer;
 mod withdraw;
 

@@ -20,8 +20,8 @@ pub use config::StdbConfig;
 pub use connector::{StdbConn, StdbConnector};
 pub use format::{day_heading, format_qty, format_rel_time, parse_qty, unix_now_micros};
 pub use transfer::{
-	DirectoryHit, create_user_transfer, map_transfer_error, new_idempotency_key, search_directory,
-	sendable_accounts,
+	DirectoryHit, create_user_transfer, lookup_account, map_transfer_error, new_idempotency_key,
+	pay_from_accounts, pick_sendable, search_directory, sendable_accounts,
 };
 pub use user::fetch_my_user;
 
