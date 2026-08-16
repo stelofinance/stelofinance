@@ -1,6 +1,7 @@
 //! `GET /app/accounts/{account_id}` — H2 account home.
 
 mod markup;
+mod request;
 mod tokens;
 mod updates;
 mod users;
@@ -12,7 +13,8 @@ use crate::stdb::account::{
 	fetch_account_home, grant_member, parse_role, revoke_member, role_rank, set_label, set_primary,
 };
 use crate::stdb::{StdbError, acquire_user_db};
-use markup::{HomeChrome, account_home, account_integrations};
+use markup::{HomeChrome, account_home, account_integrations, account_people};
+use request::request_form;
 use serde::{Deserialize, Serialize};
 use spacetimedb_sdk::Identity;
 use tokens::token_forms;
@@ -47,10 +49,12 @@ async fn show(cx: &Cx) -> Result {
 	let label_value = acc.label.clone().unwrap_or_default();
 	let webhook_value = acc.webhook.clone().unwrap_or_default();
 	let signals = format!(
-		"{{copiedId:0,label:{},userSearch:'',memberId:'',memberName:'',addRole:'write',editMemberId:'',editRole:'',revokeId:'',accountError:'',leftAccount:false,creatingToken:false,tokenLabel:'',newToken:'',tokenError:'',tokenCopied:false,revokeTokenId:0,revokeTokenLabel:'',webhookUrl:{},webhookError:'',webhookNotice:''}}",
+		"{{copiedId:0,label:{},userSearch:'',memberId:'',memberName:'',addRole:'write',editMemberId:'',editRole:'',revokeId:'',accountError:'',leftAccount:false,requestAmount:'',requestMemo:'',requestLink:'',requestError:'',requestCopied:false,creatingToken:false,tokenLabel:'',newToken:'',tokenError:'',tokenCopied:false,revokeTokenId:0,revokeTokenLabel:'',webhookUrl:{},webhookError:'',webhookNotice:''}}",
 		js_single(&label_value),
 		js_single(&webhook_value)
 	);
+	let debit = matches!(acc.kind, AccountKind::Debit);
+	let ledger_name = acc.ledger_name.clone();
 	let updates = format!("@get('/app/accounts/{account_id}/updates')");
 	let members_url = format!("/app/accounts/{account_id}/members");
 	let users_url = format!("/app/accounts/{account_id}/users");
@@ -72,6 +76,8 @@ async fn show(cx: &Cx) -> Result {
 				"← Accounts"
 			</a>
 			account_home(data: data.clone(), chrome: chrome.clone())
+			request_form(account_id: account_id, ledger_name: ledger_name, debit: debit)
+			account_people(data: data.clone(), chrome: chrome.clone())
 			if admin_plus {
 				admin_forms(account_id: account_id, members_url: members_url, users_url: users_url, label_url: label_url)
 			}

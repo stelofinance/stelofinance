@@ -41,7 +41,6 @@ pub fn account_home_html(data: &AccountHomeData, chrome: &HomeChrome) -> String 
 		.filter(|s| !s.is_empty());
 	let title = escape_html(label.unwrap_or(acc.ledger_name.as_str()));
 	let debit = matches!(acc.kind, AccountKind::Debit);
-	let admin_plus = role_rank(acc.role) >= role_rank(Role::Admin);
 	let owner = matches!(acc.role, Role::Owner);
 	let can_send = debit && role_rank(acc.role) >= role_rank(Role::Write);
 	let addr = escape_html(&acc.address);
@@ -132,9 +131,29 @@ pub fn account_home_html(data: &AccountHomeData, chrome: &HomeChrome) -> String 
 		);
 	}
 
+	out.push_str("</div>");
+	out
+}
+
+/// Live `#account-people` — sits below the request-link form so remorphs skip it.
+#[component]
+pub async fn account_people(data: AccountHomeData, chrome: HomeChrome) -> Result {
+	view! {
+		(Unescaped::new_unchecked(account_people_html(&data, &chrome)))
+	}
+}
+
+pub fn account_people_html(data: &AccountHomeData, chrome: &HomeChrome) -> String {
+	let mut out = String::from(r#"<div id="account-people" class="flex flex-col">"#);
+	let Some(acc) = &data.account else {
+		out.push_str("</div>");
+		return out;
+	};
+	let admin_plus = role_rank(acc.role) >= role_rank(Role::Admin);
+	let owner = matches!(acc.role, Role::Owner);
 	push_people(
 		&mut out,
-		id,
+		acc.account_id,
 		acc.role,
 		&data.members,
 		chrome,
