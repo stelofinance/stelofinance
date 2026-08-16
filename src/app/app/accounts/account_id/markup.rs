@@ -9,6 +9,7 @@ use topcoat::{
 	view::{Unescaped, component, view},
 };
 
+#[derive(Clone)]
 pub struct HomeChrome {
 	pub caller_id: Identity,
 	pub caller_username: String,
@@ -140,7 +141,28 @@ pub fn account_home_html(data: &AccountHomeData, chrome: &HomeChrome) -> String 
 		admin_plus,
 		owner,
 	);
-	push_tokens(&mut out, id, &data.tokens, chrome, admin_plus);
+	out.push_str("</div>");
+	out
+}
+
+/// Live `#account-integrations` — API tokens + webhook. Admin+ only (empty for others).
+#[component]
+pub async fn account_integrations(data: AccountHomeData, chrome: HomeChrome) -> Result {
+	view! {
+		(Unescaped::new_unchecked(account_integrations_html(&data, &chrome)))
+	}
+}
+
+pub fn account_integrations_html(data: &AccountHomeData, chrome: &HomeChrome) -> String {
+	let mut out = String::from(r#"<div id="account-integrations" class="flex flex-col">"#);
+	let Some(acc) = &data.account else {
+		out.push_str("</div>");
+		return out;
+	};
+	let admin_plus = role_rank(acc.role) >= role_rank(Role::Admin);
+	if admin_plus {
+		push_tokens(&mut out, acc.account_id, &data.tokens, chrome, true);
+	}
 	out.push_str("</div>");
 	out
 }

@@ -39,7 +39,7 @@ This document is the **hard feature-parity floor** for browser HTML surfaces. Re
 | 3 | Logout | Clear Stelo session → home | No | H5 **done** |
 | 4 | App home | Something for logged-in user (Go: greeting only) | Optional | — |
 | 5 | Accounts list | List wallets + balances; create debit (credit/custom addr if platform admin); open detail | **Yes** (balances) | H1 |
-| 6 | Account home | Primary; members add/remove/roles; label; API tokens (Admin+) | **Yes** | H2 **(home + tokens done; webhook/apps later)** |
+| 6 | Account home | Primary; members add/remove/roles; label; API tokens + webhook (Admin+) | **Yes** | H2 **(home + tokens + webhook done; apps later)** |
 | 7a | Transfer send | From-account, recipient search, amount, memo, idempotency | **Yes** (bal) | H3a **done** |
 | 7b | Activity | Live transfer history (all or one account) | **Yes** | H3b **done** |
 | 8 | Payment request | Query-prefilled pay flow | No (one-shot submit) | H4 **done** |
@@ -133,10 +133,10 @@ Logout lives on `/app/me` (profile page — more content planned). **`POST /logo
 
 | | |
 |--|--|
-| **Content** | Back to Accounts. Title = **label** or ledger name; large **balance**; `#address` + Copy; Primary / Credit / Shared·role chips. Debit: receive copy uses `@bitcraft_username`. **People**: users + apps, role, (you). **API tokens** (Admin+): label, relative time, minted-by; secret never listed. |
-| **Actions** | Owner + debit: set/clear primary (`POST .../primary`). Write+ debit: **Send** → `/app/transfer`. Admin+: save label (`POST .../label`); search public `user` then grant Identity (`POST .../members`); change role; remove; **create token** (`POST .../tokens`, secret once in `$newToken`); **revoke token** (`POST .../tokens/revoke`). Non-owner: **Leave**. Owner can promote another member to Owner (clear primary first — module rule). |
-| **Reactive** | SSR from `my_accounts` + `my_accounts_members` + `my_accounts_tokens` (+ public `user` for minter names). `data-init` → `GET .../updates` live sub patches `#account-home` only (create/reveal sheets + signals survive). Mutations are command-only PatchSignals (`$accountError`, `$tokenError` / `$newToken`, `$leftAccount` → `/app/accounts`). |
-| **Gaps (H2 leftovers — do not rebuild people/primary/tokens)** | Request link builder (**Read+**, not Admin+). Recent transfers on this page. Deposit/Withdraw preselect. Webhook. App tickets. |
+| **Content** | Back to Accounts. Title = **label** or ledger name; large **balance**; `#address` + Copy; Primary / Credit / Shared·role chips. Debit: receive copy uses `@bitcraft_username`. **People**: users + apps, role, (you). Label + add-person. Bottom: **API tokens** (Admin+; label, time, minted-by; secret never listed) then **Webhook** (URL set/clear). |
+| **Actions** | Owner + debit: set/clear primary (`POST .../primary`). Write+ debit: **Send** → `/app/transfer`. Admin+: save label (`POST .../label`); search public `user` then grant Identity (`POST .../members`); change role; remove; **create token** (`POST .../tokens`, secret once in `$newToken`); **revoke token** (`POST .../tokens/revoke`); **set/clear webhook** (`POST .../webhook`). Non-owner: **Leave**. Owner can promote another member to Owner (clear primary first — module rule). |
+| **Reactive** | SSR from `my_accounts` + `my_accounts_members` + `my_accounts_tokens` (+ public `user` for minter names). `data-init` → `GET .../updates` live sub patches `#account-home` + `#account-integrations` (forms/signals survive). Mutations are command-only PatchSignals (`$accountError`, `$tokenError` / `$newToken`, `$webhookError` / `$webhookUrl`, `$leftAccount` → `/app/accounts`). |
+| **Gaps (H2 leftovers — do not rebuild people/primary/tokens/webhook)** | Request link builder (**Read+**, not Admin+). Recent transfers on this page. Deposit/Withdraw preselect. App tickets. |
 
 **Related routes:**
 
@@ -151,6 +151,7 @@ Logout lives on `/app/me` (profile page — more content planned). **`POST /logo
 | `POST /app/accounts/{id}/leave` | Non-owner; revoke self |
 | `POST /app/accounts/{id}/tokens` | Admin+; `create_account_token`; PatchSignals `$newToken` (secret once) |
 | `POST /app/accounts/{id}/tokens/revoke` | Admin+; `revoke_account_tokens` |
+| `POST /app/accounts/{id}/webhook` | Admin+; `set_account_webhook` (`None`/blank clears) |
 
 ---
 
@@ -269,13 +270,13 @@ Aligned with refactor §8.8 / H\*, adjusted for “real app first”:
 
 1. **App shell** + authed gate + username from `my_user`  
 2. ~~**Accounts list** + create + live balances (**H1**)~~ **done**  
-3. ~~**Account home** primary / people / label (**H2**)~~ **done** (leftovers: webhook, apps, request builder Read+, recent)  
+3. ~~**Account home** primary / people / label (**H2**)~~ **done** (leftovers: apps, request builder Read+, recent)  
 4. ~~**Transfer send** (`/app/transfer`) — from-account, recipient search, `create_transfer` (**H3a**)~~ **done**  
 5. ~~**Activity** (`/app/activity`) — live `my_transfers` (**H3b**)~~ **done**  
 6. ~~**Payment request** (**H4**)~~ **done**  
 7. ~~**Logout** wired in chrome (**H5**)~~ **done** (`POST /logout` from `/app/me`; Stelo-only)  
 8. **App home** redesign (low Go surface)  
-9. Stretch: H2 leftovers (webhook, apps), pending finalize  
+9. Stretch: H2 leftovers (apps), pending finalize  
 
 Prerequisites already largely landed on Topcoat: BitAuth, STDB connect-as-user, einro pool (C1–C3). Marketing home (D2) and BitAuth login (D3) are in progress / partial.
 

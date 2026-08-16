@@ -4,6 +4,7 @@ mod markup;
 mod tokens;
 mod updates;
 mod users;
+mod webhook;
 
 use crate::auth::require_user;
 use crate::module_bindings::{AccountKind, Role};
@@ -11,7 +12,7 @@ use crate::stdb::account::{
 	fetch_account_home, grant_member, parse_role, revoke_member, role_rank, set_label, set_primary,
 };
 use crate::stdb::{StdbError, acquire_user_db};
-use markup::{HomeChrome, account_home};
+use markup::{HomeChrome, account_home, account_integrations};
 use serde::{Deserialize, Serialize};
 use spacetimedb_sdk::Identity;
 use tokens::token_forms;
@@ -25,6 +26,7 @@ use topcoat::{
 	},
 	view::{component, view},
 };
+use webhook::webhook_form;
 
 #[path_param(error = not_found)]
 pub struct AccountId(u64);
@@ -43,9 +45,11 @@ async fn show(cx: &Cx) -> Result {
 
 	let admin_plus = role_rank(acc.role) >= role_rank(Role::Admin);
 	let label_value = acc.label.clone().unwrap_or_default();
+	let webhook_value = acc.webhook.clone().unwrap_or_default();
 	let signals = format!(
-		"{{copiedId:0,label:{},userSearch:'',memberId:'',memberName:'',addRole:'write',editMemberId:'',editRole:'',revokeId:'',accountError:'',leftAccount:false,creatingToken:false,tokenLabel:'',newToken:'',tokenError:'',tokenCopied:false,revokeTokenId:0,revokeTokenLabel:''}}",
-		js_single(&label_value)
+		"{{copiedId:0,label:{},userSearch:'',memberId:'',memberName:'',addRole:'write',editMemberId:'',editRole:'',revokeId:'',accountError:'',leftAccount:false,creatingToken:false,tokenLabel:'',newToken:'',tokenError:'',tokenCopied:false,revokeTokenId:0,revokeTokenLabel:'',webhookUrl:{},webhookError:'',webhookNotice:''}}",
+		js_single(&label_value),
+		js_single(&webhook_value)
 	);
 	let updates = format!("@get('/app/accounts/{account_id}/updates')");
 	let members_url = format!("/app/accounts/{account_id}/members");
@@ -67,10 +71,14 @@ async fn show(cx: &Cx) -> Result {
 			<a href="/app/accounts" class="text-sm text-neutral-300 hover:text-white">
 				"← Accounts"
 			</a>
-			account_home(data: data, chrome: chrome)
+			account_home(data: data.clone(), chrome: chrome.clone())
+			if admin_plus {
+				admin_forms(account_id: account_id, members_url: members_url, users_url: users_url, label_url: label_url)
+			}
+			account_integrations(data: data, chrome: chrome)
 			if admin_plus {
 				token_forms(account_id: account_id)
-				admin_forms(account_id: account_id, members_url: members_url, users_url: users_url, label_url: label_url)
+				webhook_form(account_id: account_id)
 			}
 			<p
 				class="mt-4 text-sm text-red-400"

@@ -3,7 +3,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::AccountId;
-use super::markup::{HomeChrome, account_home_html};
+use super::markup::{HomeChrome, account_home_html, account_integrations_html};
 use crate::auth::require_user;
 use crate::stdb::account::LiveAccountHome;
 use crate::stdb::{StdbError, acquire_user_db};
@@ -66,7 +66,7 @@ fn seed_event() -> Event {
 }
 
 fn list_patch(data: &crate::stdb::account::AccountHomeData, chrome: &HomeChrome) -> Event {
-	PatchElements::new(account_home_html(data, chrome))
-		.id(event_id())
-		.into()
+	let mut html = account_home_html(data, chrome);
+	html.push_str(&account_integrations_html(data, chrome));
+	PatchElements::new(html).id(event_id()).into()
 }

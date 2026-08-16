@@ -878,12 +878,12 @@ Work through these **one by one**. Status: `todo` until implemented in Topcoat. 
 | ID | Surface | Go routes (reference) | Status |
 |----|---------|----------------------|--------|
 | H1 | Accounts list + create + live updates | `GET/POST /app/accounts`, `GET .../updates` | **done** (portfolio; cards → H2) |
-| H2 | Account home | detail, primary, people, label, API tokens | **done** (webhook / apps / request builder / recent later) |
+| H2 | Account home | detail, primary, people, label, API tokens, webhook | **done** (apps / request builder / recent later) |
 | H3 | Transfer send + Activity history | Go combined `GET /app/transfers` | **done** (`/app/transfer` + `/app/activity`). Activity pagination later (**Q15**) |
 | H4 | Payment request | `GET /app/request`, `POST .../transfers` | **done** (`/app/request` Pay; Write+; `account_lookup`) |
 | H5 | Logout | Stelo cookies only | **done** (`POST /logout` from `/app/me`; no IdP logout; no GET) |
 
-**H2 leftovers (do not rebuild people/primary/tokens):** webhook, apps/tickets, in-page payment-request builder (**Read+**, not Admin+), recent transfers on the account page, deposit/withdraw preselect.
+**H2 leftovers (do not rebuild people/primary/tokens/webhook):** apps/tickets, in-page payment-request builder (**Read+**, not Admin+), recent transfers on the account page, deposit/withdraw preselect.
 
 Also covered in the parity doc (not separate H rows): marketing home (D2, **rough done**), login (D3), app home `/app`, shell chrome.
 
@@ -1282,6 +1282,7 @@ Work items: tick §8.7 inventory, [app-surface-parity.md](./app-surface-parity.m
 | 2026-08-14 | **H5 logout:** `/app/me` Session card; **`POST /logout`** clears Stelo cookies only (no BitAuth `end_session`, no GET). |
 | 2026-08-15 | **A6 + I1/I2:** `GET /health` (edge-only `ok`). Thin proxy `/api/{*path}` → module `/v1/database/$DB/route/{*path}`; forwards method, query, body, `Authorization` / `Content-Type` / `Idempotency-Key`. Prefix `/api` (no version); not Go account-id paths. I3 docs rewrite later. |
 | 2026-08-15 | **H2 API tokens:** Admin+ section on account home. `create_account_token` (edge OS entropy; secret once in `$newToken`); `revoke_account_tokens` with confirm; list from `my_accounts_tokens` (never the secret). Live `#account-home`. |
+| 2026-08-15 | **H2 webhook + tokens at bottom:** Tokens moved below Label/People. Admin+ webhook URL set/clear (`set_account_webhook`) under tokens. Live `#account-integrations`. |
 
 ---
 

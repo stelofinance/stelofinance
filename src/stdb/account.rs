@@ -10,7 +10,7 @@ use crate::module_bindings::{
 	SubscriptionHandle as ModuleSubHandle, User, UserTableAccess, create_account_token,
 	grant_account_member, my_accounts_membersQueryTableAccess, my_accounts_tokensQueryTableAccess,
 	my_accountsQueryTableAccess, revoke_account_member, revoke_account_tokens, set_account_label,
-	set_account_primary, userQueryTableAccess,
+	set_account_primary, set_account_webhook, userQueryTableAccess,
 };
 use spacetimedb_sdk::{DbContext, Event, Identity, SubscriptionHandle, Table, TableWithPrimaryKey};
 use tokio::task::spawn_blocking;
@@ -187,6 +187,23 @@ pub async fn set_label(
 				let _ = tx.send(map_reducer(r));
 			})
 			.map_err(|e| format!("set_account_label send: {e}"))
+	})
+	.await
+}
+
+/// Set or clear the account webhook URL. `None` / blank clears. Admin+ in the module.
+pub async fn set_webhook(
+	conn: &StdbConn,
+	account_id: u64,
+	webhook: Option<String>,
+) -> Result<(), String> {
+	wait_reducer(|tx| {
+		conn.db()
+			.reducers
+			.set_account_webhook_then(account_id, webhook, move |_, r| {
+				let _ = tx.send(map_reducer(r));
+			})
+			.map_err(|e| format!("set_account_webhook send: {e}"))
 	})
 	.await
 }
