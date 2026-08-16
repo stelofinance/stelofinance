@@ -25,6 +25,8 @@ pub use transfer::{
 };
 pub use user::fetch_my_user;
 
+use std::time::Duration;
+
 use crate::auth::{EnsureBearerError, ensure_bearer, require_user};
 use crate::einro::{IdentityPool, PoolConfig, PoolError, PooledConn};
 use topcoat::{
@@ -79,11 +81,12 @@ pub async fn acquire_user_db(cx: &Cx) -> Result<PooledConn<StdbConn>> {
 		.map_err(|e: PoolError| internal_server_error(StdbError(e.to_string())).into())
 }
 
-/// App-context bundle: config + token-keyed connection pool.
+/// App-context bundle: config + token-keyed connection pool + module HTTP client.
 #[derive(Clone)]
 pub struct StdbState {
 	pub config: StdbConfig,
 	pub pool: std::sync::Arc<IdentityPool<StdbConnector>>,
+	pub http: reqwest::Client,
 }
 
 impl StdbState {
@@ -95,9 +98,16 @@ impl StdbState {
 			config.database.clone(),
 			PoolConfig::default(),
 		);
+		let http = reqwest::Client::builder()
+			.connect_timeout(Duration::from_secs(5))
+			.timeout(Duration::from_secs(15))
+			.redirect(reqwest::redirect::Policy::none())
+			.build()
+			.expect("reqwest client");
 		Self {
 			config,
 			pool: std::sync::Arc::new(pool),
+			http,
 		}
 	}
 }

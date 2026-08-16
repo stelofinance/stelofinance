@@ -1,8 +1,8 @@
 //! Live `#account-home` fragment for H2.
 
 use crate::module_bindings::{AccountKind, LedgerKind, MemberKind, Role};
-use crate::stdb::account::{AccountHomeData, role_rank};
-use crate::stdb::format_qty;
+use crate::stdb::account::{AccountHomeData, AccountTokenView, role_rank};
+use crate::stdb::{format_qty, format_rel_time, unix_now_micros};
 use spacetimedb_sdk::Identity;
 use topcoat::{
 	Result,
@@ -140,6 +140,7 @@ pub fn account_home_html(data: &AccountHomeData, chrome: &HomeChrome) -> String 
 		admin_plus,
 		owner,
 	);
+	push_tokens(&mut out, id, &data.tokens, chrome, admin_plus);
 	out.push_str("</div>");
 	out
 }
@@ -199,6 +200,119 @@ fn push_people(
 		out.push_str("</div></div>");
 	}
 	out.push_str("</div></section>");
+}
+
+fn push_tokens(
+	out: &mut String,
+	account_id: u64,
+	tokens: &[AccountTokenView],
+	chrome: &HomeChrome,
+	admin_plus: bool,
+) {
+	if !admin_plus {
+		return;
+	}
+	let now = unix_now_micros();
+	out.push_str(r#"<section class="mt-10">"#);
+	out.push_str(r#"<div class="flex flex-wrap items-center justify-between gap-3">"#);
+	out.push_str(
+		r#"<h2 class="text-sm font-medium uppercase tracking-wide text-neutral-400">API tokens</h2>"#,
+	);
+	out.push_str(
+		r#"<button type="button" class="cursor-pointer rounded-md bg-anakiwa-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-anakiwa-600" data-on:click="$creatingToken = true; $tokenError = ''; $tokenLabel = ''; $newToken = ''; $tokenCopied = false; $revokeTokenId = 0">New token</button>"#,
+	);
+	out.push_str("</div>");
+	out.push_str(
+		r#"<p class="mt-2 text-sm text-neutral-400">Scripts and bots use these with the JSON API.</p>"#,
+	);
+
+	if tokens.is_empty() {
+		out.push_str(
+			r#"<div class="mt-3 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-6 text-center text-sm text-neutral-400">No tokens yet.</div>"#,
+		);
+	} else {
+		out.push_str(r#"<div class="mt-3 flex flex-col gap-2">"#);
+		for t in tokens {
+			push_token_card(out, account_id, t, chrome, now);
+		}
+		out.push_str("</div>");
+	}
+
+	out.push_str(
+		r#"<p class="mt-3 text-sm text-red-400" data-show="$tokenError && !$creatingToken && !$newToken" data-text="$tokenError"></p>"#,
+	);
+	out.push_str("</section>");
+}
+
+fn push_token_card(
+	out: &mut String,
+	account_id: u64,
+	token: &AccountTokenView,
+	chrome: &HomeChrome,
+	now: i64,
+) {
+	let trimmed = token.label.trim();
+	let untitled = trimmed.is_empty();
+	let title_plain = if untitled { "(untitled)" } else { trimmed };
+	let title = escape_html(title_plain);
+	let when = escape_html(&format_rel_time(token.created_micros, now));
+	let who = token_minter_label(token, chrome);
+
+	out.push_str(
+		r#"<div class="rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2.5">"#,
+	);
+	out.push_str(r#"<div class="flex flex-wrap items-center justify-between gap-2">"#);
+	if untitled {
+		out.push_str(&format!(
+			r#"<p class="truncate text-sm text-neutral-400">{title}</p>"#
+		));
+	} else {
+		out.push_str(&format!(
+			r#"<p class="truncate text-sm text-neutral-100">{title}</p>"#
+		));
+	}
+	out.push_str(&format!(
+		r#"<button type="button" class="cursor-pointer text-sm text-red-400 hover:text-red-300" data-label="{}" data-on:click="$revokeTokenId = {}; $revokeTokenLabel = el.dataset.label; $tokenError = ''">Revoke</button>"#,
+		escape_html(title_plain),
+		token.id,
+	));
+	out.push_str("</div>");
+	out.push_str(&format!(
+		r#"<p class="mt-1 text-sm text-neutral-400">{when} · {who}</p>"#
+	));
+	out.push_str(&format!(
+		r#"<div class="mt-3 border-t border-neutral-800 pt-3" data-show="$revokeTokenId == {}" style="display: none">"#,
+		token.id,
+	));
+	out.push_str(&format!(
+		r#"<p class="text-sm text-neutral-300">Revoke “{}”? Integrations using it will fail.</p>"#,
+		escape_html(title_plain),
+	));
+	out.push_str(r#"<div class="mt-3 flex flex-wrap gap-2">"#);
+	out.push_str(
+		r#"<button type="button" class="cursor-pointer rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 hover:border-neutral-500 hover:text-white" data-on:click="$revokeTokenId = 0">Cancel</button>"#,
+	);
+	out.push_str(&format!(
+		r#"<button type="button" class="cursor-pointer rounded-md bg-red-900 px-3 py-1.5 text-sm font-medium text-red-100 hover:bg-red-800" data-on:click="@post('/app/accounts/{account_id}/tokens/revoke')">Revoke</button>"#
+	));
+	out.push_str("</div></div></div>");
+}
+
+fn token_minter_label(token: &AccountTokenView, chrome: &HomeChrome) -> String {
+	if token.created_by == chrome.caller_id {
+		return "you".to_owned();
+	}
+	if let Some(name) = token
+		.created_by_username
+		.as_deref()
+		.map(str::trim)
+		.filter(|s| !s.is_empty())
+	{
+		return escape_html(name);
+	}
+	let hex = token.created_by.to_hex();
+	let short = hex.get(..8).unwrap_or(hex.as_str());
+	escape_html(short)
 }
 
 fn push_role_select(

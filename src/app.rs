@@ -9,9 +9,12 @@ use topcoat::{
 	view::view,
 };
 
+mod api;
 mod app;
 mod auth;
+mod health;
 mod login;
+mod logout;
 
 use crate::auth::bitauth::BitAuth;
 use crate::auth::cookies::{COOKIE_REFRESH, COOKIE_TOKEN, get_cookie};

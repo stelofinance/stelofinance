@@ -1,6 +1,7 @@
 //! `GET /app/accounts/{account_id}` — H2 account home.
 
 mod markup;
+mod tokens;
 mod updates;
 mod users;
 
@@ -13,6 +14,7 @@ use crate::stdb::{StdbError, acquire_user_db};
 use markup::{HomeChrome, account_home};
 use serde::{Deserialize, Serialize};
 use spacetimedb_sdk::Identity;
+use tokens::token_forms;
 use topcoat::{
 	Result,
 	context::Cx,
@@ -42,7 +44,7 @@ async fn show(cx: &Cx) -> Result {
 	let admin_plus = role_rank(acc.role) >= role_rank(Role::Admin);
 	let label_value = acc.label.clone().unwrap_or_default();
 	let signals = format!(
-		"{{copiedId:0,label:{},userSearch:'',memberId:'',memberName:'',addRole:'write',editMemberId:'',editRole:'',revokeId:'',accountError:'',leftAccount:false}}",
+		"{{copiedId:0,label:{},userSearch:'',memberId:'',memberName:'',addRole:'write',editMemberId:'',editRole:'',revokeId:'',accountError:'',leftAccount:false,creatingToken:false,tokenLabel:'',newToken:'',tokenError:'',tokenCopied:false,revokeTokenId:0,revokeTokenLabel:''}}",
 		js_single(&label_value)
 	);
 	let updates = format!("@get('/app/accounts/{account_id}/updates')");
@@ -67,6 +69,7 @@ async fn show(cx: &Cx) -> Result {
 			</a>
 			account_home(data: data, chrome: chrome)
 			if admin_plus {
+				token_forms(account_id: account_id)
 				admin_forms(account_id: account_id, members_url: members_url, users_url: users_url, label_url: label_url)
 			}
 			<p

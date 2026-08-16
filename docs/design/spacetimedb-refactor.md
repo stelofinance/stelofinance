@@ -1,7 +1,7 @@
 # Design Doc: SpacetimeDB Refactor
 
-**Status:** Outline + **domain core done; Topcoat edge P1 in progress (BitAuth + C1–C3 done; H1–H4 done; H5 next)** (§7–§8)  
-**Date:** 2026-07-24 (updated 2026-08-14)  
+**Status:** Outline + **domain core done; Topcoat edge P1 in progress (BitAuth + C1–C3 done; H1–H5 done; A6 + I1/I2 `/api` proxy)** (§7–§8)  
+**Date:** 2026-07-24 (updated 2026-08-15)  
 **Author:** Stelo maintainers + design discussion  
 **Related:** Current stack is Go + SQLite (sqlc/goose) + embedded NATS/JetStream + Datastar; target edge is **Rust Topcoat** + first-party STDB client; module + BitAuth remain. **C3 pool design:** [einro-identity-pool.md](./einro-identity-pool.md). **HTML app feature parity (pages, reactivity, build order):** [app-surface-parity.md](./app-surface-parity.md) — agents porting `/app` pages should load that doc alongside this one.
 
@@ -31,7 +31,7 @@ Production module runs on **SpacetimeDB mainnet/maincloud**. Local dev runs a lo
 3. **Realtime UI** without NATS: STDB subscriptions → edge re-renders Datastar HTML fragments.
 4. **Third-party integration paths (two):**
    - **Native STDB clients:** partners/bots connect as **app** Identities (SpacetimeAuth) granted roles on accounts via `account_member` (§7.9).
-   - **JSON HTTP API:** account-scoped **API tokens** (`AccountToken`) + **module HTTP handlers**; edge **reverse-proxies** them on our domain with a **new path shape** (not legacy Go `/api/...`). Path params and other shapes STDB lacks can be expressed on the edge and mapped onto module routes (§7.10, §8.5, §9).
+   - **JSON HTTP API:** account-scoped **API tokens** (`AccountToken`) + **module HTTP handlers**; edge **reverse-proxies** them on our domain under **`/api`** (module path remainder; not Go `/api/accounts/{id}/…`). Path params and other shapes STDB lacks can be expressed on the edge and mapped onto module routes (§7.10, §8.5, §9).
 5. **Browser acts as an authenticated STDB identity**, with the lite server connecting as that user (token-in-cookie), not as a privileged superuser.
 6. Remove operational dependency on embedded JetStream (sessions KV, transfer pub/sub, webhook work queue) **and on the Go edge entirely** once Topcoat is cut over.
 7. **First-party STDB client on the edge** (Rust SDK + generated bindings) for type-safe queries/reducers/subscriptions.
@@ -126,7 +126,7 @@ Desired properties:
 | Cookie (refresh) | `bitauth_refresh_token` when `offline_access` granted (~14d BitAuth); used for auto-refresh |
 | Cookie Secure flag | **`ENV=prod` only** (no `BITAUTH_SECURE_COOKIES`) |
 | Login UX | Login page with **“Login with BitAuth”** button → authorize URL |
-| Login routes | `/login`, `/auth/bitauth/login`, `/callback`, `/logout` (no session debug route) |
+| Login routes | `/login`, `/auth/bitauth/login`, `/callback`; **`POST /logout`** (Stelo cookies only; no BitAuth `end_session`; no GET) |
 | STDB client | **Official Rust SpacetimeDB SDK** + `spacetime generate` bindings |
 | Do not | Overwrite `bitauth_token` with short-lived STDB websocket tokens returned on connect |
 | Drop | BitJita `/login`, JetStream `sid`, edge `ADMIN_KEY` break-glass |
@@ -154,7 +154,7 @@ Pool key is **STDB Identity** (or stable token identity), not OIDC client_id. Ev
 | D3 | Data access control | **Private tables + public views + sender-checked reducers** | Design as if clients connect directly from day one |
 | D4 | Webhooks | **Outbox table + scheduled procedure (HTTP from module)** | Replaces JetStream work queue |
 | D5 | Browser session | **BitAuth OIDC → STDB token in cookie; edge calls STDB as user** | Avoid privileged edge for user data; BitJita hard-dropped |
-| D6 | Third-party API | **Apps (STDB) + account tokens (HTTP)** | Module handlers + **edge reverse-proxy** on our domain (§8.5, §9). New path shape (not legacy `/api`). |
+| D6 | Third-party API | **Apps (STDB) + account tokens (HTTP)** | Module handlers + **edge reverse-proxy** on `/api` (§8.5, §9). Prefix reused; remainder is module routes, not Go `/api/accounts/{id}`. |
 | D7 | Multi-tenancy | **Single module, multi-tenant views** | View output depends on caller identity |
 | D8 | Hosting | **Mainnet/maincloud prod; local STDB for dev** | Edge: **stateless Fly** (no volume); GHA deploys module + edge |
 | D9 | Migration | **Manual/import cutover OK** | Tester-scale production data |
@@ -713,7 +713,7 @@ curl -s "$STDB/v1/database/stelofinance/route/account/ping" \
 4. **Auto-refresh** later when token near expiry (use refresh cookie); rewrite `bitauth_token`. Do **not** store short-lived STDB websocket tokens over the OIDC ID token.
 5. Cookie `Secure` when `ENV=prod` only.
 5. Requests to `/app/*`: require valid cookie (refresh if needed) → acquire pooled STDB connection as that identity.
-6. Logout: clear cookies; optional BitAuth `end_session`.
+6. Logout: **`POST /logout`** clears Stelo cookies only (no BitAuth `end_session`; user stays signed in at the IdP). No GET alias.
 7. Open-redirect protection on `?redirect=` (relative path only; same rules as Go `isValidRedirectURL`).
 
 ### 8.3 Request handling patterns
@@ -761,11 +761,11 @@ Partial / component-specific patches (e.g. recipient fieldset) are **case-by-cas
 |----------|----------|
 | Style | HTTP **reverse-proxy** (or thin path-mapping proxy) to module handlers |
 | Auth | Edge **forwards** `Authorization` (account token secret); module validates |
-| Path shape | **New** public routes (not legacy Go `/api/...`). Edge may introduce path params and map them onto module routes that lack param support today |
+| Path shape | Public prefix **`/api`** (no version). Remainder is the **module** route (`GET /api/ping` → module `/ping`), **not** the Go `/api/accounts/{id}/…` shape. Path-param reshape later if needed. |
 | Domain logic | None on edge — only route rewrite, header forward, status/body pass-through (plus optional error envelope consistency) |
-| Docs | Update `docs/api/*` when public path shape is finalized |
+| Docs | Short pointer on `docs/api/README.md`; full `docs/api/*` rewrite is I3 |
 
-Exact public path prefix (e.g. `/v1/...` vs something else) is chosen when implementing the first proxied routes; document then.
+**Prefix (2026-08-15):** `/api/{*path}` → `$STDB_HOST/v1/database/$STDB_DATABASE/route/{*path}`. Same first segment as Go; different remainder.
 
 ### 8.6 What gets deleted after cutover
 
@@ -788,7 +788,7 @@ Work through these **one by one**. Status: `todo` until implemented in Topcoat. 
 | A3 | Request logging | stdout / structured logs (D31) | todo |
 | A4 | Panic / error recovery | Framework defaults + error pages | todo |
 | A5 | CORS | If public API proxy needs browser/cross-origin; otherwise minimal | todo |
-| A6 | Health check | Cheap path for Fly (replace `/api/ping` / `/heartbeat`) | todo |
+| A6 | Health check | `GET /health` → `ok` (no STDB). Do not change live Go `fly.toml` yet | **done** |
 | A7 | Response compression | gzip/brotli if easy in stack | todo |
 | A8 | Env / config | BitAuth + STDB + PORT/ENV; drop JS_DIR/DB_FILE | todo |
 | A9 | App-wide shared state | Topcoat app context: pool, OIDC client, config | todo |
@@ -797,8 +797,8 @@ Work through these **one by one**. Status: `todo` until implemented in Topcoat. 
 
 | ID | System | Notes | Status |
 |----|--------|-------|--------|
-| B1 | BitAuth OIDC client | Discovery, PKCE, verify ID token, end_session | **done** (`src/auth/bitauth.rs`) |
-| B2 | Login / callback / logout routes | `/login`, `/auth/bitauth/*` | **done** |
+| B1 | BitAuth OIDC client | Discovery, PKCE, verify ID token | **done** (`src/auth/bitauth.rs`). IdP `end_session` not used (H5 is Stelo-only). |
+| B2 | Login / callback / logout routes | `/login`, `/auth/bitauth/login` + `/callback`; **`POST /logout`** (Stelo-only) | **done** |
 | B3 | Cookie jar | `bitauth_token` (30m), `bitauth_refresh_token`, oauth state/nonce/pkce/redirect; Secure iff `ENV=prod` | **done** (`src/auth/cookies.rs`) |
 | B4 | Open-redirect protection | Relative path only | **done** |
 | B5 | Authed `/app` gate | Cookie required; no JetStream `sid`. Topcoat `require_user` + `/app` layout (not middleware); STDB `my_user` | **done** (`src/auth/user.rs`, `src/app/app/`) |
@@ -825,7 +825,7 @@ Work through these **one by one**. Status: `todo` until implemented in Topcoat. 
 | D1 | HTML shell layout | Public vs app chrome (Topcoat `#[layout]`) | partial (app chrome Option A; public chrome on marketing pages) |
 | D2 | Marketing page `GET /` | Port index content | **rough done** |
 | D3 | Login page | **“Login with BitAuth”** button only (no BitJita UI) | **done** |
-| D4 | App pages | home, accounts, account detail, transfer, activity, payment request | partial (home thin; **H1–H4 done**; H5 next) |
+| D4 | App pages | home, accounts, account detail, transfer, activity, payment request | partial (home thin; **H1–H5 done**) |
 | D5 | Chrome components | nav, footer, app-nav, app-menu | partial (`src/app/app/chrome.rs` Option A; full app menu replaced) |
 | D6 | Partial / component patches | Case-by-case (e.g. transfer recipient) | partial (H1 `#accounts-list`; H3a recipient results; H3b `#activity-body`) |
 | D7 | Display formatting | Asset-scale balances, relative times | partial (`format_qty` / `parse_qty`; H3b `format_rel_time` / `day_heading`) |
@@ -878,24 +878,24 @@ Work through these **one by one**. Status: `todo` until implemented in Topcoat. 
 | ID | Surface | Go routes (reference) | Status |
 |----|---------|----------------------|--------|
 | H1 | Accounts list + create + live updates | `GET/POST /app/accounts`, `GET .../updates` | **done** (portfolio; cards → H2) |
-| H2 | Account home | detail, primary, people, label | **done** (tokens / webhook / apps / request builder / recent later) |
+| H2 | Account home | detail, primary, people, label, API tokens | **done** (webhook / apps / request builder / recent later) |
 | H3 | Transfer send + Activity history | Go combined `GET /app/transfers` | **done** (`/app/transfer` + `/app/activity`). Activity pagination later (**Q15**) |
 | H4 | Payment request | `GET /app/request`, `POST .../transfers` | **done** (`/app/request` Pay; Write+; `account_lookup`) |
-| H5 | Logout | clear cookies / end_session | todo (route exists; linked from `/app/me`) |
+| H5 | Logout | Stelo cookies only | **done** (`POST /logout` from `/app/me`; no IdP logout; no GET) |
 
-**H2 leftovers (do not rebuild people/primary):** tokens, webhook, apps/tickets, in-page payment-request builder (**Read+**, not Admin+), recent transfers on the account page, deposit/withdraw preselect.
+**H2 leftovers (do not rebuild people/primary/tokens):** webhook, apps/tickets, in-page payment-request builder (**Read+**, not Admin+), recent transfers on the account page, deposit/withdraw preselect.
 
 Also covered in the parity doc (not separate H rows): marketing home (D2, **rough done**), login (D3), app home `/app`, shell chrome.
 
 #### I — API reverse-proxy (required; not HTML pages)
 
-Third-party **JSON HTTP** is **cutover-required**, not part of the Datastar page port. Domain lives in module HTTP (§7.10); edge must **reverse-proxy** onto our domain with a **new path shape** (not legacy Go `/api/...`). Full Go `/api/*` route list and mapping notes: [app-surface-parity.md § Non-HTML surfaces](./app-surface-parity.md#non-html-surfaces) + §9 below.
+Third-party **JSON HTTP** is **cutover-required**, not part of the Datastar page port. Domain lives in module HTTP (§7.10); the Topcoat edge **reverse-proxies** those handlers onto our domain under **`/api`**. Remainder is the module path (not Go `/api/accounts/{id}/…`). Full Go `/api/*` route list and mapping notes: [app-surface-parity.md § Non-HTML surfaces](./app-surface-parity.md#non-html-surfaces) + §9 below.
 
 | ID | System | Notes | Status |
 |----|--------|-------|--------|
-| I1 | Reverse-proxy to module HTTP | Our domain; path reshape; not legacy `/api` shape | todo |
-| I2 | Auth header forward | Edge does not re-validate account tokens | todo |
-| I3 | Route map + docs | Map each module handler to public edge path; update `docs/api/*` | todo |
+| I1 | Reverse-proxy to module HTTP | `/api/{*path}` → module `/route/{*path}`; no path-param reshape yet | **done** (first slice) |
+| I2 | Auth header forward | Allowlist: `Authorization`, `Content-Type`, `Idempotency-Key`; no cookie; module validates tokens | **done** |
+| I3 | Route map + docs | Map each module handler to public edge path; rewrite `docs/api/*` | todo (README pointer only) |
 
 #### J — Observability / product extras
 
@@ -946,7 +946,7 @@ Third-party **JSON HTTP** is **cutover-required**, not part of the Datastar page
 
 ### 9.1 External JSON API
 
-**Required product surface (not optional HTML work):** partners and tools that use plain HTTP/JSON must keep working after cutover. Domain implementation is **module HTTP** (§7.10). The **Topcoat edge reverse-proxies** those handlers onto **our domain** with a **new public path shape** (not legacy Go `/api/...`). Edge may reshape routes (e.g. path params) when STDB module HTTP cannot express them yet (§8.5, inventory **I1–I3**).
+**Required product surface (not optional HTML work):** partners and tools that use plain HTTP/JSON must keep working after cutover. Domain implementation is **module HTTP** (§7.10). The **Topcoat edge reverse-proxies** those handlers onto **our domain** under **`/api`** (module path remainder; not Go `/api/accounts/{id}/…`). Edge may reshape routes (e.g. path params) when STDB module HTTP cannot express them yet (§8.5, inventory **I1–I3**).
 
 HTML Datastar pages are inventoried separately in [app-surface-parity.md](./app-surface-parity.md); that doc only **points** at this section for API work.
 
@@ -957,7 +957,7 @@ HTML Datastar pages are inventoried separately in [app-surface-parity.md](./app-
 | Ledgers / audit / admin | Views + admin reducers; HTTP + proxy when needed |
 | Webhooks get/put/delete | Views + reducers / HTTP + proxy when needed |
 
-**Breaking change vs Go `/api`:** intentional. Update `docs/api/*` when edge public paths land. STDB IDs may differ from old SQLite integers (u64 vs int64) — document at cutover.
+**Breaking change vs Go `/api`:** same first segment (`/api`); remainder is the module route (`/api/account/transfers`, not `/api/accounts/{id}/transfers`). Update `docs/api/*` (I3). STDB IDs may differ from old SQLite integers (u64 vs int64) — document at cutover.
 
 **Must not drop at cutover:** account-scoped token auth + transfer/webhook/account read surfaces that third parties use today (see Go `/api/accounts/{id}/*` and module §7.10). Path strings may change; document the break.
 
@@ -1050,7 +1050,7 @@ STDB module payload (breaking vs legacy `code` int — documented in `docs/api/w
 | ID | Topic | Status | Notes |
 |----|-------|--------|-------|
 | Q1 | Full threat model (abuse, spam transfers, energy, anonymous connect policy) | **Follow up later** | Issuer/aud gate exists for BitAuth; expand rate limits etc. |
-| Q2 | Cookie details: name, Max-Age, rotation, logout | **Decided** | `bitauth_token` (30m) / `bitauth_refresh_token`; Secure iff prod; logout route yes, no `/session` debug |
+| Q2 | Cookie details: name, Max-Age, rotation, logout | **Decided** | `bitauth_token` (30m) / `bitauth_refresh_token`; Secure iff prod; **`POST /logout`** clears Stelo cookies only (no BitAuth `end_session`, no GET) |
 | Q3 | OIDC claim mapping | **Decided (dev)** | Stable `sub` = player id; `preferred_username` = display; see §7.2 |
 | Q4 | Account API token validation path | **Decided** | Module validates; edge reverse-proxies + forwards `Authorization` |
 | Q5 | Exact table/view/reducer names | **In flux** | Live schema in `spacetimedb/src/` |
@@ -1060,7 +1060,7 @@ STDB module payload (breaking vs legacy `code` int — documented in `docs/api/w
 | Q9 | Backups / PITR / disaster recovery on mainnet | Open | Ops runbook |
 | Q10 | Connection pooling by identity | **Decided** | Per-Identity pool = first milestone after connect (D23, §5.3) |
 | Q11 | Whether import recomputes balances from transfers vs copies balances | Open | Recompute is safer if history complete |
-| Q12 | Public edge API path prefix / shape | Open | Chosen when implementing I1; not legacy `/api` |
+| Q12 | Public edge API path prefix / shape | **Decided** | Prefix **`/api`**, no `/v1` version. Remainder = module routes (`/api/ping`, `/api/account/…`). Not Go `/api/accounts/{id}/…`. |
 | Q13 | CSS delivery: pure inline vs link vs cache-aware hybrid | **v1 = inline if practical** | Stretch goals in §8.7 F3 |
 | Q14 | Rust OIDC library choice | Open | Same BitAuth flow as Go spike |
 | Q15 | Activity history pagination | **Follow up later** | H3b shows the **full** authorized `my_transfers` set (no LIMIT). STDB 2.7 has no view args; live subs deliver the whole view (§7.3). When history grows: client window (first N + Load more) and/or SQL `LIMIT` on one-shot SSR; true keyset once parameterized views / `created_at` ranges work. Keep live newest-first. Do not block H4. |
@@ -1169,8 +1169,8 @@ Track status in §8.7 inventory. Minimum P1 exit:
 - [x] Connect-as-user (C2): cookie token → STDB (temporary smoke removed after validation)
 - [x] Token-keyed connection pool (C3 / einro) + `ensure_bearer` refresh (B6)
 - [x] One app page from STDB + Datastar subscribe → patch `#accounts-list` (H1; transfer-driven balance updates use the same sub)
-- [ ] Health check for deploy; stdout logging
-- [ ] (Follow-on) reverse-proxy slice for module `ping` routes
+- [x] Health check for deploy (`GET /health`; stdout logging still open)
+- [x] Reverse-proxy slice: `/api/{*path}` → module `/route/{*path}` (I1/I2; I3 docs later)
 
 ---
 
@@ -1216,7 +1216,7 @@ Any admin balance patch must either:
 3. ~~Topcoat skeleton + BitAuth + C1 (SDK + `spacetime generate` bindings)~~ **done**.
 4. ~~**C2 connect-as-user** + **C3 einro pool**~~ **done** (`src/stdb/*`, `src/einro/*`).
 5. ~~Marketing homepage (D2)~~ **rough done** (`src/app.rs` + `src/ui/*`).
-6. App HTML surfaces per [app-surface-parity.md](./app-surface-parity.md) (~~shell~~ → ~~H1~~ → ~~H2 home~~ → ~~H3 Transfer send~~ → ~~Activity~~ → ~~H4 payment request~~ → **H5 logout**).
+6. App HTML surfaces per [app-surface-parity.md](./app-surface-parity.md) (~~shell~~ → ~~H1~~ → ~~H2 home~~ → ~~H3 Transfer send~~ → ~~Activity~~ → ~~H4 payment request~~ → ~~H5 logout~~). Next: app home redesign / H2 leftovers.
 7. Module HTTP reverse-proxy (**required** JSON API cutover: §8.5 / I* / §9); update `docs/api/*`.
 8. Admin reducers on module (parallel track).
 9. Fly stateless + GHA (module publish + edge deploy); cut over; delete Go.
@@ -1279,6 +1279,9 @@ Work items: tick §8.7 inventory, [app-surface-parity.md](./app-surface-parity.m
 | 2026-08-13 | **H3b Activity:** `/app/activity` live `my_transfers` (+ `my_accounts` labels). All/account chips (`?account=`), day groups, filter-relative verbs (Received/Sent/Moved/Issued/Redeemed), edge dedupe. First SSE seed-only; reconnect snapshot; `data-show` filter so the stream stays up. |
 | 2026-08-14 | **Q15:** Activity pagination follow-up (full view for now; window/keyset when history grows). Does not block H4. |
 | 2026-08-14 | **H4 Pay:** `GET/POST /app/request` (`ledgerid`/`recipientid`/`amount`/`memo`). Invoice card + H3a from-picker (Write+ debit on that ledger). Friendly invalid-link page. `account_lookup` procedure (no `account_directory` view). |
+| 2026-08-14 | **H5 logout:** `/app/me` Session card; **`POST /logout`** clears Stelo cookies only (no BitAuth `end_session`, no GET). |
+| 2026-08-15 | **A6 + I1/I2:** `GET /health` (edge-only `ok`). Thin proxy `/api/{*path}` → module `/v1/database/$DB/route/{*path}`; forwards method, query, body, `Authorization` / `Content-Type` / `Idempotency-Key`. Prefix `/api` (no version); not Go account-id paths. I3 docs rewrite later. |
+| 2026-08-15 | **H2 API tokens:** Admin+ section on account home. `create_account_token` (edge OS entropy; secret once in `$newToken`); `revoke_account_tokens` with confirm; list from `my_accounts_tokens` (never the secret). Live `#account-home`. |
 
 ---
 

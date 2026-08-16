@@ -5,10 +5,12 @@ use std::time::Duration;
 
 use crate::einro::PooledConn;
 use crate::module_bindings::{
-	MyAccountMemberRow, MyAccountRow, MyAccountsMembersTableAccess, MyAccountsTableAccess, Reducer,
-	Role, SubscriptionHandle as ModuleSubHandle, User, UserTableAccess, grant_account_member,
-	my_accounts_membersQueryTableAccess, my_accountsQueryTableAccess, revoke_account_member,
-	set_account_label, set_account_primary, userQueryTableAccess,
+	MyAccountMemberRow, MyAccountRow, MyAccountTokenRow, MyAccountsMembersTableAccess,
+	MyAccountsTableAccess, MyAccountsTokensTableAccess, Reducer, Role,
+	SubscriptionHandle as ModuleSubHandle, User, UserTableAccess, create_account_token,
+	grant_account_member, my_accounts_membersQueryTableAccess, my_accounts_tokensQueryTableAccess,
+	my_accountsQueryTableAccess, revoke_account_member, revoke_account_tokens, set_account_label,
+	set_account_primary, userQueryTableAccess,
 };
 use spacetimedb_sdk::{DbContext, Event, Identity, SubscriptionHandle, Table, TableWithPrimaryKey};
 use tokio::task::spawn_blocking;
@@ -18,11 +20,22 @@ use super::query::subscribe_once;
 
 const REDUCER_TIMEOUT: Duration = Duration::from_secs(15);
 
+/// One API token for the account home list (never includes the secret).
+#[derive(Clone, Debug)]
+pub struct AccountTokenView {
+	pub id: u64,
+	pub label: String,
+	pub created_micros: i64,
+	pub created_by: Identity,
+	pub created_by_username: Option<String>,
+}
+
 /// SSR / live snapshot for one account the caller can access.
 #[derive(Clone)]
 pub struct AccountHomeData {
 	pub account: Option<MyAccountRow>,
 	pub members: Vec<MyAccountMemberRow>,
+	pub tokens: Vec<AccountTokenView>,
 	pub has_other_primary: bool,
 }
 
@@ -36,12 +49,16 @@ pub async fn fetch_account_home(
 		|b| {
 			b.add_query(|q| q.from.my_accounts())
 				.add_query(|q| q.from.my_accounts_members())
+				.add_query(|q| q.from.my_accounts_tokens())
+				.add_query(|q| q.from.user())
 				.subscribe()
 		},
 		move |ctx| {
 			collect_home(
 				ctx.db().my_accounts().iter(),
 				ctx.db().my_accounts_members().iter(),
+				ctx.db().my_accounts_tokens().iter(),
+				ctx.db().user().iter(),
 				account_id,
 			)
 		},
@@ -52,6 +69,8 @@ pub async fn fetch_account_home(
 fn collect_home(
 	accounts: impl Iterator<Item = MyAccountRow>,
 	members: impl Iterator<Item = MyAccountMemberRow>,
+	tokens: impl Iterator<Item = MyAccountTokenRow>,
+	users: impl Iterator<Item = User>,
 	account_id: u64,
 ) -> AccountHomeData {
 	let accounts: Vec<MyAccountRow> = accounts.collect();
@@ -67,9 +86,29 @@ fn collect_home(
 	let mut members: Vec<MyAccountMemberRow> =
 		members.filter(|m| m.account_id == account_id).collect();
 	sort_members(&mut members);
+
+	let names: std::collections::HashMap<Identity, String> =
+		users.map(|u| (u.id, u.bitcraft_username)).collect();
+	let mut tokens: Vec<AccountTokenView> = tokens
+		.filter(|t| t.account_id == account_id)
+		.map(|t| AccountTokenView {
+			id: t.id,
+			label: t.label,
+			created_micros: t.created_at.to_micros_since_unix_epoch(),
+			created_by: t.created_by,
+			created_by_username: names.get(&t.created_by).cloned(),
+		})
+		.collect();
+	tokens.sort_by(|a, b| {
+		b.created_micros
+			.cmp(&a.created_micros)
+			.then(b.id.cmp(&a.id))
+	});
+
 	AccountHomeData {
 		account,
 		members,
+		tokens,
 		has_other_primary,
 	}
 }
@@ -265,11 +304,64 @@ pub async fn revoke_member(
 	.await
 }
 
+const TOKEN_ENTROPY_LEN: usize = 32;
+
+/// Mint an account token. Returns the secret once. Admin+ is enforced in the module.
+pub async fn create_account_api_token(
+	conn: &StdbConn,
+	account_id: u64,
+	label: String,
+) -> Result<String, String> {
+	let mut entropy = vec![0u8; TOKEN_ENTROPY_LEN];
+	getrandom::fill(&mut entropy).map_err(|e| format!("entropy: {e}"))?;
+	let entropy = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &entropy);
+
+	let (tx, rx) = std::sync::mpsc::sync_channel(1);
+	conn.db().procedures.create_account_token_then(
+		account_id,
+		label,
+		entropy,
+		move |_ctx, result| {
+			let outcome = match result {
+				Ok(Ok(secret)) => Ok(secret),
+				Ok(Err(e)) => Err(e),
+				Err(e) => Err(e.to_string()),
+			};
+			let _ = tx.send(outcome);
+		},
+	);
+	let wait = spawn_blocking(move || {
+		rx.recv_timeout(REDUCER_TIMEOUT)
+			.map_err(|_| "create_account_token timed out".to_owned())
+	})
+	.await
+	.map_err(|e| format!("create_account_token wait task: {e}"))?;
+	wait?
+}
+
+/// Revoke listed tokens on an account. Admin+ is enforced in the module.
+pub async fn revoke_account_api_tokens(
+	conn: &StdbConn,
+	account_id: u64,
+	token_ids: Vec<u64>,
+) -> Result<(), String> {
+	wait_reducer(|tx| {
+		conn.db()
+			.reducers
+			.revoke_account_tokens_then(account_id, token_ids, move |_, r| {
+				let _ = tx.send(map_reducer(r));
+			})
+			.map_err(|e| format!("revoke_account_tokens send: {e}"))
+	})
+	.await
+}
+
 fn is_live_row_change(event: &Event<Reducer>) -> bool {
 	matches!(event, Event::Reducer(_) | Event::Transaction)
 }
 
-/// Live `my_accounts` + `my_accounts_members` for one account.
+/// Live `my_accounts` + `my_accounts_members` + `my_accounts_tokens` for one account.
+/// Public `user` is subscribed for token minter names but does not remorph.
 pub struct LiveAccountHome {
 	pooled: PooledConn<StdbConn>,
 	sub: Option<ModuleSubHandle>,
@@ -279,6 +371,9 @@ pub struct LiveAccountHome {
 	mem_insert: Option<crate::module_bindings::MyAccountsMembersInsertCallbackId>,
 	mem_update: Option<crate::module_bindings::MyAccountsMembersUpdateCallbackId>,
 	mem_delete: Option<crate::module_bindings::MyAccountsMembersDeleteCallbackId>,
+	tok_insert: Option<crate::module_bindings::MyAccountsTokensInsertCallbackId>,
+	tok_update: Option<crate::module_bindings::MyAccountsTokensUpdateCallbackId>,
+	tok_delete: Option<crate::module_bindings::MyAccountsTokensDeleteCallbackId>,
 }
 
 impl LiveAccountHome {
@@ -288,25 +383,30 @@ impl LiveAccountHome {
 		account_id: u64,
 		snapshot_on_applied: bool,
 	) -> Result<Self, String> {
-		let send_snapshot: Arc<dyn Fn(Vec<MyAccountRow>, Vec<MyAccountMemberRow>) + Send + Sync> = {
+		let send_snapshot: Arc<dyn Fn(AccountHomeData) + Send + Sync> = {
 			let tx = tx.clone();
-			Arc::new(move |accounts, members| {
-				let _ = tx.send(Some(collect_home(
-					accounts.into_iter(),
-					members.into_iter(),
-					account_id,
-				)));
+			Arc::new(move |data| {
+				let _ = tx.send(Some(data));
 			})
 		};
+
+		macro_rules! snap {
+			($ctx:expr) => {
+				collect_home(
+					$ctx.db().my_accounts().iter(),
+					$ctx.db().my_accounts_members().iter(),
+					$ctx.db().my_accounts_tokens().iter(),
+					$ctx.db().user().iter(),
+					account_id,
+				)
+			};
+		}
 
 		let acc_insert = {
 			let send = Arc::clone(&send_snapshot);
 			pooled.get().db().db.my_accounts().on_insert(move |ctx, _| {
 				if is_live_row_change(&ctx.event) {
-					send(
-						ctx.db().my_accounts().iter().collect(),
-						ctx.db().my_accounts_members().iter().collect(),
-					);
+					send(snap!(ctx));
 				}
 			})
 		};
@@ -319,10 +419,7 @@ impl LiveAccountHome {
 				.my_accounts()
 				.on_update(move |ctx, _, _| {
 					if is_live_row_change(&ctx.event) {
-						send(
-							ctx.db().my_accounts().iter().collect(),
-							ctx.db().my_accounts_members().iter().collect(),
-						);
+						send(snap!(ctx));
 					}
 				})
 		};
@@ -330,10 +427,7 @@ impl LiveAccountHome {
 			let send = Arc::clone(&send_snapshot);
 			pooled.get().db().db.my_accounts().on_delete(move |ctx, _| {
 				if is_live_row_change(&ctx.event) {
-					send(
-						ctx.db().my_accounts().iter().collect(),
-						ctx.db().my_accounts_members().iter().collect(),
-					);
+					send(snap!(ctx));
 				}
 			})
 		};
@@ -346,10 +440,7 @@ impl LiveAccountHome {
 				.my_accounts_members()
 				.on_insert(move |ctx, _| {
 					if is_live_row_change(&ctx.event) {
-						send(
-							ctx.db().my_accounts().iter().collect(),
-							ctx.db().my_accounts_members().iter().collect(),
-						);
+						send(snap!(ctx));
 					}
 				})
 		};
@@ -362,10 +453,7 @@ impl LiveAccountHome {
 				.my_accounts_members()
 				.on_update(move |ctx, _, _| {
 					if is_live_row_change(&ctx.event) {
-						send(
-							ctx.db().my_accounts().iter().collect(),
-							ctx.db().my_accounts_members().iter().collect(),
-						);
+						send(snap!(ctx));
 					}
 				})
 		};
@@ -378,10 +466,46 @@ impl LiveAccountHome {
 				.my_accounts_members()
 				.on_delete(move |ctx, _| {
 					if is_live_row_change(&ctx.event) {
-						send(
-							ctx.db().my_accounts().iter().collect(),
-							ctx.db().my_accounts_members().iter().collect(),
-						);
+						send(snap!(ctx));
+					}
+				})
+		};
+		let tok_insert = {
+			let send = Arc::clone(&send_snapshot);
+			pooled
+				.get()
+				.db()
+				.db
+				.my_accounts_tokens()
+				.on_insert(move |ctx, _| {
+					if is_live_row_change(&ctx.event) {
+						send(snap!(ctx));
+					}
+				})
+		};
+		let tok_update = {
+			let send = Arc::clone(&send_snapshot);
+			pooled
+				.get()
+				.db()
+				.db
+				.my_accounts_tokens()
+				.on_update(move |ctx, _, _| {
+					if is_live_row_change(&ctx.event) {
+						send(snap!(ctx));
+					}
+				})
+		};
+		let tok_delete = {
+			let send = Arc::clone(&send_snapshot);
+			pooled
+				.get()
+				.db()
+				.db
+				.my_accounts_tokens()
+				.on_delete(move |ctx, _| {
+					if is_live_row_change(&ctx.event) {
+						send(snap!(ctx));
 					}
 				})
 		};
@@ -394,10 +518,7 @@ impl LiveAccountHome {
 				let send = Arc::clone(&send_snapshot);
 				move |ctx| {
 					if snapshot_on_applied {
-						send(
-							ctx.db().my_accounts().iter().collect(),
-							ctx.db().my_accounts_members().iter().collect(),
-						);
+						send(snap!(ctx));
 					}
 				}
 			})
@@ -406,6 +527,8 @@ impl LiveAccountHome {
 			})
 			.add_query(|q| q.from.my_accounts())
 			.add_query(|q| q.from.my_accounts_members())
+			.add_query(|q| q.from.my_accounts_tokens())
+			.add_query(|q| q.from.user())
 			.subscribe();
 
 		Ok(Self {
@@ -417,6 +540,9 @@ impl LiveAccountHome {
 			mem_insert: Some(mem_insert),
 			mem_update: Some(mem_update),
 			mem_delete: Some(mem_delete),
+			tok_insert: Some(tok_insert),
+			tok_update: Some(tok_update),
+			tok_delete: Some(tok_delete),
 		})
 	}
 }
@@ -441,6 +567,15 @@ impl Drop for LiveAccountHome {
 		}
 		if let Some(id) = self.mem_delete.take() {
 			tables.my_accounts_members().remove_on_delete(id);
+		}
+		if let Some(id) = self.tok_insert.take() {
+			tables.my_accounts_tokens().remove_on_insert(id);
+		}
+		if let Some(id) = self.tok_update.take() {
+			tables.my_accounts_tokens().remove_on_update(id);
+		}
+		if let Some(id) = self.tok_delete.take() {
+			tables.my_accounts_tokens().remove_on_delete(id);
 		}
 		if let Some(sub) = self.sub.take() {
 			let _ = sub.unsubscribe();

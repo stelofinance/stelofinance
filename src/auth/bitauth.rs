@@ -1,8 +1,8 @@
 use openidconnect::{
 	AuthorizationCode, ClientId, ClientSecret, CsrfToken, EndpointMaybeSet, EndpointNotSet,
 	EndpointSet, IssuerUrl, Nonce, OAuth2TokenResponse, PkceCodeChallenge, PkceCodeVerifier,
-	ProviderMetadataWithLogout, RedirectUrl, RefreshToken, Scope, TokenResponse,
-	core::{CoreAuthenticationFlow, CoreClient, CoreTokenResponse},
+	RedirectUrl, RefreshToken, Scope, TokenResponse,
+	core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetadata, CoreTokenResponse},
 	reqwest,
 	url::Url,
 };
@@ -26,8 +26,6 @@ pub struct BitAuth {
 struct BitAuthInner {
 	client: OidcClient,
 	http: reqwest::Client,
-	end_session_url: Option<Url>,
-	post_logout_redirect: Option<String>,
 }
 
 pub struct AuthStart {
@@ -55,11 +53,6 @@ impl BitAuth {
 			issuer.push('/');
 		}
 
-		let post_logout_redirect = std::env::var("BITAUTH_LOGOUT_REDIRECT_URL")
-			.ok()
-			.map(|s| s.trim().to_owned())
-			.filter(|s| !s.is_empty());
-
 		let http = reqwest::ClientBuilder::new()
 			.redirect(reqwest::redirect::Policy::none())
 			.build()
@@ -67,16 +60,9 @@ impl BitAuth {
 
 		let issuer_url = IssuerUrl::new(issuer).map_err(|e| e.to_string())?;
 
-		// Discover with logout metadata so we get `end_session_endpoint` without a second fetch.
-		let provider_metadata = ProviderMetadataWithLogout::discover_async(issuer_url, &http)
+		let provider_metadata = CoreProviderMetadata::discover_async(issuer_url, &http)
 			.await
 			.map_err(|e| format!("OIDC discovery: {e}"))?;
-
-		let end_session_url = provider_metadata
-			.additional_metadata()
-			.end_session_endpoint
-			.as_ref()
-			.map(|ep| ep.url().clone());
 
 		let client = CoreClient::from_provider_metadata(
 			provider_metadata,
@@ -86,12 +72,7 @@ impl BitAuth {
 		.set_redirect_uri(RedirectUrl::new(redirect).map_err(|e| e.to_string())?);
 
 		Ok(Self {
-			inner: Arc::new(BitAuthInner {
-				client,
-				http,
-				end_session_url,
-				post_logout_redirect,
-			}),
+			inner: Arc::new(BitAuthInner { client, http }),
 		})
 	}
 
@@ -186,20 +167,6 @@ impl BitAuth {
 			id_token: id_token.to_string(),
 			refresh_token: token_response.refresh_token().map(|t| t.secret().clone()),
 		})
-	}
-
-	pub fn end_session_url(&self, id_token_hint: Option<&str>) -> Option<Url> {
-		let mut url = self.inner.end_session_url.clone()?;
-		{
-			let mut pairs = url.query_pairs_mut();
-			if let Some(hint) = id_token_hint.filter(|s| !s.is_empty()) {
-				pairs.append_pair("id_token_hint", hint);
-			}
-			if let Some(ref post) = self.inner.post_logout_redirect {
-				pairs.append_pair("post_logout_redirect_uri", post);
-			}
-		}
-		Some(url)
 	}
 }
 
