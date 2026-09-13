@@ -28,7 +28,7 @@ pub async fn webhook_form(account_id: u64) -> Result {
 				"Webhook"
 			</h2>
 			<p class="mt-2 text-sm text-neutral-400">
-				"Stelo POSTs JSON here when this account sends or receives a transfer. Absolute http(s) URL. Deliveries are at least once — use the transfer id as an idempotency key."
+				"Stelo POSTs JSON here when this account sends or receives a transfer. Absolute http(s) URL."
 			</p>
 			<div class="mt-3 flex flex-col gap-2 sm:flex-row">
 				<input

@@ -13,15 +13,16 @@ mod transfer;
 
 pub use accounts::{LiveAccounts, create_user_account, fetch_accounts_page, has_primary_on_ledger};
 pub use activity::{
-	ActivitySnapshot, LiveActivity, display_amount, fetch_activity_page, selected_account_id,
-	sender_receiver, timestamp_micros,
+	ActivitySnapshot, LiveActivity, can_finalize_transfer, display_amount, fetch_activity_page,
+	selected_account_id, sender_receiver, timestamp_micros,
 };
 pub use config::StdbConfig;
 pub use connector::{StdbConn, StdbConnector};
 pub use format::{day_heading, format_qty, format_rel_time, parse_qty, unix_now_micros};
 pub use transfer::{
-	DirectoryHit, create_user_transfer, lookup_account, map_transfer_error, new_idempotency_key,
-	pay_from_accounts, pick_sendable, search_directory, sendable_accounts,
+	DirectoryHit, counterpart_kind, create_user_transfer, finalize_user_transfer, flow_accounts,
+	lookup_account, map_transfer_error, new_idempotency_key, own_issuer, pay_from_accounts,
+	pick_flow, pick_sendable, search_directory, sendable_accounts,
 };
 pub use user::fetch_my_user;
 

@@ -115,7 +115,7 @@ pub async fn request_form(account_id: u64, ledger_name: String, debit: bool) -> 
 				<div class="mt-4 flex flex-wrap gap-2">
 					<a
 						class="cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600"
-						data-attr-href="$requestLink"
+						data-attr:href="$requestLink"
 					>
 						"Preview"
 					</a>

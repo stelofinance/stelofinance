@@ -89,8 +89,12 @@ fn push_picker(out: &mut String, accounts: &[MyAccountRow]) {
 		for acc in group.accounts {
 			let id = acc.account_id;
 			let ledger = acc.ledger_id;
+			let kind = match acc.kind {
+				crate::module_bindings::AccountKind::Debit => "Debit",
+				crate::module_bindings::AccountKind::Credit => "Credit",
+			};
 			let click = format!(
-				"if ($fromLedgerId != '{ledger}') {{ $recipientId = ''; $recipientName = ''; $recipientAddr = ''; $recipientLabel = ''; $recipientSearch = ''; }} $fromId = '{id}'; $fromLedgerId = '{ledger}'; $pickingFrom = false; $sendError = ''"
+				"if ($fromLedgerId != '{ledger}') {{ $recipientId = ''; $recipientName = ''; $recipientAddr = ''; $recipientLabel = ''; $recipientSearch = ''; }} $fromId = '{id}'; $fromLedgerId = '{ledger}'; $fromKind = '{kind}'; $pickingFrom = false; $sendError = ''"
 			);
 			let on = format!("$fromId == '{id}'");
 			out.push_str(&format!(
@@ -177,6 +181,11 @@ fn push_pills(out: &mut String, acc: &MyAccountRow) {
 	if acc.is_primary {
 		out.push_str(
 			r#" <span class="ml-1 rounded-full bg-anakiwa/15 px-2 py-0.5 text-xs font-normal text-anakiwa">Primary</span>"#,
+		);
+	}
+	if matches!(acc.kind, crate::module_bindings::AccountKind::Credit) {
+		out.push_str(
+			r#" <span class="ml-1 rounded-full bg-neutral-800 px-2 py-0.5 text-xs font-normal text-neutral-300">Credit</span>"#,
 		);
 	}
 }

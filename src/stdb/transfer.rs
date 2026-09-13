@@ -4,7 +4,8 @@ use std::time::Duration;
 
 use crate::module_bindings::{
 	AccountKind, AccountSearchHit, AccountSearchScope, MyAccountRow, MyAccountsTableAccess, Role,
-	account_lookup, account_search, create_transfer, my_accountsQueryTableAccess,
+	account_lookup, account_search, create_transfer, finalize_transfer,
+	my_accountsQueryTableAccess,
 };
 use spacetimedb_sdk::{DbContext, Table};
 use tokio::task::spawn_blocking;
@@ -23,6 +24,7 @@ pub struct DirectoryHit {
 	pub primary_username: Option<String>,
 	/// Caller's nickname when this is one of their other accounts.
 	pub own_label: Option<String>,
+	pub kind: AccountKind,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,6 +65,60 @@ pub fn pick_sendable(accounts: &[MyAccountRow], requested: Option<u64>) -> Optio
 		}
 	}
 	accounts.iter().find(|a| a.is_primary).or(accounts.first())
+}
+
+/// Write+ debit or credit — deposit/withdraw "your account" picker.
+pub fn flow_accounts(accounts: &[MyAccountRow]) -> Vec<MyAccountRow> {
+	accounts
+		.iter()
+		.filter(|a| role_rank(a.role) >= role_rank(Role::Write))
+		.cloned()
+		.collect()
+}
+
+/// Requested id if eligible, else primary debit, else first debit, else first.
+pub fn pick_flow(accounts: &[MyAccountRow], requested: Option<u64>) -> Option<&MyAccountRow> {
+	if let Some(id) = requested {
+		if let Some(a) = accounts.iter().find(|a| a.account_id == id) {
+			return Some(a);
+		}
+	}
+	accounts
+		.iter()
+		.find(|a| a.is_primary && matches!(a.kind, AccountKind::Debit))
+		.or_else(|| {
+			accounts
+				.iter()
+				.find(|a| matches!(a.kind, AccountKind::Debit))
+		})
+		.or(accounts.first())
+}
+
+pub fn counterpart_kind(yours: AccountKind) -> AccountKind {
+	match yours {
+		AccountKind::Debit => AccountKind::Credit,
+		AccountKind::Credit => AccountKind::Debit,
+	}
+}
+
+/// Own Write+ credit on the same ledger as a debit, when there is exactly one.
+pub fn own_issuer<'a>(
+	accounts: &'a [MyAccountRow],
+	yours: &MyAccountRow,
+) -> Option<&'a MyAccountRow> {
+	if !matches!(yours.kind, AccountKind::Debit) {
+		return None;
+	}
+	let hits: Vec<&MyAccountRow> = accounts
+		.iter()
+		.filter(|a| {
+			a.account_id != yours.account_id
+				&& a.ledger_id == yours.ledger_id
+				&& matches!(a.kind, AccountKind::Credit)
+				&& role_rank(a.role) >= role_rank(Role::Write)
+		})
+		.collect();
+	if hits.len() == 1 { Some(hits[0]) } else { None }
 }
 
 /// Strip one leading `@` / `#` and decide which directory fields to match.
@@ -185,6 +241,7 @@ fn attach_own_labels(
 			account_id: h.account_id,
 			address: h.address,
 			primary_username: h.primary_username,
+			kind: h.kind,
 			own_label: mine
 				.iter()
 				.find(|(id, _)| *id == h.account_id)
@@ -217,11 +274,20 @@ pub fn map_transfer_error(err: &str) -> String {
 			"This send was already submitted with different details. Refresh and try again."
 				.to_owned()
 		}
+		"insufficient account permission" => {
+			"You don't have permission to complete this transfer.".to_owned()
+		}
+		"write access required on sender or receiver" => {
+			"You need Write on the issuer or the wallet.".to_owned()
+		}
+		"transfer is not pending" => "That transfer is no longer pending.".to_owned(),
+		"only issue/redeem pending transfers can be finalized" => {
+			"Only deposits and withdrawals can be confirmed.".to_owned()
+		}
 		other => other.to_owned(),
 	}
 }
 
-/// Posted (not pending) `create_transfer`.
 pub async fn create_user_transfer(
 	conn: &StdbConn,
 	sending_account_id: u64,
@@ -229,6 +295,7 @@ pub async fn create_user_transfer(
 	amount: u64,
 	memo: Option<String>,
 	idempotency_key: String,
+	pending: bool,
 ) -> Result<(), String> {
 	let (tx, rx) = std::sync::mpsc::sync_channel(1);
 	conn.db()
@@ -239,7 +306,7 @@ pub async fn create_user_transfer(
 			amount,
 			memo,
 			idempotency_key,
-			false,
+			pending,
 			move |_ctx, result| {
 				let outcome = match result {
 					Ok(Ok(())) => Ok(()),
@@ -260,6 +327,33 @@ pub async fn create_user_transfer(
 	wait?
 }
 
+pub async fn finalize_user_transfer(
+	conn: &StdbConn,
+	transfer_id: u64,
+	amount: u64,
+) -> Result<(), String> {
+	let (tx, rx) = std::sync::mpsc::sync_channel(1);
+	conn.db()
+		.reducers
+		.finalize_transfer_then(transfer_id, amount, move |_ctx, result| {
+			let outcome = match result {
+				Ok(Ok(())) => Ok(()),
+				Ok(Err(e)) => Err(e),
+				Err(e) => Err(e.to_string()),
+			};
+			let _ = tx.send(outcome);
+		})
+		.map_err(|e| format!("finalize_transfer send: {e}"))?;
+
+	let wait = spawn_blocking(move || {
+		rx.recv_timeout(REDUCER_TIMEOUT)
+			.map_err(|_| "finalize_transfer timed out".to_owned())
+	})
+	.await
+	.map_err(|e| format!("finalize_transfer wait task: {e}"))?;
+	wait?
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -269,6 +363,7 @@ mod tests {
 			account_id: id,
 			address: address.to_owned(),
 			ledger_id: 1,
+			kind: AccountKind::Debit,
 			primary_username: user.map(str::to_owned),
 		}
 	}

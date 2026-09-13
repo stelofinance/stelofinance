@@ -1,15 +1,24 @@
-use super::chrome::stub_page;
-use crate::auth::require_user;
-use topcoat::{Result, context::Cx, router::page, view::view};
+//! `GET/POST /app/withdraw` — Redeem (debit → credit).
 
-/// `GET /app/withdraw` — UX sugar stub (issuer redeem flow later).
+use super::issue::{Flow, FlowSignals, flow_create, flow_page};
+use topcoat::{
+	Result,
+	context::Cx,
+	datastar::{PatchSignals, Signals},
+	router::{page, route},
+	view::view,
+};
+
+/// `GET /app/withdraw` — player debit → issuer credit.
 #[page]
-async fn withdraw(cx: &Cx) -> Result {
-	let _user = require_user(cx).await?;
+async fn page(cx: &Cx) -> Result {
+	let _ = cx;
 	view! {
-		stub_page(
-			title: "Withdraw",
-			blurb: "A clearer path to redeem assets back to BitCraft. Placeholder for now.",
-		)
+		flow_page(flow: Flow::Withdraw)
 	}
+}
+
+#[route(POST)]
+async fn create(cx: &Cx, Signals(form): Signals<FlowSignals>) -> Result<PatchSignals> {
+	flow_create(cx, Flow::Withdraw, form).await
 }

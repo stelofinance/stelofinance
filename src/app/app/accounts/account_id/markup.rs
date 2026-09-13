@@ -123,12 +123,23 @@ pub fn account_home_html(data: &AccountHomeData, chrome: &HomeChrome) -> String 
 		out.push_str("</div>");
 	}
 
-	if can_send {
-		out.push_str(
-			&format!(
-				r#"<div class="mt-5"><a href="/app/transfer?from={id}" class="inline-flex cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600">Send</a></div>"#
-			),
-		);
+	let can_flow = role_rank(acc.role) >= role_rank(Role::Write);
+	if can_send || can_flow {
+		out.push_str(r#"<div class="mt-5 flex flex-wrap gap-2">"#);
+		if can_send {
+			out.push_str(&format!(
+				r#"<a href="/app/transfer?from={id}" class="inline-flex cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600">Send</a>"#
+			));
+		}
+		if can_flow {
+			out.push_str(&format!(
+				r#"<a href="/app/deposit?from={id}" class="inline-flex cursor-pointer rounded-md border border-neutral-700 px-4 py-2 text-sm text-neutral-200 hover:border-neutral-500 hover:text-white">Deposit</a>"#
+			));
+			out.push_str(&format!(
+				r#"<a href="/app/withdraw?from={id}" class="inline-flex cursor-pointer rounded-md border border-neutral-700 px-4 py-2 text-sm text-neutral-200 hover:border-neutral-500 hover:text-white">Withdraw</a>"#
+			));
+		}
+		out.push_str("</div>");
 	}
 
 	out.push_str("</div>");

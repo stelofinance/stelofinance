@@ -1,5 +1,6 @@
 //! `GET /app/activity` — H3b live transfer history. Live patches: `updates`.
 
+mod finalize;
 mod list;
 mod present;
 mod updates;
@@ -35,7 +36,8 @@ async fn page(cx: &Cx) -> Result {
 		.map_err(|e| internal_server_error(StdbError(e)))?;
 	let selected = selected_account_id(requested.as_deref(), &data.accounts);
 	let account_id = selected.map(|id| id.to_string()).unwrap_or_default();
-	let signals = format!("{{accountId:'{account_id}'}}");
+	let signals =
+		format!("{{accountId:'{account_id}',finalizeId:'',finalizeAction:'',finalizeError:''}}");
 	let now = unix_now_micros();
 
 	view! {
@@ -55,6 +57,11 @@ async fn page(cx: &Cx) -> Result {
 				</a>
 			</div>
 			activity_body(data: data, selected: selected, now_micros: now)
+			<p
+				class="mt-4 text-sm text-red-400"
+				data-show="$finalizeError"
+				data-text="$finalizeError"
+			></p>
 		</main>
 	}
 }

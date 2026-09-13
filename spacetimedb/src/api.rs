@@ -2,14 +2,14 @@ use crate::require_account_role;
 use crate::require_principal;
 use crate::tables::*;
 use crate::transfers::{
-	CreateTransferOutcome, TransferActor, create_transfer_core, finalize_transfer_core,
+	create_transfer_core, finalize_transfer_core, CreateTransferOutcome, TransferActor,
 };
 use crate::views::computed_balance;
-use spacetimedb::http::{Body, HandlerContext, Request, Response, Router, handler, router};
+use spacetimedb::http::{handler, router, Body, HandlerContext, Request, Response, Router};
 use spacetimedb::{
-	Identity, ProcedureContext, ReducerContext, Table, Timestamp, TxContext, procedure,
-	rand::{Rng, RngCore, SeedableRng, rngs::StdRng},
-	reducer,
+	procedure,
+	rand::{rngs::StdRng, Rng, RngCore, SeedableRng},
+	reducer, Identity, ProcedureContext, ReducerContext, Table, Timestamp, TxContext,
 };
 
 /// Alphabet for opaque token secrets (no ambiguous punctuation).
@@ -252,9 +252,14 @@ fn search_accounts(ctx: &mut HandlerContext, req: Request) -> Response {
 				continue;
 			}
 
+			let kind = match acc.kind {
+				AccountKind::Debit => "Debit",
+				AccountKind::Credit => "Credit",
+			};
 			out.push(serde_json::json!({
 				"id": acc.id,
 				"address": acc.address,
+				"kind": kind,
 				"bitcraftUsername": username,
 			}));
 		}

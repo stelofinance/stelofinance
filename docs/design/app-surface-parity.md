@@ -41,8 +41,9 @@ This document is the **hard feature-parity floor** for browser HTML surfaces. Re
 | 5 | Accounts list | List wallets + balances; create debit (credit/custom addr if platform admin); open detail | **Yes** (balances) | H1 |
 | 6 | Account home | Primary; members add/remove/roles; label; request link (Read+); API tokens + webhook (Admin+) | **Yes** | H2 **(home + tokens + webhook + request builder done; apps later)** |
 | 7a | Transfer send | From-account, recipient search, amount, memo, idempotency | **Yes** (bal) | H3a **done** |
-| 7b | Activity | Live transfer history (all or one account) | **Yes** | H3b **done** |
+| 7b | Activity | Live transfer history (all or one account); issuer Confirm/Void pending Issue/Redeem | **Yes** | H3b **done** |
 | 8 | Payment request | Query-prefilled pay flow | No (one-shot submit) | H4 **done** |
+| 9 | Deposit / Withdraw | Issue / Redeem vs issuer credit; `?from=`; pending when your account is debit | No (command + Activity) | H2 leftover **done** |
 
 **Chrome capability (Topcoat Option A, 2026-08-08):**  
 Desktop/tablet top: logo→`/app` · Accounts · Activity · Transfer▾ (Send / Deposit / Withdraw) · username→`/app/me`.  
@@ -136,7 +137,7 @@ Logout lives on `/app/me` (profile page — more content planned). **`POST /logo
 | **Content** | Back to Accounts. Title = **label** or ledger name; large **balance**; `#address` + Copy; Primary / Credit / Shared·role chips. Debit: receive copy uses `@bitcraft_username`. **Request** (Read+): amount + optional memo → shareable `/app/request` link. **People**: users + apps, role, (you). Label + add-person. Bottom: **API tokens** (Admin+; label, time, minted-by; secret never listed) then **Webhook** (URL set/clear). |
 | **Actions** | Owner + debit: set/clear primary (`POST .../primary`). Write+ debit: **Send** → `/app/transfer`. Read+: **create request link** (`POST .../request`, human qty → base units, `$requestLink`). Admin+: save label (`POST .../label`); search public `user` then grant Identity (`POST .../members`); change role; remove; **create token** (`POST .../tokens`, secret once in `$newToken`); **revoke token** (`POST .../tokens/revoke`); **set/clear webhook** (`POST .../webhook`). Non-owner: **Leave**. Owner can promote another member to Owner (clear primary first — module rule). |
 | **Reactive** | SSR from `my_accounts` + `my_accounts_members` + `my_accounts_tokens` (+ public `user` for minter names). `data-init` → `GET .../updates` live sub patches `#account-home` + `#account-people` + `#account-integrations` (forms/signals survive). Mutations are command-only PatchSignals (`$accountError`, `$requestLink` / `$requestError`, `$tokenError` / `$newToken`, `$webhookError` / `$webhookUrl`, `$leftAccount` → `/app/accounts`). |
-| **Gaps (H2 leftovers — do not rebuild people/primary/tokens/webhook/request)** | Recent transfers on this page. Deposit/Withdraw preselect. App tickets. |
+| **Gaps (H2 leftovers — do not rebuild people/primary/tokens/webhook/request)** | App tickets. Deposit/Withdraw **done** (`?from=`). **Skipped:** recent transfers on this page (use Activity `?account=`). |
 
 **Related routes:**
 
@@ -183,10 +184,10 @@ Go combined send + history on one page. New chrome splits them. **Send + Activit
 
 | | |
 |--|--|
-| **Content** | Heading **Activity** + Send. Chips: All + one per account (label → `#address`). Day-grouped cards: counterparty, signed amount, verb, ledger, relative time, memo. Filter-relative verbs: Received / Sent / Moved (both legs yours + All) / Issued / Redeemed. Pending / Finalizing pills only (no finalize action). `?account=` deep-link. |
-| **Actions** | Filter by account (client `data-show`; URL via `replaceState`). Send → `/app/transfer`. |
+| **Content** | Heading **Activity** + Send. Chips: All + one per account (label → `#address`). Day-grouped cards: counterparty, signed amount, verb, ledger, relative time, memo. Filter-relative verbs: Received / Sent / Moved (both legs yours + All) / Issued / Redeemed. Pending / Finalizing pills. Issuer Write+ sees Confirm / Void on pending Issue/Redeem. `?account=` deep-link. |
+| **Actions** | Filter by account (client `data-show`; URL via `replaceState`). Send → `/app/transfer`. Issuer: Confirm (post held) or Void pending Issue/Redeem (`POST .../finalize`). |
 | **Reactive** | SSR from `my_transfers` + `my_accounts`. `data-init="@get('/app/activity/updates')"`. First SSE seed-only; reconnect one snapshot. Subscribe-apply ignored. Edge dedupes view doubles. Filter does not reopen the stream. |
-| **Gaps** | No transfer detail page. No pending / finalize UI. No pagination (full view; follow-up **Q15** in the refactor doc). |
+| **Gaps** | No transfer detail page. No pagination (full view; follow-up **Q15** in the refactor doc). Pending Issue/Redeem **Confirm / Void** on this page when the viewer has Write on the issuer leg (player cannot cancel own pending). |
 
 **Related:**
 
@@ -194,6 +195,26 @@ Go combined send + history on one page. New chrome splits them. **Send + Activit
 |-------|------|
 | `GET /app/activity` | SSR chips + list; `?account=` |
 | `GET /app/activity/updates` | SSE: live `#activity-body` |
+| `POST /app/activity/finalize` | Issuer Write+; Confirm = full `pending_amount`, Void = `0` |
+
+#### 8c. Deposit — `GET /app/deposit` **and** Withdraw — `GET /app/withdraw` (**done**)
+
+No Go pages. Issue (credit → debit) and Redeem (debit → credit). Shared form in `src/app/app/issue.rs`.
+
+| | |
+|--|--|
+| **Content** | Your-account picker (Write+ debit or credit). Counterpart: issuer `#address` when yours is debit; player `@`/`#` when yours is credit. Amount, memo, idempotency. Auto-select own Write+ credit on that ledger when there is exactly one. |
+| **Actions** | Submit `create_transfer`. Edge sets `pending` when **your account is debit** (player request; issuer confirms on Activity). Posted when your account is credit (issuer acting). H2 **Deposit** / **Withdraw** preselect `?from=`. |
+| **Reactive** | Counterpart search `GET /app/issue/counterparts` filtered by `AccountSearchHit.kind`. PatchSignals. Finalize lives on Activity. |
+| **Gaps** | Player cannot void own pending (module). No partial post. Mobile bottom nav is still Send-only. |
+
+**Related:**
+
+| Route | Role |
+|-------|------|
+| `GET /app/deposit`, `GET /app/withdraw` | SSR form; `?from=` |
+| `GET /app/issue/counterparts` | Kind-filtered directory search |
+| `POST /app/deposit`, `POST /app/withdraw` | Issue / Redeem; pending computed on edge |
 
 ---
 
@@ -242,7 +263,7 @@ Track so redesign can optionally exceed Go UI without forgetting product capabil
 |------------|-------|----------------|
 | Webhook URL set/clear | API only | `set_account_webhook` + view field |
 | Account label set/clear | H2 Admin+ | `set_account_label` + `my_accounts.label` |
-| Pending transfer finalize | No | `finalize_transfer` |
+| Pending transfer finalize | Activity Confirm/Void | `finalize_transfer` (issuer Write+; player cannot void own pending) |
 | Apps + SpacetimeAuth tickets | No | §7.9 reducers/views |
 | Role-granular ACL UI | H2 people section | `Role` + grant/revoke |
 | Admin credit/custom address | API | `create_account` rules |
@@ -271,13 +292,13 @@ Aligned with refactor §8.8 / H\*, adjusted for “real app first”:
 
 1. **App shell** + authed gate + username from `my_user`  
 2. ~~**Accounts list** + create + live balances (**H1**)~~ **done**  
-3. ~~**Account home** primary / people / label (**H2**)~~ **done** (leftovers: apps, recent; request builder **done**)  
+3. ~~**Account home** primary / people / label (**H2**)~~ **done** (leftover: apps; request builder **done**; deposit/withdraw **done**; recent-on-page **skipped**)  
 4. ~~**Transfer send** (`/app/transfer`) — from-account, recipient search, `create_transfer` (**H3a**)~~ **done**  
 5. ~~**Activity** (`/app/activity`) — live `my_transfers` (**H3b**)~~ **done**  
 6. ~~**Payment request** (**H4**)~~ **done**  
 7. ~~**Logout** wired in chrome (**H5**)~~ **done** (`POST /logout` from `/app/me`; Stelo-only)  
-8. **App home** redesign (low Go surface)  
-9. Stretch: remaining H2 leftovers (apps, recent), pending finalize. Request builder **done**.  
+8. **App home** redesign (low Go surface) — **skipped for MVP**  
+9. Stretch: remaining H2 leftover (apps). ~~Deposit/withdraw preselect~~ **done**. ~~Pending finalize~~ **done** (Activity). Request builder **done**. Recent-on-account-page **skipped**.  
 
 Prerequisites already largely landed on Topcoat: BitAuth, STDB connect-as-user, einro pool (C1–C3). Marketing home (D2) and BitAuth login (D3) are in progress / partial.
 

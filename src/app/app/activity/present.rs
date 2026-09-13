@@ -1,7 +1,11 @@
 //! Filter-relative verbs and card copy for Activity.
 
-use crate::module_bindings::{MyAccountRow, MyTransferRow, TransferKind, TransferState};
-use crate::stdb::{display_amount, format_qty, sender_receiver, timestamp_micros};
+use crate::module_bindings::{
+	AccountKind, MyAccountRow, MyTransferRow, TransferKind, TransferState,
+};
+use crate::stdb::{
+	can_finalize_transfer, display_amount, format_qty, sender_receiver, timestamp_micros,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Verb {
@@ -41,6 +45,21 @@ impl AmountSign {
 	}
 }
 
+/// Balance effect on this account from the transfer's double-entry legs.
+///
+/// Debit-normal: debit leg +, credit leg −.
+/// Credit-normal: credit leg +, debit leg −.
+/// So Issue (deposit) raises both books; Redeem (withdraw) lowers both.
+pub fn sign_for_account(account_id: u64, kind: AccountKind, credit_account_id: u64) -> AmountSign {
+	let credit_leg = account_id == credit_account_id;
+	match kind {
+		AccountKind::Credit if credit_leg => AmountSign::In,
+		AccountKind::Credit => AmountSign::Out,
+		AccountKind::Debit if credit_leg => AmountSign::Out,
+		AccountKind::Debit => AmountSign::In,
+	}
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Line {
 	pub verb: Verb,
@@ -60,6 +79,7 @@ pub struct TransferCard {
 	pub involved: Vec<u64>,
 	pub all: Line,
 	pub per_account: Vec<(u64, Line)>,
+	pub can_finalize: bool,
 }
 
 pub fn transfer_card(tr: &MyTransferRow, accounts: &[MyAccountRow]) -> Option<TransferCard> {
@@ -72,6 +92,8 @@ pub fn transfer_card(tr: &MyTransferRow, accounts: &[MyAccountRow]) -> Option<Tr
 
 	let sender_name = party_name(sender, tr, accounts);
 	let receiver_name = party_name(receiver, tr, accounts);
+	let sender_acc = accounts.iter().find(|a| a.account_id == sender);
+	let receiver_acc = accounts.iter().find(|a| a.account_id == receiver);
 
 	let mut involved = Vec::new();
 	if own_sender {
@@ -88,9 +110,14 @@ pub fn transfer_card(tr: &MyTransferRow, accounts: &[MyAccountRow]) -> Option<Tr
 		None,
 		&sender_name,
 		&receiver_name,
+		match (sender_acc, receiver_acc) {
+			(Some(a), None) | (None, Some(a)) => Some(a),
+			_ => None,
+		},
+		tr.credit_account_id,
 	);
 	let mut per_account = Vec::new();
-	if own_sender {
+	if let Some(acc) = sender_acc {
 		per_account.push((
 			sender,
 			line(
@@ -100,21 +127,27 @@ pub fn transfer_card(tr: &MyTransferRow, accounts: &[MyAccountRow]) -> Option<Tr
 				Some(true),
 				&sender_name,
 				&receiver_name,
+				Some(acc),
+				tr.credit_account_id,
 			),
 		));
 	}
 	if own_receiver && receiver != sender {
-		per_account.push((
-			receiver,
-			line(
-				tr.kind,
-				own_sender,
-				own_receiver,
-				Some(false),
-				&sender_name,
-				&receiver_name,
-			),
-		));
+		if let Some(acc) = receiver_acc {
+			per_account.push((
+				receiver,
+				line(
+					tr.kind,
+					own_sender,
+					own_receiver,
+					Some(false),
+					&sender_name,
+					&receiver_name,
+					Some(acc),
+					tr.credit_account_id,
+				),
+			));
+		}
 	}
 
 	Some(TransferCard {
@@ -132,6 +165,7 @@ pub fn transfer_card(tr: &MyTransferRow, accounts: &[MyAccountRow]) -> Option<Tr
 		involved,
 		all,
 		per_account,
+		can_finalize: can_finalize_transfer(tr, accounts),
 	})
 }
 
@@ -151,9 +185,15 @@ fn line(
 	filter_as_sender: Option<bool>,
 	sender_name: &str,
 	receiver_name: &str,
+	viewed: Option<&MyAccountRow>,
+	credit_account_id: u64,
 ) -> Line {
 	let verb = verb_for(kind, own_sender, own_receiver, filter_as_sender);
-	let sign = AmountSign::for_verb(verb);
+	let sign = match (verb, viewed) {
+		(Verb::Moved, _) => AmountSign::Flat,
+		(_, Some(acc)) => sign_for_account(acc.account_id, acc.kind, credit_account_id),
+		_ => AmountSign::for_verb(verb),
+	};
 	let (title, subtitle) = match (filter_as_sender, verb) {
 		(None, Verb::Moved) => (
 			format!("{sender_name} → {receiver_name}"),
@@ -229,8 +269,8 @@ pub fn account_title(acc: &MyAccountRow) -> String {
 
 #[cfg(test)]
 mod tests {
-	use super::{AmountSign, Verb, verb_for};
-	use crate::module_bindings::TransferKind;
+	use super::{AmountSign, Verb, sign_for_account, verb_for};
+	use crate::module_bindings::{AccountKind, TransferKind};
 
 	#[test]
 	fn all_internal_is_moved() {
@@ -283,5 +323,28 @@ mod tests {
 		assert_eq!(AmountSign::for_verb(Verb::Received), AmountSign::In);
 		assert_eq!(AmountSign::for_verb(Verb::Issued), AmountSign::Out);
 		assert_eq!(AmountSign::for_verb(Verb::Moved), AmountSign::Flat);
+	}
+
+	#[test]
+	fn credit_account_issue_is_in_redeem_is_out() {
+		// Issue: credit_account_id is the issuer.
+		assert_eq!(
+			sign_for_account(10, AccountKind::Credit, 10),
+			AmountSign::In
+		);
+		// Redeem: credit_account_id is the player debit; issuer is the debit leg.
+		assert_eq!(
+			sign_for_account(10, AccountKind::Credit, 20),
+			AmountSign::Out
+		);
+	}
+
+	#[test]
+	fn debit_account_issue_is_in_redeem_is_out() {
+		assert_eq!(sign_for_account(20, AccountKind::Debit, 10), AmountSign::In);
+		assert_eq!(
+			sign_for_account(20, AccountKind::Debit, 20),
+			AmountSign::Out
+		);
 	}
 }

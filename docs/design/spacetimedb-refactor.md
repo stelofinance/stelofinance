@@ -1,7 +1,7 @@
 # Design Doc: SpacetimeDB Refactor
 
-**Status:** Outline + **domain core done; Topcoat edge P1 in progress (BitAuth + C1–C3 done; H1–H5 done; A6 + I1/I2 `/api` proxy)** (§7–§8)  
-**Date:** 2026-07-24 (updated 2026-08-16)  
+**Status:** Outline + **domain core done; Topcoat edge P1 in progress (BitAuth + C1–C3 done; H1–H5 done; deposit/withdraw + Activity finalize; A6 + I1/I2 `/api` proxy)** (§7–§8)  
+**Date:** 2026-07-24 (updated 2026-09-12)  
 **Author:** Stelo maintainers + design discussion  
 **Related:** Current stack is Go + SQLite (sqlc/goose) + embedded NATS/JetStream + Datastar; target edge is **Rust Topcoat** + first-party STDB client; module + BitAuth remain. **C3 pool design:** [einro-identity-pool.md](./einro-identity-pool.md). **HTML app feature parity (pages, reactivity, build order):** [app-surface-parity.md](./app-surface-parity.md) — agents porting `/app` pages should load that doc alongside this one.
 
@@ -814,7 +814,7 @@ Work through these **one by one**. Status: `todo` until implemented in Topcoat. 
 | C1 | Official Rust STDB SDK + bindings | `spacetimedb-sdk` 2.7.* + `spacetime generate` → `src/module_bindings/`; `task stdb:generate` | **done** |
 | C2 | Connect-as-user | Cookie `bitauth_token` → `with_token`; `STDB_HOST`/`STDB_DATABASE`; validated via temporary smoke (removed) | **done** |
 | C3 | Connection pool (token-keyed) | [einro](./einro-identity-pool.md): exact token → conn; no JWT in pool; idle TTL | **done** (`src/einro/`) |
-| C4 | Page-load queries / reducers | Views + CallReducer via pool | partial (`my_user`; H1/H2 accounts; H3a `create_transfer` + `account_search`; H3b `my_transfers`; H4 `account_lookup` + `create_transfer`) |
+| C4 | Page-load queries / reducers | Views + CallReducer via pool | partial (`my_user`; H1/H2 accounts; H3a `create_transfer` + `account_search`; H3b `my_transfers` + `finalize_transfer`; H4 `account_lookup`; deposit/withdraw Issue/Redeem) |
 | C5 | Live subscribe for Datastar | my_accounts / my_transfers etc. | partial (`my_accounts` on accounts/H2; `my_transfers` + `my_accounts` on `GET /app/activity/updates`) |
 | C6 | Error mapping | Toasts vs full pages vs JSON (D30) | partial (H1 inline `$createError`) |
 
@@ -825,7 +825,7 @@ Work through these **one by one**. Status: `todo` until implemented in Topcoat. 
 | D1 | HTML shell layout | Public vs app chrome (Topcoat `#[layout]`) | partial (app chrome Option A; public chrome on marketing pages) |
 | D2 | Marketing page `GET /` | Port index content | **rough done** |
 | D3 | Login page | **“Login with BitAuth”** button only (no BitJita UI) | **done** |
-| D4 | App pages | home, accounts, account detail, transfer, activity, payment request | partial (home thin; **H1–H5 done**) |
+| D4 | App pages | home, accounts, account detail, transfer, activity, payment request | partial (home thin; **H1–H5 done**; deposit/withdraw done) |
 | D5 | Chrome components | nav, footer, app-nav, app-menu | partial (`src/app/app/chrome.rs` Option A; full app menu replaced) |
 | D6 | Partial / component patches | Case-by-case (e.g. transfer recipient) | partial (H1 `#accounts-list`; H3a recipient results; H3b `#activity-body`) |
 | D7 | Display formatting | Asset-scale balances, relative times | partial (`format_qty` / `parse_qty`; H3b `format_rel_time` / `day_heading`) |
@@ -878,12 +878,12 @@ Work through these **one by one**. Status: `todo` until implemented in Topcoat. 
 | ID | Surface | Go routes (reference) | Status |
 |----|---------|----------------------|--------|
 | H1 | Accounts list + create + live updates | `GET/POST /app/accounts`, `GET .../updates` | **done** (portfolio; cards → H2) |
-| H2 | Account home | detail, primary, people, label, request link, API tokens, webhook | **done** (apps / recent later) |
-| H3 | Transfer send + Activity history | Go combined `GET /app/transfers` | **done** (`/app/transfer` + `/app/activity`). Activity pagination later (**Q15**) |
+| H2 | Account home | detail, primary, people, label, request link, API tokens, webhook | **done** (apps later; recent-on-page **skipped**) |
+| H3 | Transfer send + Activity history | Go combined `GET /app/transfers` | **done** (`/app/transfer` + `/app/activity`). Pending Issue/Redeem Confirm/Void on Activity. Pagination later (**Q15**) |
 | H4 | Payment request | `GET /app/request`, `POST .../transfers` | **done** (`/app/request` Pay; Write+; `account_lookup`) |
 | H5 | Logout | Stelo cookies only | **done** (`POST /logout` from `/app/me`; no IdP logout; no GET) |
 
-**H2 leftovers (do not rebuild people/primary/tokens/webhook/request):** apps/tickets, recent transfers on the account page, deposit/withdraw preselect.
+**H2 leftovers (do not rebuild people/primary/tokens/webhook/request):** apps/tickets. **Done:** deposit/withdraw (`/app/deposit`, `/app/withdraw`, H2 `?from=`). **Skipped:** recent transfers on the account page (Activity already has `?account=`).
 
 Also covered in the parity doc (not separate H rows): marketing home (D2, **rough done**), login (D3), app home `/app`, shell chrome.
 
@@ -1216,7 +1216,7 @@ Any admin balance patch must either:
 3. ~~Topcoat skeleton + BitAuth + C1 (SDK + `spacetime generate` bindings)~~ **done**.
 4. ~~**C2 connect-as-user** + **C3 einro pool**~~ **done** (`src/stdb/*`, `src/einro/*`).
 5. ~~Marketing homepage (D2)~~ **rough done** (`src/app.rs` + `src/ui/*`).
-6. App HTML surfaces per [app-surface-parity.md](./app-surface-parity.md) (~~shell~~ → ~~H1~~ → ~~H2 home~~ → ~~H3 Transfer send~~ → ~~Activity~~ → ~~H4 payment request~~ → ~~H5 logout~~ → ~~H2 request builder~~). Next: deposit/withdraw preselect / remaining H2 leftovers (apps, recent). App home redesign skipped for MVP.
+6. App HTML surfaces per [app-surface-parity.md](./app-surface-parity.md) (~~shell~~ → ~~H1~~ → ~~H2 home~~ → ~~H3 Transfer send~~ → ~~Activity~~ → ~~H4 payment request~~ → ~~H5 logout~~ → ~~H2 request builder~~ → ~~deposit/withdraw + pending finalize~~). Remaining leftover: apps/tickets. **Skipped:** recent-on-account-page; app home redesign.
 7. Module HTTP reverse-proxy (**required** JSON API cutover: §8.5 / I* / §9); update `docs/api/*`.
 8. Admin reducers on module (parallel track).
 9. Fly stateless + GHA (module publish + edge deploy); cut over; delete Go.
@@ -1284,6 +1284,9 @@ Work items: tick §8.7 inventory, [app-surface-parity.md](./app-surface-parity.m
 | 2026-08-15 | **H2 API tokens:** Admin+ section on account home. `create_account_token` (edge OS entropy; secret once in `$newToken`); `revoke_account_tokens` with confirm; list from `my_accounts_tokens` (never the secret). Live `#account-home`. |
 | 2026-08-15 | **H2 webhook + tokens at bottom:** Tokens moved below Label/People. Admin+ webhook URL set/clear (`set_account_webhook`) under tokens. Live `#account-integrations`. |
 | 2026-08-16 | **H2 request-link builder:** Read+ card on account home (amount + optional memo). `POST /app/accounts/{id}/request` uses `parse_qty` → H4 path+query in `$requestLink`. Copy uses `origin + path`. People split to `#account-people` so the form survives remorph. |
+| 2026-09-12 | **Skip H2 recent transfers:** account home will not list history; Activity `?account=` is enough. Next HTML leftover is deposit/withdraw preselect. |
+| 2026-09-12 | **Deposit / withdraw + pending finalize:** `/app/deposit` Issue, `/app/withdraw` Redeem; `?from=` from H2. Activity Confirm (full hold) / Void for issuer Write+. `AccountSearchHit.kind`. Player cannot void own pending (module). No partial post. |
+| 2026-09-13 | **Pending is which side you act as:** debit as your-account → always pending; credit as your-account → posted. Do not infer from “Write on STELOBANK” (seed/admin users have both). |
 
 ---
 

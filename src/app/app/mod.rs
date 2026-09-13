@@ -7,6 +7,7 @@ mod accounts;
 mod activity;
 mod chrome;
 mod deposit;
+mod issue;
 mod me;
 mod request;
 mod transfer;

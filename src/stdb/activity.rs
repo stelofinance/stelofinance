@@ -5,12 +5,13 @@ use std::sync::Arc;
 
 use crate::einro::PooledConn;
 use crate::module_bindings::{
-	MyAccountRow, MyAccountsTableAccess, MyTransferRow, MyTransfersTableAccess, Reducer,
+	MyAccountRow, MyAccountsTableAccess, MyTransferRow, MyTransfersTableAccess, Reducer, Role,
 	SubscriptionHandle as ModuleSubHandle, TransferKind, TransferState,
 	my_accountsQueryTableAccess, my_transfersQueryTableAccess,
 };
 use spacetimedb_sdk::{DbContext, Event, SubscriptionHandle, Table, TableWithPrimaryKey};
 
+use super::account::role_rank;
 use super::accounts::sort_accounts;
 use super::connector::StdbConn;
 use super::query::subscribe_once;
@@ -79,6 +80,29 @@ pub fn sender_receiver(kind: TransferKind, credit_id: u64, debit_id: u64) -> (u6
 		TransferKind::Liability => (debit_id, credit_id),
 		TransferKind::Asset | TransferKind::Issue | TransferKind::Redeem => (credit_id, debit_id),
 	}
+}
+
+/// Issuer (credit-kind) account that must Write to finalize Issue/Redeem.
+pub fn issuer_account_id(kind: TransferKind, credit_id: u64, debit_id: u64) -> Option<u64> {
+	let (sending, receiving) = sender_receiver(kind, credit_id, debit_id);
+	match kind {
+		TransferKind::Issue => Some(sending),
+		TransferKind::Redeem => Some(receiving),
+		TransferKind::Asset | TransferKind::Liability => None,
+	}
+}
+
+pub fn can_finalize_transfer(tr: &MyTransferRow, accounts: &[MyAccountRow]) -> bool {
+	if tr.state != TransferState::Pending {
+		return false;
+	}
+	let Some(issuer_id) = issuer_account_id(tr.kind, tr.credit_account_id, tr.debit_account_id)
+	else {
+		return false;
+	};
+	accounts
+		.iter()
+		.any(|a| a.account_id == issuer_id && role_rank(a.role) >= role_rank(Role::Write))
 }
 
 /// Amount to show: pending while `Pending`, otherwise posted (fall back to pending).
@@ -260,7 +284,7 @@ impl Drop for LiveActivity {
 
 #[cfg(test)]
 mod tests {
-	use super::{selected_account_id, sender_receiver};
+	use super::{issuer_account_id, selected_account_id, sender_receiver};
 	use crate::module_bindings::TransferKind;
 
 	#[test]
@@ -276,5 +300,14 @@ mod tests {
 		assert_eq!(selected_account_id(Some("9"), &[]), None);
 		assert_eq!(selected_account_id(Some("nope"), &[]), None);
 		assert_eq!(selected_account_id(None, &[]), None);
+	}
+
+	#[test]
+	fn issuer_leg_is_not_always_credit_account_id() {
+		// Issue: credit_account_id is the issuer (sending).
+		assert_eq!(issuer_account_id(TransferKind::Issue, 10, 20), Some(10));
+		// Redeem: credit_account_id is the player debit; issuer is receiving (debit_account_id).
+		assert_eq!(issuer_account_id(TransferKind::Redeem, 10, 20), Some(20));
+		assert_eq!(issuer_account_id(TransferKind::Asset, 10, 20), None);
 	}
 }

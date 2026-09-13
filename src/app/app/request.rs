@@ -386,6 +386,7 @@ async fn create(cx: &Cx, Signals(form): Signals<PaySignals>) -> Result<PatchSign
 		amount,
 		memo,
 		form.idempotency_key.trim().to_owned(),
+		false,
 	)
 	.await
 	{

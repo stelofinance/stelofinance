@@ -183,6 +183,7 @@ fn push_card(out: &mut String, card: &TransferCard, selected: Option<u64>, now_m
 		push_line(out, card, line, now_micros);
 		out.push_str("</div>");
 	}
+	push_finalize(out, card);
 	out.push_str("</article>");
 }
 
@@ -233,6 +234,21 @@ fn push_line(out: &mut String, card: &TransferCard, line: &super::present::Line,
 		out.push_str(&escape_html(memo));
 	}
 	out.push_str("</p>");
+}
+
+fn push_finalize(out: &mut String, card: &TransferCard) {
+	if !card.can_finalize {
+		return;
+	}
+	let id = card.id;
+	out.push_str(r#"<div class="mt-3 flex flex-wrap gap-2">"#);
+	out.push_str(&format!(
+		r#"<button type="button" class="cursor-pointer rounded-md bg-anakiwa-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50" data-on:click="$finalizeId = '{id}'; $finalizeAction = 'confirm'; $finalizeError = ''; @post('/app/activity/finalize')" data-indicator="finalizing" data-attr-disabled="$finalizing">Confirm</button>"#
+	));
+	out.push_str(&format!(
+		r#"<button type="button" class="cursor-pointer rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 hover:border-neutral-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50" data-on:click="$finalizeId = '{id}'; $finalizeAction = 'void'; $finalizeError = ''; @post('/app/activity/finalize')" data-indicator="finalizing" data-attr-disabled="$finalizing">Void</button>"#
+	));
+	out.push_str("</div>");
 }
 
 fn show_expr(ids: &[u64]) -> String {

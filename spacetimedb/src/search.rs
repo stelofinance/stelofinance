@@ -2,7 +2,7 @@
 // TODO: Clean this mud up
 
 use crate::tables::*;
-use spacetimedb::{Identity, ProcedureContext, SpacetimeType, TxContext, procedure};
+use spacetimedb::{procedure, Identity, ProcedureContext, SpacetimeType, TxContext};
 
 const SEARCH_LIMIT: usize = 10;
 
@@ -17,13 +17,14 @@ pub struct AccountSearchHit {
 	pub account_id: u64,
 	pub address: String,
 	pub ledger_id: u64,
+	pub kind: AccountKind,
 	pub primary_username: Option<String>,
 }
 
 /// Point lookup for payment-request (and similar) invoice chrome.
 ///
 /// Same public fields as a search hit (`account_id`, `address`, `ledger_id`,
-/// primary username). `account` is private; this is the ID → directory path.
+/// `kind`, primary username). `account` is private; this is the ID → directory path.
 #[procedure]
 pub fn account_lookup(
 	ctx: &mut ProcedureContext,
@@ -145,6 +146,7 @@ fn hit_from_account(tx: &TxContext, acc: &Account) -> AccountSearchHit {
 		account_id: acc.id,
 		address: acc.address.clone(),
 		ledger_id: acc.ledger_id,
+		kind: acc.kind,
 		primary_username: username_for(tx, acc.user_id),
 	}
 }

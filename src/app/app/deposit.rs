@@ -1,15 +1,24 @@
-use super::chrome::stub_page;
-use crate::auth::require_user;
-use topcoat::{Result, context::Cx, router::page, view::view};
+//! `GET/POST /app/deposit` — Issue (credit → debit).
 
-/// `GET /app/deposit` — UX sugar stub (issuer deposit flow later).
+use super::issue::{Flow, FlowSignals, flow_create, flow_page};
+use topcoat::{
+	Result,
+	context::Cx,
+	datastar::{PatchSignals, Signals},
+	router::{page, route},
+	view::view,
+};
+
+/// `GET /app/deposit` — issuer credit → player debit.
 #[page]
-async fn deposit(cx: &Cx) -> Result {
-	let _user = require_user(cx).await?;
+async fn page(cx: &Cx) -> Result {
+	let _ = cx;
 	view! {
-		stub_page(
-			title: "Deposit",
-			blurb: "A clearer path to bring assets onto Stelo (issuer deposit). Placeholder for now.",
-		)
+		flow_page(flow: Flow::Deposit)
 	}
+}
+
+#[route(POST)]
+async fn create(cx: &Cx, Signals(form): Signals<FlowSignals>) -> Result<PatchSignals> {
+	flow_create(cx, Flow::Deposit, form).await
 }
