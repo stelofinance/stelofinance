@@ -1,53 +1,50 @@
-//! `GET /app/accounts/{account_id}/updates` — live account home patches.
+//! `GET /app/me/updates` — live apps + tickets patches.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::AccountId;
-use super::markup::{HomeChrome, account_home_html, account_people_html, account_tokens_html};
+use super::apps::my_apps_html;
 use crate::auth::require_user;
-use crate::stdb::account::LiveAccountHome;
+use crate::auth::spacetimeauth::SpacetimeAuthState;
+use crate::stdb::apps::LiveMyApps;
 use crate::stdb::{StdbError, acquire_user_db};
 use futures_core::Stream;
 use futures_util::stream;
 use topcoat::{
 	Result,
-	context::Cx,
+	context::{Cx, app_context},
 	datastar::PatchElements,
 	router::{
 		content::sse::{Event, KeepAlive, Sse, last_event_id},
 		error::internal_server_error,
-		path_param, route,
+		route,
 	},
 };
 
 #[route(GET)]
 async fn updates(cx: &Cx) -> Result<Sse<impl Stream<Item = Result<Event>> + use<>>> {
-	let user = require_user(cx).await?;
-	let account_id = *path_param::<AccountId>(cx)?;
+	let _user = require_user(cx).await?;
 	let reconnect = last_event_id(cx).is_some();
 	let pooled = acquire_user_db(cx).await?;
 	let (tx, rx) = tokio::sync::watch::channel(None);
-	let live = LiveAccountHome::start(pooled, tx, account_id, reconnect)
+	let live = LiveMyApps::start(pooled, tx, reconnect)
 		.map_err(|e| internal_server_error(StdbError(e)))?;
-
-	let chrome = HomeChrome {
-		caller_id: user.identity,
-		caller_username: user.bitcraft_username.clone(),
-	};
+	let mint_enabled = app_context::<SpacetimeAuthState>(cx).configured();
 
 	let seed = if reconnect { None } else { Some(seed_event()) };
 
 	let events = stream::unfold(
-		(rx, live, seed, chrome),
-		|(mut rx, live, seed, chrome)| async move {
+		(rx, live, seed, mint_enabled),
+		|(mut rx, live, seed, mint_enabled)| async move {
 			let event = if let Some(seed) = seed {
 				seed
 			} else {
 				rx.changed().await.ok()?;
 				let data = rx.borrow().clone()?;
-				list_patch(&data, &chrome)
+				PatchElements::new(my_apps_html(&data, mint_enabled))
+					.id(event_id())
+					.into()
 			};
-			Some((Ok(event), (rx, live, None, chrome)))
+			Some((Ok(event), (rx, live, None, mint_enabled)))
 		},
 	);
 
@@ -63,11 +60,4 @@ fn event_id() -> String {
 
 fn seed_event() -> Event {
 	PatchElements::new("").id(event_id()).into()
-}
-
-fn list_patch(data: &crate::stdb::account::AccountHomeData, chrome: &HomeChrome) -> Event {
-	let mut html = account_home_html(data, chrome);
-	html.push_str(&account_people_html(data, chrome));
-	html.push_str(&account_tokens_html(data, chrome));
-	PatchElements::new(html).id(event_id()).into()
 }

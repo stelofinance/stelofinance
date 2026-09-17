@@ -1,5 +1,6 @@
 //! `GET /app/accounts/{account_id}` — H2 account home.
 
+mod apps;
 mod markup;
 mod request;
 mod tokens;
@@ -13,7 +14,7 @@ use crate::stdb::account::{
 	fetch_account_home, grant_member, parse_role, revoke_member, role_rank, set_label, set_primary,
 };
 use crate::stdb::{StdbError, acquire_user_db};
-use markup::{HomeChrome, account_home, account_integrations, account_people};
+use markup::{HomeChrome, account_home, account_people, account_tokens};
 use request::request_form;
 use serde::{Deserialize, Serialize};
 use spacetimedb_sdk::Identity;
@@ -49,15 +50,16 @@ async fn show(cx: &Cx) -> Result {
 	let label_value = acc.label.clone().unwrap_or_default();
 	let webhook_value = acc.webhook.clone().unwrap_or_default();
 	let signals = format!(
-		"{{copiedId:0,label:{},userSearch:'',memberId:'',memberName:'',addRole:'write',editMemberId:'',editRole:'',revokeId:'',accountError:'',leftAccount:false,requestAmount:'',requestMemo:'',requestLink:'',requestError:'',requestCopied:false,creatingToken:false,tokenLabel:'',newToken:'',tokenError:'',tokenCopied:false,revokeTokenId:0,revokeTokenLabel:'',webhookUrl:{},webhookError:'',webhookNotice:''}}",
+		"{{copiedId:0,label:{},userSearch:'',appSearch:'',permKind:'user',addingPerm:false,memberId:'',memberName:'',addRole:'write',editMemberId:'',editRole:'',revokeId:'',accountError:'',leftAccount:false,requestAmount:'',requestMemo:'',requestLink:'',requestError:'',requestCopied:false,creatingToken:false,tokenLabel:'',newToken:'',tokenError:'',tokenCopied:false,revokeTokenId:0,revokeTokenLabel:'',webhookUrl:{},webhookError:'',webhookNotice:''}}",
 		js_single(&label_value),
-		js_single(&webhook_value)
+		js_single(&webhook_value),
 	);
 	let debit = matches!(acc.kind, AccountKind::Debit);
 	let ledger_name = acc.ledger_name.clone();
 	let updates = format!("@get('/app/accounts/{account_id}/updates')");
 	let members_url = format!("/app/accounts/{account_id}/members");
 	let users_url = format!("/app/accounts/{account_id}/users");
+	let apps_url = format!("/app/accounts/{account_id}/apps");
 	let label_url = format!("/app/accounts/{account_id}/label");
 	let chrome = HomeChrome {
 		caller_id: user.identity,
@@ -79,9 +81,10 @@ async fn show(cx: &Cx) -> Result {
 			request_form(account_id: account_id, ledger_name: ledger_name, debit: debit)
 			account_people(data: data.clone(), chrome: chrome.clone())
 			if admin_plus {
-				admin_forms(account_id: account_id, members_url: members_url, users_url: users_url, label_url: label_url)
+				add_permission_form(account_id: account_id, members_url: members_url, users_url: users_url, apps_url: apps_url)
+				admin_forms(label_url: label_url)
 			}
-			account_integrations(data: data, chrome: chrome)
+			account_tokens(data: data, chrome: chrome)
 			if admin_plus {
 				token_forms(account_id: account_id)
 				webhook_form(account_id: account_id)
@@ -96,14 +99,128 @@ async fn show(cx: &Cx) -> Result {
 }
 
 #[component]
-async fn admin_forms(
+async fn add_permission_form(
 	account_id: u64,
 	members_url: String,
 	users_url: String,
-	label_url: String,
+	apps_url: String,
 ) -> Result {
 	let _ = account_id;
-	let search = format!("@get('{users_url}')");
+	let user_search = format!("@get('{users_url}')");
+	let app_search = format!("@get('{apps_url}')");
+	let clear = format!(
+		"$memberId = ''; $memberName = ''; $userSearch = ''; $appSearch = ''; @get('{users_url}'); @get('{apps_url}')"
+	);
+	let person_tab = "$permKind = 'user'; $memberId = ''; $memberName = ''; $appSearch = ''";
+	let app_tab = "$permKind = 'app'; $memberId = ''; $memberName = ''; $userSearch = ''";
+	// Datastar 1.0: `data-class:bg-anakiwa-700` (colon). `view!` rejects that
+	// (`expected =`), so use the object form. Hyphen `data-class-bg-*` is ignored.
+	let person_cls = "{'bg-anakiwa-700': $permKind == 'user', 'text-white': $permKind == 'user', 'bg-neutral-800': $permKind != 'user', 'text-neutral-300': $permKind != 'user'}";
+	let app_cls = "{'bg-anakiwa-700': $permKind == 'app', 'text-white': $permKind == 'app', 'bg-neutral-800': $permKind != 'app', 'text-neutral-300': $permKind != 'app'}";
+	view! {
+		<section
+			class="mt-4 rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5"
+			data-show="$addingPerm"
+			style="display: none"
+		>
+			<h2 class="text-lg font-medium">"Add permission"</h2>
+			<p class="mt-1 text-sm text-neutral-300">
+				"Grant a person or an app a role on this account. Create apps on your profile."
+			</p>
+			<div class="mt-4 flex gap-2">
+				<button
+					type="button"
+					class="cursor-pointer rounded-md px-3 py-1.5 text-sm"
+					data-class=(person_cls)
+					data-attr-aria-pressed="$permKind == 'user'"
+					data-on:click=(person_tab)
+				>
+					"Person"
+				</button>
+				<button
+					type="button"
+					class="cursor-pointer rounded-md px-3 py-1.5 text-sm"
+					data-class=(app_cls)
+					data-attr-aria-pressed="$permKind == 'app'"
+					data-on:click=(app_tab)
+				>
+					"App"
+				</button>
+			</div>
+			<input type="hidden" data-bind="memberId">
+			<div data-show="!$memberId">
+				<div data-show="$permKind != 'app'">
+					<input
+						type="text"
+						class="mt-3 w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-400"
+						data-bind="userSearch"
+						placeholder="Search username…"
+						autocomplete="off"
+						data-on:input__debounce.300ms=(user_search)
+					>
+					<div id="user-search-results"></div>
+				</div>
+				<div data-show="$permKind == 'app'" style="display: none">
+					<input
+						type="text"
+						class="mt-3 w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-400"
+						data-bind="appSearch"
+						placeholder="Search app name…"
+						autocomplete="off"
+						data-on:input__debounce.300ms=(app_search)
+					>
+					<div id="app-search-results"></div>
+				</div>
+			</div>
+			<div
+				class="mt-3 flex items-center justify-between rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2"
+				data-show="$memberId"
+				style="display: none"
+			>
+				<p class="truncate text-sm">
+					<span data-show="$permKind != 'app'">"@"</span>
+					<span data-text="$memberName"></span>
+				</p>
+				<button
+					type="button"
+					class="cursor-pointer text-sm text-neutral-300 hover:text-white"
+					data-on:click=(clear)
+				>
+					"Clear"
+				</button>
+			</div>
+			<div class="mt-4 flex flex-wrap gap-2">
+				<select
+					class="cursor-pointer rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm"
+					data-bind="addRole"
+				>
+					<option value="read">"Read"</option>
+					<option value="write">"Write"</option>
+					<option value="admin">"Admin"</option>
+				</select>
+				<button
+					type="button"
+					class="cursor-pointer rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 hover:border-neutral-500 hover:text-white"
+					data-on:click="$addingPerm = false; $memberId = ''; $memberName = ''; $userSearch = ''; $appSearch = ''; $accountError = ''"
+				>
+					"Cancel"
+				</button>
+				<button
+					type="button"
+					class="cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600"
+					data-on:click=(format!("@post('{members_url}')"))
+					data-indicator="addingMember"
+					data-attr-disabled="$addingMember || !$memberId"
+				>
+					"Add"
+				</button>
+			</div>
+		</section>
+	}
+}
+
+#[component]
+async fn admin_forms(label_url: String) -> Result {
 	view! {
 		<section class="mt-8 rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5">
 			<h2 class="text-sm font-medium uppercase tracking-wide text-neutral-400">
@@ -128,63 +245,6 @@ async fn admin_forms(
 					data-indicator="savingLabel"
 				>
 					"Save"
-				</button>
-			</div>
-		</section>
-
-		<section class="mt-4 rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5">
-			<h2 class="text-sm font-medium uppercase tracking-wide text-neutral-400">
-				"Add person"
-			</h2>
-			<p class="mt-1 text-sm text-neutral-400">
-				"Search a BitCraft username, then pick them. Read sees, Write can send, Admin manages people."
-			</p>
-			<input type="hidden" data-bind="memberId">
-			<div data-show="!$memberId">
-				<input
-					type="text"
-					class="mt-3 w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-400"
-					data-bind="userSearch"
-					placeholder="Search username…"
-					autocomplete="off"
-					data-on:input__debounce.300ms=(search)
-				>
-				<div id="user-search-results"></div>
-			</div>
-			<div
-				class="mt-3 flex items-center justify-between rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2"
-				data-show="$memberId"
-				style="display: none"
-			>
-				<p class="text-sm">
-					"@"
-					<span data-text="$memberName"></span>
-				</p>
-				<button
-					type="button"
-					class="cursor-pointer text-sm text-neutral-300 hover:text-white"
-					data-on:click=(format!("$memberId = ''; $memberName = ''; $userSearch = ''; @get('{users_url}')"))
-				>
-					"Clear"
-				</button>
-			</div>
-			<div class="mt-3 flex flex-col gap-2 sm:flex-row">
-				<select
-					class="cursor-pointer rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm"
-					data-bind="addRole"
-				>
-					<option value="read">"Read"</option>
-					<option value="write">"Write"</option>
-					<option value="admin">"Admin"</option>
-				</select>
-				<button
-					type="button"
-					class="cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600"
-					data-on:click=(format!("@post('{members_url}')"))
-					data-indicator="addingMember"
-					data-attr-disabled="$addingMember || !$memberId"
-				>
-					"Add"
 				</button>
 			</div>
 		</section>
@@ -237,10 +297,10 @@ async fn add_member(cx: &Cx, Signals(form): Signals<MemberSignals>) -> Result<Pa
 		form.member_id.trim()
 	};
 	if id_hex.is_empty() {
-		return err_signal("Pick a person from the search results.");
+		return err_signal("Pick a person or app from the search results.");
 	}
 	let Ok(member_id) = Identity::from_hex(id_hex) else {
-		return err_signal("Invalid user.");
+		return err_signal("Invalid member.");
 	};
 	let role_str = if editing {
 		form.edit_role.as_str()
@@ -261,6 +321,8 @@ async fn add_member(cx: &Cx, Signals(form): Signals<MemberSignals>) -> Result<Pa
 					member_id: String::new(),
 					member_name: String::new(),
 					user_search: String::new(),
+					app_search: String::new(),
+					adding_perm: false,
 					add_role: "write".into(),
 					edit_member_id: String::new(),
 					left_account: false,
@@ -298,6 +360,8 @@ async fn leave_account(cx: &Cx) -> Result<PatchSignals> {
 			member_id: String::new(),
 			member_name: String::new(),
 			user_search: String::new(),
+			app_search: String::new(),
+			adding_perm: false,
 			add_role: "write".into(),
 			edit_member_id: String::new(),
 			left_account: true,
@@ -340,6 +404,10 @@ struct AccountPatch {
 	member_name: String,
 	#[serde(rename = "userSearch")]
 	user_search: String,
+	#[serde(rename = "appSearch")]
+	app_search: String,
+	#[serde(rename = "addingPerm")]
+	adding_perm: bool,
 	#[serde(rename = "addRole")]
 	add_role: String,
 	#[serde(rename = "editMemberId")]

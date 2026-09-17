@@ -152,7 +152,12 @@ pub struct App {
 	#[unique]
 	pub name: String,
 
+	/// ASCII-upper search key. Btree for prefix range searches
+	#[index(btree)]
+	pub name_normalized: String,
+
 	/// Human user who created the app (rename/delete / replace identity later)
+	#[index(btree)]
 	pub created_by: Identity,
 	pub updated_at: Timestamp,
 	pub created_at: Timestamp,
@@ -174,6 +179,7 @@ pub struct AppTicket {
 
 	pub expires_at: ScheduleAt, // Fire TTL cleanup
 
+	#[index(btree)]
 	pub created_by: Identity,
 
 	/// Create: desired app name (must be free).

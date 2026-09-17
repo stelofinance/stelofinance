@@ -1,5 +1,5 @@
 use crate::tables::*;
-use spacetimedb::{Identity, SpacetimeType, Timestamp, ViewContext, view};
+use spacetimedb::{Identity, ScheduleAt, SpacetimeType, Timestamp, ViewContext, view};
 
 // ---------------------------------------------------------------------------
 // Row types
@@ -80,6 +80,24 @@ pub struct LedgerAuditRow {
 	pub credits_net: i64,
 	/// `debits_net == credits_net` (double-entry conservation in available-balance terms).
 	pub balanced: bool,
+}
+
+/// Apps this caller created (`app.created_by`).
+#[derive(SpacetimeType, Clone, Debug)]
+pub struct MyAppRow {
+	pub id: Identity,
+	pub name: String,
+	pub created_at: Timestamp,
+}
+
+/// Open create/replace tickets this caller owns.
+#[derive(SpacetimeType, Clone, Debug)]
+pub struct MyAppTicketRow {
+	pub id: u64,
+	pub name: String,
+	pub purpose: AppTicketPurpose,
+	pub expires_at: Timestamp,
+	pub created_at: Timestamp,
 }
 
 /// Metadata for HTTP API tokens (never includes the secret).
@@ -289,6 +307,45 @@ fn my_accounts_tokens(ctx: &ViewContext) -> Vec<MyAccountTokenRow> {
 	}
 
 	out
+}
+
+/// Apps created by the caller. Empty for apps / anonymous.
+#[view(accessor = my_apps, public, primary_key = id)]
+fn my_apps(ctx: &ViewContext) -> Vec<MyAppRow> {
+	let sender = ctx.sender();
+	ctx.db
+		.app()
+		.created_by()
+		.filter(&sender)
+		.map(|a| MyAppRow {
+			id: a.id,
+			name: a.name,
+			created_at: a.created_at,
+		})
+		.collect()
+}
+
+/// Pending app tickets created by the caller.
+#[view(accessor = my_app_tickets, public, primary_key = id)]
+fn my_app_tickets(ctx: &ViewContext) -> Vec<MyAppTicketRow> {
+	let sender = ctx.sender();
+	ctx.db
+		.app_ticket()
+		.created_by()
+		.filter(&sender)
+		.filter_map(|t| {
+			let ScheduleAt::Time(expires_at) = t.expires_at else {
+				return None;
+			};
+			Some(MyAppTicketRow {
+				id: t.id,
+				name: t.name,
+				purpose: t.purpose,
+				expires_at,
+				created_at: t.created_at,
+			})
+		})
+		.collect()
 }
 
 // ---------------------------------------------------------------------------

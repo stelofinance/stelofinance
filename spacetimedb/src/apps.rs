@@ -110,6 +110,7 @@ fn fulfill_create(
 	ctx.db.app().insert(App {
 		id: sender,
 		name: ticket.name.clone(),
+		name_normalized: ticket.name.to_ascii_uppercase(),
 		created_by: ticket.created_by,
 		updated_at: ctx.timestamp,
 		created_at: ctx.timestamp,
@@ -175,6 +176,7 @@ fn fulfill_replace(
 	ctx.db.app().insert(App {
 		id: sender,
 		name: old_app.name.clone(),
+		name_normalized: old_app.name.to_ascii_uppercase(),
 		created_by: old_app.created_by,
 		updated_at: ctx.timestamp,
 		created_at: old_app.created_at,

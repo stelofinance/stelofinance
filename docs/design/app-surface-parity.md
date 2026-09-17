@@ -39,7 +39,7 @@ This document is the **hard feature-parity floor** for browser HTML surfaces. Re
 | 3 | Logout | Clear Stelo session → home | No | H5 **done** |
 | 4 | App home | Something for logged-in user (Go: greeting only) | Optional | — |
 | 5 | Accounts list | List wallets + balances; create debit (credit/custom addr if platform admin); open detail | **Yes** (balances) | H1 |
-| 6 | Account home | Primary; members add/remove/roles; label; request link (Read+); API tokens + webhook (Admin+) | **Yes** | H2 **(home + tokens + webhook + request builder done; apps later)** |
+| 6 | Account home | Primary; members add/remove/roles; label; request link (Read+); API tokens + webhook (Admin+); Permissions grant user or app (Admin+) | **Yes** | H2 **done** |
 | 7a | Transfer send | From-account, recipient search, amount, memo, idempotency | **Yes** (bal) | H3a **done** |
 | 7b | Activity | Live transfer history (all or one account); issuer Confirm/Void pending Issue/Redeem | **Yes** | H3b **done** |
 | 8 | Payment request | Query-prefilled pay flow | No (one-shot submit) | H4 **done** |
@@ -86,9 +86,9 @@ Logout lives on `/app/me` (profile page — more content planned). **`POST /logo
 
 | | |
 |--|--|
-| **Content** | You page: username + Session card + Log out |
-| **Actions** | `POST /logout` clears Stelo cookies → `/`. Does **not** call BitAuth `end_session`. No GET alias. |
-| **Reactive** | None (normal form POST) |
+| **Content** | You page: username; **Apps** you created + open tickets; Session card + Log out |
+| **Actions** | `POST /logout` clears Stelo cookies → `/`. Does **not** call BitAuth `end_session`. No GET alias. Admin-owned mint: **New app** → SpacetimeAuth anonymous OIDC → one-time tokens; **Replace** rotates identity. Grant happens on account Permissions, not here. |
+| **Reactive** | `data-init` → `GET /app/me/updates` live `my_apps` + `my_app_tickets`. Mint flash via `GET /app/me/apps/mint`. |
 | **Gaps** | Account age / wallet stats / more settings still later on `/app/me` |
 
 ---
@@ -134,16 +134,17 @@ Logout lives on `/app/me` (profile page — more content planned). **`POST /logo
 
 | | |
 |--|--|
-| **Content** | Back to Accounts. Title = **label** or ledger name; large **balance**; `#address` + Copy; Primary / Credit / Shared·role chips. Debit: receive copy uses `@bitcraft_username`. **Request** (Read+): amount + optional memo → shareable `/app/request` link. **People**: users + apps, role, (you). Label + add-person. Bottom: **API tokens** (Admin+; label, time, minted-by; secret never listed) then **Webhook** (URL set/clear). |
-| **Actions** | Owner + debit: set/clear primary (`POST .../primary`). Write+ debit: **Send** → `/app/transfer`. Read+: **create request link** (`POST .../request`, human qty → base units, `$requestLink`). Admin+: save label (`POST .../label`); search public `user` then grant Identity (`POST .../members`); change role; remove; **create token** (`POST .../tokens`, secret once in `$newToken`); **revoke token** (`POST .../tokens/revoke`); **set/clear webhook** (`POST .../webhook`). Non-owner: **Leave**. Owner can promote another member to Owner (clear primary first — module rule). |
-| **Reactive** | SSR from `my_accounts` + `my_accounts_members` + `my_accounts_tokens` (+ public `user` for minter names). `data-init` → `GET .../updates` live sub patches `#account-home` + `#account-people` + `#account-integrations` (forms/signals survive). Mutations are command-only PatchSignals (`$accountError`, `$requestLink` / `$requestError`, `$tokenError` / `$newToken`, `$webhookError` / `$webhookUrl`, `$leftAccount` → `/app/accounts`). |
-| **Gaps (H2 leftovers — do not rebuild people/primary/tokens/webhook/request)** | App tickets. Deposit/Withdraw **done** (`?from=`). **Skipped:** recent transfers on this page (use Activity `?account=`). |
+| **Content** | Back to Accounts. Title = **label** or ledger name; large **balance**; `#address` + Copy; Primary / Credit / Shared·role chips. Debit: receive copy uses `@bitcraft_username`. **Request** (Read+): amount + optional memo → shareable `/app/request` link. **Permissions**: users + apps (App badge), role, (you). Label. Bottom: **API tokens** (Admin+; label, time, minted-by; secret never listed) then **Webhook** (URL set/clear). App mint lives on `/app/me`. |
+| **Actions** | Owner + debit: set/clear primary (`POST .../primary`). Write+ debit: **Send** → `/app/transfer`. Read+: **create request link** (`POST .../request`, human qty → base units, `$requestLink`). Admin+: save label (`POST .../label`); **Add permission** (person username search or global `app_search`) then grant Identity (`POST .../members`); change role; remove; **create token** (`POST .../tokens`, secret once in `$newToken`); **revoke token** (`POST .../tokens/revoke`); **set/clear webhook** (`POST .../webhook`). Non-owner: **Leave**. Owner can promote another member to Owner (clear primary first — module rule). |
+| **Reactive** | SSR from `my_accounts` + `my_accounts_members` + `my_accounts_tokens` (+ public `user` for minter names). `data-init` → `GET .../updates` live sub patches `#account-home` + `#account-people` + `#account-tokens` (forms/signals survive). Mutations are command-only PatchSignals (`$accountError`, `$requestLink` / `$requestError`, `$tokenError` / `$newToken`, `$webhookError` / `$webhookUrl`, `$leftAccount` → `/app/accounts`). |
+| **Gaps (H2 leftovers — do not rebuild people/primary/tokens/webhook/request)** | None. Apps/tickets **done** (SpacetimeAuth mint + grant). Deposit/Withdraw **done**. **Skipped:** recent transfers on this page (use Activity `?account=`). |
 
 **Related routes:**
 
 | Route | Role |
 |-------|------|
-| `GET /app/accounts/{id}/updates` | SSE: live `#account-home` + `#account-people` + `#account-integrations` |
+| `GET /app/accounts/{id}/updates` | SSE: live `#account-home` + `#account-people` + `#account-tokens` |
+| `GET /app/accounts/{id}/apps` | Admin+ UI; debounce app name search → `#app-search-results` (`app_search`) |
 | `POST /app/accounts/{id}/request` | Read+; build H4 path+query (`$requestLink`) |
 | `POST /app/accounts/{id}/primary` | Owner; toggle primary |
 | `POST /app/accounts/{id}/label` | Admin+; set/clear nickname |
@@ -264,8 +265,8 @@ Track so redesign can optionally exceed Go UI without forgetting product capabil
 | Webhook URL set/clear | API only | `set_account_webhook` + view field |
 | Account label set/clear | H2 Admin+ | `set_account_label` + `my_accounts.label` |
 | Pending transfer finalize | Activity Confirm/Void | `finalize_transfer` (issuer Write+; player cannot void own pending) |
-| Apps + SpacetimeAuth tickets | No | §7.9 reducers/views |
-| Role-granular ACL UI | H2 people section | `Role` + grant/revoke |
+| Apps + SpacetimeAuth tickets | `/app/me` mint + Replace; H2 Permissions grant | §7.9 + edge OIDC (`/auth/spacetimeauth/*`) + `app_search` |
+| Role-granular ACL UI | H2 Permissions (person or app) | `Role` + grant/revoke |
 | Admin credit/custom address | API | `create_account` rules |
 | Ledger audit | API | `ledger_audit` view |
 | Market | Commented menu only | Non-goal unless reopened |
@@ -298,7 +299,7 @@ Aligned with refactor §8.8 / H\*, adjusted for “real app first”:
 6. ~~**Payment request** (**H4**)~~ **done**  
 7. ~~**Logout** wired in chrome (**H5**)~~ **done** (`POST /logout` from `/app/me`; Stelo-only)  
 8. **App home** redesign (low Go surface) — **skipped for MVP**  
-9. Stretch: remaining H2 leftover (apps). ~~Deposit/withdraw preselect~~ **done**. ~~Pending finalize~~ **done** (Activity). Request builder **done**. Recent-on-account-page **skipped**.  
+9. Stretch leftovers: ~~apps/tickets~~ **done**. ~~Deposit/withdraw~~ **done**. ~~Pending finalize~~ **done**. Recent-on-account-page **skipped**.  
 
 Prerequisites already largely landed on Topcoat: BitAuth, STDB connect-as-user, einro pool (C1–C3). Marketing home (D2) and BitAuth login (D3) are in progress / partial.
 

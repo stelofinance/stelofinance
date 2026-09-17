@@ -588,7 +588,9 @@ app_ticket  (scheduled expire_app_ticket, at = expires_at)
 
 **Authz wiring:** `effective_role` = single `account_member` lookup for `ctx.sender()`.
 
-**Later (not v1):** edge SpacetimeAuth UI; partner docs; rename/delete app; rate limits.
+**Edge UI:** Mint + tickets + Replace on **`/app/me`** (SpacetimeAuth OIDC, isolated cookies; never `bitauth_token`; tokens shown once; `create_app_ticket` / `replace_app_ticket` as the BitAuth human; one-shot einro connect to fulfill). Account **Permissions** (Admin+) grants a user or any app via `grant_account_member`. Prefix procedure `app_search`. Views: `my_apps`, `my_app_tickets`.
+
+**Later:** partner docs; rename/delete app; rate limits.
 
 **Testing notes (defer implementation; exercise later)**
 
@@ -703,7 +705,7 @@ curl -s "$STDB/v1/database/stelofinance/route/account/ping" \
 | Drop | Go chi/tmpl, digitalxero, SQLite, NATS/JetStream, PostHog, BitJita, edge `ADMIN_KEY` |
 
 **Env (edge):**  
-`PORT`, `ENV`, `BITAUTH_ISSUER`, `BITAUTH_CLIENT_ID`, `BITAUTH_CLIENT_SECRET`, `BITAUTH_REDIRECT_URL`, `BITAUTH_LOGOUT_REDIRECT_URL`, `STDB_HOST`, `STDB_DATABASE`. BitAuth env required to start (fail closed). Scopes always include `offline_access` (no toggle env).
+`PORT`, `ENV`, `BITAUTH_ISSUER`, `BITAUTH_CLIENT_ID`, `BITAUTH_CLIENT_SECRET`, `BITAUTH_REDIRECT_URL`, `BITAUTH_LOGOUT_REDIRECT_URL`, `STDB_HOST`, `STDB_DATABASE`. BitAuth env required to start (fail closed). Scopes always include `offline_access` (no toggle env). Optional app mint: `SPACETIMEAUTH_CLIENT_ID` (must match module `OidcProvider::SpacetimeAuth` audience), `SPACETIMEAUTH_CLIENT_SECRET`, `SPACETIMEAUTH_REDIRECT_URL` (`/auth/spacetimeauth/callback`), optional `SPACETIMEAUTH_ISSUER` (default `https://auth.spacetimedb.com/oidc`). Missing SpacetimeAuth env hides **New app**; grant of existing apps still works.
 
 ### 8.2 Auth & cookies
 
@@ -878,12 +880,12 @@ Work through these **one by one**. Status: `todo` until implemented in Topcoat. 
 | ID | Surface | Go routes (reference) | Status |
 |----|---------|----------------------|--------|
 | H1 | Accounts list + create + live updates | `GET/POST /app/accounts`, `GET .../updates` | **done** (portfolio; cards → H2) |
-| H2 | Account home | detail, primary, people, label, request link, API tokens, webhook | **done** (apps later; recent-on-page **skipped**) |
+| H2 | Account home | detail, primary, people, label, request link, API tokens, webhook, apps | **done** (recent-on-page **skipped**) |
 | H3 | Transfer send + Activity history | Go combined `GET /app/transfers` | **done** (`/app/transfer` + `/app/activity`). Pending Issue/Redeem Confirm/Void on Activity. Pagination later (**Q15**) |
 | H4 | Payment request | `GET /app/request`, `POST .../transfers` | **done** (`/app/request` Pay; Write+; `account_lookup`) |
 | H5 | Logout | Stelo cookies only | **done** (`POST /logout` from `/app/me`; no IdP logout; no GET) |
 
-**H2 leftovers (do not rebuild people/primary/tokens/webhook/request):** apps/tickets. **Done:** deposit/withdraw (`/app/deposit`, `/app/withdraw`, H2 `?from=`). **Skipped:** recent transfers on the account page (Activity already has `?account=`).
+**H2 leftovers (do not rebuild people/primary/tokens/webhook/request):** none. **Done:** deposit/withdraw; apps/tickets (SpacetimeAuth mint on account home). **Skipped:** recent transfers on the account page (Activity already has `?account=`).
 
 Also covered in the parity doc (not separate H rows): marketing home (D2, **rough done**), login (D3), app home `/app`, shell chrome.
 
@@ -1216,7 +1218,7 @@ Any admin balance patch must either:
 3. ~~Topcoat skeleton + BitAuth + C1 (SDK + `spacetime generate` bindings)~~ **done**.
 4. ~~**C2 connect-as-user** + **C3 einro pool**~~ **done** (`src/stdb/*`, `src/einro/*`).
 5. ~~Marketing homepage (D2)~~ **rough done** (`src/app.rs` + `src/ui/*`).
-6. App HTML surfaces per [app-surface-parity.md](./app-surface-parity.md) (~~shell~~ → ~~H1~~ → ~~H2 home~~ → ~~H3 Transfer send~~ → ~~Activity~~ → ~~H4 payment request~~ → ~~H5 logout~~ → ~~H2 request builder~~ → ~~deposit/withdraw + pending finalize~~). Remaining leftover: apps/tickets. **Skipped:** recent-on-account-page; app home redesign.
+6. App HTML surfaces per [app-surface-parity.md](./app-surface-parity.md) (~~shell~~ → ~~H1~~ → ~~H2 home~~ → ~~H3 Transfer send~~ → ~~Activity~~ → ~~H4 payment request~~ → ~~H5 logout~~ → ~~H2 request builder~~ → ~~deposit/withdraw + pending finalize~~ → ~~apps/tickets~~). **Skipped:** recent-on-account-page; app home redesign.
 7. Module HTTP reverse-proxy (**required** JSON API cutover: §8.5 / I* / §9); update `docs/api/*`.
 8. Admin reducers on module (parallel track).
 9. Fly stateless + GHA (module publish + edge deploy); cut over; delete Go.
@@ -1287,6 +1289,8 @@ Work items: tick §8.7 inventory, [app-surface-parity.md](./app-surface-parity.m
 | 2026-09-12 | **Skip H2 recent transfers:** account home will not list history; Activity `?account=` is enough. Next HTML leftover is deposit/withdraw preselect. |
 | 2026-09-12 | **Deposit / withdraw + pending finalize:** `/app/deposit` Issue, `/app/withdraw` Redeem; `?from=` from H2. Activity Confirm (full hold) / Void for issuer Write+. `AccountSearchHit.kind`. Player cannot void own pending (module). No partial post. |
 | 2026-09-13 | **Pending is which side you act as:** debit as your-account → always pending; credit as your-account → posted. Do not infer from “Write on STELOBANK” (seed/admin users have both). |
+| 2026-09-13 | **H2 apps/tickets:** `my_apps` / `my_app_tickets` views; SpacetimeAuth OIDC mint (isolated cookies); ticket + one-shot fulfill; one-time token sheet; grant on this account. |
+| 2026-09-13 | **Apps on `/app/me`, Permissions on account:** mint/tickets/Replace moved off H2. Account People → Permissions (user or app). Global `app_search`. Grant via `grant_account_member` (not owner-only). |
 
 ---
 

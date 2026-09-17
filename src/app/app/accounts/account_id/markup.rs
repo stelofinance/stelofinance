@@ -162,7 +162,7 @@ pub fn account_people_html(data: &AccountHomeData, chrome: &HomeChrome) -> Strin
 	};
 	let admin_plus = role_rank(acc.role) >= role_rank(Role::Admin);
 	let owner = matches!(acc.role, Role::Owner);
-	push_people(
+	push_permissions(
 		&mut out,
 		acc.account_id,
 		acc.role,
@@ -175,29 +175,29 @@ pub fn account_people_html(data: &AccountHomeData, chrome: &HomeChrome) -> Strin
 	out
 }
 
-/// Live `#account-integrations` — API tokens + webhook. Admin+ only (empty for others).
+/// Live `#account-tokens` — API token list. Admin+ only (empty for others).
+/// Create sheet lives outside this fragment so remorphs don't wipe it.
 #[component]
-pub async fn account_integrations(data: AccountHomeData, chrome: HomeChrome) -> Result {
+pub async fn account_tokens(data: AccountHomeData, chrome: HomeChrome) -> Result {
 	view! {
-		(Unescaped::new_unchecked(account_integrations_html(&data, &chrome)))
+		(Unescaped::new_unchecked(account_tokens_html(&data, &chrome)))
 	}
 }
 
-pub fn account_integrations_html(data: &AccountHomeData, chrome: &HomeChrome) -> String {
-	let mut out = String::from(r#"<div id="account-integrations" class="flex flex-col">"#);
+pub fn account_tokens_html(data: &AccountHomeData, chrome: &HomeChrome) -> String {
+	let mut out = String::from(r#"<div id="account-tokens" class="flex flex-col">"#);
 	let Some(acc) = &data.account else {
 		out.push_str("</div>");
 		return out;
 	};
-	let admin_plus = role_rank(acc.role) >= role_rank(Role::Admin);
-	if admin_plus {
+	if role_rank(acc.role) >= role_rank(Role::Admin) {
 		push_tokens(&mut out, acc.account_id, &data.tokens, chrome, true);
 	}
 	out.push_str("</div>");
 	out
 }
 
-fn push_people(
+fn push_permissions(
 	out: &mut String,
 	account_id: u64,
 	caller_role: Role,
@@ -206,12 +206,21 @@ fn push_people(
 	admin_plus: bool,
 	caller_is_owner: bool,
 ) {
+	out.push_str(r#"<section class="mt-10">"#);
+	out.push_str(r#"<div class="flex flex-wrap items-center justify-between gap-3">"#);
 	out.push_str(
-		r#"<section class="mt-10"><h2 class="text-sm font-medium uppercase tracking-wide text-neutral-400">People</h2>"#,
+		r#"<h2 class="text-sm font-medium uppercase tracking-wide text-neutral-400">Permissions</h2>"#,
 	);
+	if admin_plus {
+		out.push_str(
+			r#"<button type="button" class="cursor-pointer rounded-md bg-anakiwa-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50" data-attr:disabled="$addingPerm" data-on:click="$addingPerm = true; $accountError = ''; $memberId = ''; $memberName = ''; $userSearch = ''; $appSearch = ''; $permKind = 'user'; $addRole = 'write'">Add permission</button>"#,
+		);
+	}
+	out.push_str("</div>");
 	out.push_str(r#"<div class="mt-3 flex flex-col gap-2">"#);
 	for m in members {
 		let self_row = m.member_id == chrome.caller_id;
+		let is_app = matches!(m.kind, MemberKind::App);
 		let target_owner = matches!(m.role, Role::Owner);
 		let name = escape_html(&m.name);
 		out.push_str(
@@ -224,7 +233,7 @@ fn push_people(
 		if self_row {
 			out.push_str(r#" <span class="text-neutral-400">(you)</span>"#);
 		}
-		if matches!(m.kind, MemberKind::App) {
+		if is_app {
 			out.push_str(
 				r#" <span class="ml-1 rounded-full bg-neutral-800 px-2 py-0.5 text-xs text-neutral-300">App</span>"#,
 			);
@@ -233,7 +242,13 @@ fn push_people(
 
 		out.push_str(r#"<div class="flex flex-wrap items-center gap-2">"#);
 		if admin_plus && !self_row && !target_owner {
-			push_role_select(out, account_id, m.member_id, m.role, caller_is_owner);
+			push_role_select(
+				out,
+				account_id,
+				m.member_id,
+				m.role,
+				caller_is_owner && !is_app,
+			);
 			let hex = m.member_id.to_hex();
 			out.push_str(&format!(
 				r#"<button type="button" class="cursor-pointer text-sm text-red-400 hover:text-red-300" data-on:click="$revokeId = '{hex}'; @post('/app/accounts/{account_id}/revoke')">Remove</button>"#
@@ -271,7 +286,7 @@ fn push_tokens(
 		r#"<h2 class="text-sm font-medium uppercase tracking-wide text-neutral-400">API tokens</h2>"#,
 	);
 	out.push_str(
-		r#"<button type="button" class="cursor-pointer rounded-md bg-anakiwa-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-anakiwa-600" data-on:click="$creatingToken = true; $tokenError = ''; $tokenLabel = ''; $newToken = ''; $tokenCopied = false; $revokeTokenId = 0">New token</button>"#,
+		r#"<button type="button" class="cursor-pointer rounded-md bg-anakiwa-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50" data-attr:disabled="$creatingToken || $newToken != ''" data-on:click="$creatingToken = true; $tokenError = ''; $tokenLabel = ''; $newToken = ''; $tokenCopied = false; $revokeTokenId = 0">New token</button>"#,
 	);
 	out.push_str("</div>");
 	out.push_str(

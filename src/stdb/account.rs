@@ -526,7 +526,6 @@ impl LiveAccountHome {
 					}
 				})
 		};
-
 		let handle = pooled
 			.get()
 			.db()

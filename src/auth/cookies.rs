@@ -12,6 +12,15 @@ pub const COOKIE_OAUTH_NONCE: &str = "bitauth_oauth_nonce";
 pub const COOKIE_OAUTH_PKCE: &str = "bitauth_oauth_pkce";
 pub const COOKIE_OAUTH_REDIRECT: &str = "bitauth_oauth_redirect";
 
+pub const COOKIE_STAUTH_STATE: &str = "stauth_oauth_state";
+pub const COOKIE_STAUTH_NONCE: &str = "stauth_oauth_nonce";
+pub const COOKIE_STAUTH_PKCE: &str = "stauth_oauth_pkce";
+pub const COOKIE_STAUTH_REDIRECT: &str = "stauth_oauth_redirect";
+pub const COOKIE_STAUTH_NAME: &str = "stauth_app_name";
+pub const COOKIE_STAUTH_PURPOSE: &str = "stauth_app_purpose";
+pub const COOKIE_STAUTH_MINT: &str = "stauth_mint";
+pub const MINT_FLASH_MAX_AGE_SECS: i64 = 5 * 60;
+
 pub const OAUTH_ROUNDTRIP_MAX_AGE_SECS: i64 = 10 * 60;
 pub const TOKEN_MAX_AGE_SECS: i64 = 20 * 60;
 pub const REFRESH_MAX_AGE_SECS: i64 = 14 * 24 * 60 * 60;
@@ -65,6 +74,15 @@ pub fn clear_oauth_cookies(cx: &Cx) {
 	clear_cookie(cx, COOKIE_OAUTH_NONCE);
 	clear_cookie(cx, COOKIE_OAUTH_PKCE);
 	clear_cookie(cx, COOKIE_OAUTH_REDIRECT);
+}
+
+pub fn clear_stauth_oauth_cookies(cx: &Cx) {
+	clear_cookie(cx, COOKIE_STAUTH_STATE);
+	clear_cookie(cx, COOKIE_STAUTH_NONCE);
+	clear_cookie(cx, COOKIE_STAUTH_PKCE);
+	clear_cookie(cx, COOKIE_STAUTH_REDIRECT);
+	clear_cookie(cx, COOKIE_STAUTH_NAME);
+	clear_cookie(cx, COOKIE_STAUTH_PURPOSE);
 }
 
 /// Relative path only: starts with `/`, no `//`, no `:`.

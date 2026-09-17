@@ -5,6 +5,7 @@
 
 mod accounts;
 mod activity;
+mod admin;
 mod chrome;
 mod deposit;
 mod issue;

@@ -2,7 +2,7 @@
 // TODO: Clean this mud up
 
 use crate::tables::*;
-use spacetimedb::{procedure, Identity, ProcedureContext, SpacetimeType, TxContext};
+use spacetimedb::{Identity, ProcedureContext, SpacetimeType, TxContext, procedure};
 
 const SEARCH_LIMIT: usize = 10;
 
@@ -19,6 +19,14 @@ pub struct AccountSearchHit {
 	pub ledger_id: u64,
 	pub kind: AccountKind,
 	pub primary_username: Option<String>,
+}
+
+/// Prefix hit for granting an app on an account. `app` is private; this is the directory path.
+#[derive(SpacetimeType, Clone, Debug, PartialEq, Eq)]
+pub struct AppSearchHit {
+	pub id: Identity,
+	pub name: String,
+	pub owner_username: Option<String>,
 }
 
 /// Point lookup for payment-request (and similar) invoice chrome.
@@ -82,6 +90,56 @@ fn account_search_tx(
 	}
 
 	Ok(rank_hits(hits, &needle, SEARCH_LIMIT))
+}
+
+/// Case-insensitive prefix search on app display names. Empty term → empty list. At most 10 hits.
+#[procedure]
+pub fn app_search(ctx: &mut ProcedureContext, term: String) -> Result<Vec<AppSearchHit>, String> {
+	ctx.try_with_tx(move |tx| app_search_tx(tx, term.clone()))
+}
+
+fn app_search_tx(tx: &TxContext, term: String) -> Result<Vec<AppSearchHit>, String> {
+	let needle = term.trim().to_ascii_uppercase();
+	if needle.is_empty() {
+		return Ok(Vec::new());
+	}
+
+	let end = exclusive_prefix_end(&needle);
+	let rows = collect_app_hits(tx, &needle, end.as_deref());
+
+	let mut scored: Vec<(u8, String, AppSearchHit)> = Vec::new();
+	for app in rows {
+		let rank = if app.name_normalized == needle {
+			0u8
+		} else {
+			1
+		};
+		let owner_username = tx
+			.db
+			.user()
+			.id()
+			.find(&app.created_by)
+			.map(|u| u.bitcraft_username);
+		scored.push((
+			rank,
+			app.name_normalized,
+			AppSearchHit {
+				id: app.id,
+				name: app.name,
+				owner_username,
+			},
+		));
+	}
+	scored.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+	Ok(scored.into_iter().take(SEARCH_LIMIT).map(|s| s.2).collect())
+}
+
+fn collect_app_hits(tx: &TxContext, start: &str, end: Option<&str>) -> Vec<App> {
+	if let Some(end) = end {
+		tx.db.app().name_normalized().filter(start..end).collect()
+	} else {
+		tx.db.app().name_normalized().filter(start..).collect()
+	}
 }
 
 fn collect_address_hits(

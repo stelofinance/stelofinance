@@ -3,6 +3,8 @@
 pub mod account;
 mod accounts;
 mod activity;
+mod admin;
+pub mod apps;
 mod config;
 mod connector;
 mod format;
@@ -16,6 +18,8 @@ pub use activity::{
 	ActivitySnapshot, LiveActivity, can_finalize_transfer, display_amount, fetch_activity_page,
 	selected_account_id, sender_receiver, timestamp_micros,
 };
+pub use admin::create_user_ledger;
+pub use apps::{create_user_app_ticket, replace_user_app_ticket, search_apps};
 pub use config::StdbConfig;
 pub use connector::{StdbConn, StdbConnector};
 pub use format::{day_heading, format_qty, format_rel_time, parse_qty, unix_now_micros};

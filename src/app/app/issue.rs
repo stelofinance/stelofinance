@@ -52,6 +52,17 @@ impl Flow {
 			Self::Withdraw => "Create a debit account, or use an issuer credit you can write.",
 		}
 	}
+
+	fn handling_note(self) -> &'static str {
+		match self {
+			Self::Deposit => {
+				"Any and all deposits are handled in Notsolis by either Nintron or Vasus."
+			}
+			Self::Withdraw => {
+				"Any and all withdrawals are handled in Notsolis by either Nintron or Vasus."
+			}
+		}
+	}
 }
 
 #[query_params]
@@ -117,13 +128,17 @@ pub async fn flow_page(cx: &Cx, flow: Flow) -> Result {
 	);
 
 	let title = flow.title();
+	let handling_note = flow.handling_note();
 	view! {
 		<main
 			id="page-content"
 			class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10"
 			data-signals=(signals)
 		>
-			<h1 class="mb-6 text-2xl font-medium md:text-3xl">(title)</h1>
+			<h1 class="mb-3 text-2xl font-medium md:text-3xl">(title)</h1>
+			<section class="mb-6 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-3 sm:px-4">
+				<p class="text-sm text-neutral-300">(handling_note)</p>
+			</section>
 			if accounts.is_empty() {
 				empty_state(flow: flow)
 			} else {
