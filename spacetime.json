@@ -1,6 +1,6 @@
 {
   "dev": {
-    "run": "task live:topcoat"
+    "run": "task edge"
   },
   "database": "stelofinance",
   "module-path": "./spacetimedb",

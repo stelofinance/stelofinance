@@ -1,144 +1,40 @@
 version: "3"
 
-env:
-  STATIC_DIR: "web/static"
-  # Local SpacetimeDB standalone data
-  STDB_DATA_DIR: "tmp/spacetimedb"
-  STDB_DATABASE: "stelofinance"
-
 dotenv: [".env"]
 
 tasks:
-  live:topcoat:
-    desc: Run live dev environment with just topcoat
+  live:
+    desc: SpacetimeDB + module watch + edge
+    deps: [stdb, _live]
+
+  stdb:
+    desc: Local SpacetimeDB
+    cmds:
+      - spacetime start --data-dir tmp/spacetimedb
+
+  stdb:dev:
+    desc: Watch module; rebuild, publish, regenerate bindings
+    cmds:
+      - spacetime dev --server-only -y
+
+  edge:
+    desc: Topcoat edge
     env:
-      PORT: 8080
+      PORT: "8080"
     cmds:
       - topcoat dev
 
-  live:
-    desc: Run live dev environment (watchexec restarts on source changes)
+  _live:
+    internal: true
     cmds:
-      # Task's built-in watch is a poor process supervisor for long-running servers.
-      # watchexec owns kill→wait→restart; Task owns the build graph via `run`.
-      - >
-        watchexec
-        --restart
-        --debounce=200ms
-        --stop-timeout=10s
-        --exts=go,tmpl,sql,yaml,css
-        --ignore='database/gensql/**'
-        --ignore='bin/**'
-        --ignore='tmp/**'
-        --ignore='.task/**'
-        --ignore='web/static/tw-output.css'
-        --
-        task run
-
-  run:
-    desc: Run Stelo Finance
-    cmds:
-      - bin/app
-    deps: [build:go:app]
-
-  build:
-    desc: Build all artifacts
-    deps: [build:go:app]
-
-  build:go:app:
-    deps: [build:go:sqlc, build:styles]
-    env:
-      GOARCH: amd64
-      GOOS: linux
-      CGO_ENABLED: 0
-    cmds:
-      - "go build -o bin/app cmd/app/main.go"
-    sources:
-      - "**/*.go"
-      - "**/*.html.tmpl"
-    generates:
-      - bin/app
-
-  build:go:sqlc:
-    cmds:
-      - sqlc generate
-    sources:
-      - "sqlc.yaml"
-      - "database/queries/**/*.sql"
-      - "database/migrations/**/*.sql"
-    generates:
-      - "database/gensql/**/*"
-
-  build:styles:
-    cmds:
-      - "tailwindcss -i web/styles/tw-input.css -o {{.STATIC_DIR}}/tw-output.css --minify"
-    sources:
-      - "web/**/*.{html.tmpl,go}"
-      - web/styles/tw-input.css
-    generates:
-      - web/static/tw-output.css
-
-  stdb:start:
-    desc: Start local SpacetimeDB (data under tmp/spacetimedb)
-    cmds:
-      - mkdir -p {{.STDB_DATA_DIR}}
-      - spacetime start --non-interactive --data-dir {{.STDB_DATA_DIR}}
-
-  stdb:build:
-    desc: Build SpacetimeDB module WASM (release)
-    cmds:
-      - spacetime build -p spacetimedb
-
-  stdb:build:debug:
-    desc: Build SpacetimeDB module WASM (debug, faster iteration)
-    cmds:
-      - spacetime build -p spacetimedb --debug
-
-  stdb:generate:
-    desc: Generate Rust client bindings into src/module_bindings (builds module first)
-    cmds:
-      - mkdir -p src/module_bindings
-      - spacetime generate --lang rust --out-dir src/module_bindings --module-path spacetimedb -y
-    sources:
-      - spacetimedb/src/**/*.rs
-      - spacetimedb/Cargo.toml
-      - spacetime.json
-      - spacetime.dev.json
-    generates:
-      - src/module_bindings/**/*
-
-  stdb:publish:
-    desc: Build and publish module to local DB (stelofinance)
-    cmds:
-      - spacetime publish --env dev -y
-    deps: [stdb:generate]
-
-  stdb:reset:
-    desc: Publish module and wipe DB data (destructive; use when schema thrashing)
-    cmds:
-      - spacetime publish --env dev -y --delete-data=always
-    deps: [stdb:generate]
-
-  stdb:dev:
-    desc: Watch module source; rebuild, republish, and regenerate client bindings (requires stdb:start)
-    cmds:
-      # --server-only: Topcoat edge is started separately (task live:topcoat)
-      # Default bindings path is src/module_bindings; --client-lang rust for the edge crate
-      - spacetime dev --server-only --client-lang rust --module-bindings-path src/module_bindings -y
-
-  stdb:live:
-    desc: Module live reload (alias for stdb:dev; run stdb:start in another terminal)
-    cmds:
-      - task stdb:dev
-
-  stdb:logs:
-    desc: Follow module logs from local stelofinance DB
-    cmds:
-      - spacetime logs -f -s local -y {{.STDB_DATABASE}}
-
-  stdb:seed-hexcoin:
-    desc: Seed hexcoin ledger + STELOBANK + 10 debits + issue 100k each (env STDB_TOKEN=admin JWT; spacetime CLI must be DB owner for private SQL)
-    env:
-      CGO_ENABLED: "0"
-    cmds:
-      - go run ./scripts/seed-hexcoin -database {{.STDB_DATABASE}}
+      - |
+        n=0
+        until spacetime server ping local >/dev/null 2>&1; do
+          n=$((n + 1))
+          if [ "$n" -ge 120 ]; then
+            echo "timed out waiting for SpacetimeDB"
+            exit 1
+          fi
+          sleep 0.25
+        done
+      - spacetime dev -y
