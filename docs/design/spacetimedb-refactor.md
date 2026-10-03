@@ -1,7 +1,7 @@
 # Design Doc: SpacetimeDB Refactor
 
-**Status:** Outline + **domain core done; Topcoat edge P1 in progress (BitAuth + C1–C3 done; H1–H5 done; deposit/withdraw + Activity finalize; A6 + I1/I2 `/api` proxy)** (§7–§8)  
-**Date:** 2026-07-24 (updated 2026-09-12)  
+**Status:** Outline + **domain core done; Topcoat edge P1 in progress (BitAuth + C1–C3 done; H1–H5 done; deposit/withdraw + Activity finalize; A6 + I1/I2 `/api` proxy; K1–K4 + K6 packaging; K5 GHA module publish + Fly edge)** (§7–§8)  
+**Date:** 2026-07-24 (updated 2026-09-30)  
 **Author:** Stelo maintainers + design discussion  
 **Related:** Current stack is Go + SQLite (sqlc/goose) + embedded NATS/JetStream + Datastar; target edge is **Rust Topcoat** + first-party STDB client; module + BitAuth remain. **C3 pool design:** [einro-identity-pool.md](./einro-identity-pool.md). **HTML app feature parity (pages, reactivity, build order):** [app-surface-parity.md](./app-surface-parity.md) — agents porting `/app` pages should load that doc alongside this one.
 
@@ -94,7 +94,7 @@ Lite webserver (Rust / Topcoat)  ── acts as that user ──►  SpacetimeDB
 Static assets (CSS/JS/fonts via Topcoat asset pipeline)
 ```
 
-**Cutover note:** The Go edge (`cmd/app`, `web/`, `internal/*`) remains the live server until Topcoat reaches parity. New edge work lands under the workspace crate root (`src/`, `Cargo.toml` — already a Topcoat spike). BitJita `/login` + JetStream `sid` are **not** ported.
+**Cutover note:** Go **source** is gone (`cmd/app`, `web/`, `internal/*`). Fly `fly.toml` + GHA deploy the Topcoat edge and publish the module to Maincloud (K4–K6). BitJita `/login` + JetStream `sid` are **not** ported.
 
 ### 5.1 Responsibility split
 
@@ -161,9 +161,9 @@ Pool key is **STDB Identity** (or stable token identity), not OIDC client_id. Ev
 | D10 | Edge STDB access | **Official Rust SDK + `spacetime generate` bindings** | Replaces digitalxero / Go codegen story |
 | D11 | Edge rewrite rationale | **First-party client + Topcoat stack** | Typed client and long-term maintainability; not “just query builders” |
 | D12 | Module path | **`spacetimedb/`** (CLI default) | Not `module/`; `spacetime.json` `module-path` |
-| D13 | Local STDB config | **`spacetime.json` + `spacetime.dev.json`** | Dev: `server: local`, DB name `stelofinance`; data dir `tmp/spacetimedb` |
+| D13 | Local STDB config | **`spacetime.json` + `spacetime.dev.json`** | Dev: `server: local`, DB name `stelofinance`; data dir `tmp/spacetimedb`. Prod Maincloud DB is **`stelofinance-prod`** (`fly.toml` `STDB_DATABASE` + GHA `publish`) |
 | D14 | Browser IdP | **BitAuth only** (`auth.trinit.is`) | Auth Code + PKCE; confidential client secret on **edge only** |
-| D15 | STDB principal | **`Identity` = f(iss, sub)** as `User` PK | BitAuth `sub` is stable numeric player id; username is `preferred_username` |
+| D15 | STDB principal | **`Identity` = f(iss, sub)** as `User` PK | BitAuth `sub` is a decimal string of a stable player id; parse as unique `User.bitcraft_player_id: u64`; username is `preferred_username` |
 | D16 | User bootstrap | **`client_connected` only** (no separate `ensure_user`) | Upsert on connect; no JWT → reject (except owner) |
 | D17 | App admin | **`User.is_admin: bool`** + `require_admin` | Bootstrap first admin via owner SQL; **no edge `ADMIN_KEY`** |
 | D18 | DB owner / CLI | **Store owner in `config` at `init`** | Owner may connect for SQL without BitAuth; not product admin |
@@ -197,7 +197,7 @@ All core tables **private** unless noted. Enums used instead of opaque integer c
 | Table | Accessor | Purpose | Notes |
 |-------|----------|---------|--------|
 | `config` | `config` | Singleton owner Identity | Written in `init` from `ctx.sender()` (publisher). PK = `owner` |
-| `user` | `user` | Stelo user profile | **Public**. **PK = `Identity`**. Unique `bitcraft_username`. `is_admin` (default false) |
+| `user` | `user` | Stelo user profile | **Public**. **PK = `Identity`**. Unique `bitcraft_username`. Unique `bitcraft_player_id: u64` (parsed BitAuth `sub`). `is_admin` (default false) |
 | `ledger` | `ledger` | Asset type / scale / kind | **Public** catalog. `LedgerKind`: Digital / Derivation / Physical |
 | `account` | `account` | Wallet / balances | `AccountKind` Credit/Debit; optional member-only `label` nickname; `user_id` = primary or **`Identity::ZERO`**; multi-col index `by_user_and_ledger`; single-col `ledger_id` + `address` |
 | `account_member` | `account_member` (`AccountMember`) | User **or** app ↔ account ACL | `MemberKind` + `Role`; multi-col `by_account_and_member`; single-col `member_id` |
@@ -233,7 +233,7 @@ BitAuth OIDC (browser / human)
          - if sender == config.owner → allow (ops CLI), no User row
          - else require OIDC JWT
          - resolve OidcProvider from iss + validate aud
-         - BitAuth → upsert User { id: sender, bitcraft_username from preferred_username, is_admin: false }
+         - BitAuth → upsert User { id: sender, bitcraft_username from preferred_username, bitcraft_player_id: sub parsed as u64, is_admin: false }
          - SpacetimeAuth → if app row exists allow; else fulfill app_ticket by JWT sub (create/replace app)
 
 App (bot / partner) — SpacetimeAuth anonymous
@@ -256,8 +256,8 @@ Account HTTP API (programmatic JSON) — no STDB Identity for the token holder
 |-------|-----|
 | `iss` | Must be `https://auth.trinit.is/` |
 | `aud` / `azp` | App client id (e.g. `nintron-stelofinance`) — must match module constant / `BITAUTH_CLIENT_ID` |
-| `sub` | **Stable** BitCraft player id (numeric string) — basis of STDB `Identity` |
-| `preferred_username` | Display name stored on `User` (required; connect fails if missing) |
+| `sub` | **Stable** BitCraft player id as a decimal string — basis of STDB `Identity`; parsed to unique `User.bitcraft_player_id: u64` (connect fails if missing/non-numeric) |
+| `preferred_username` | Display name stored on `User.bitcraft_username` (required; connect fails if missing) |
 | `name` | Display only (not used for principal) |
 
 Note: BitAuth marketing text may say `sub` is username; **live tokens use stable numeric `sub`**. Trust observed tokens; do not use username as principal.
@@ -318,7 +318,7 @@ Views use `ViewContext` / `AnonymousViewContext` and (for per-user views) filter
 
 | View | Returns | Auth / visibility | Status |
 |------|---------|-------------------|--------|
-| `my_user` | Caller’s profile (`MyUserRow`) | Caller row only; empty/`None` if anonymous/unregistered | **done** |
+| `my_user` | Caller’s profile (`MyUserRow`) | Caller row only (`id`, username, `bitcraft_player_id`, `created_at`, `is_admin`); empty/`None` if anonymous/unregistered | **done** |
 | `my_accounts` | Accessible accounts: computed `balance` + `kind`, optional `label` (all members), ledger name/scale/kind, caller `role`, `is_primary`, **Owner-role** username (not primary `user_id`), `webhook` only if role ≥ Admin | Via `account_member` for `ctx.sender()`; **not** app-admin god-mode | **done** |
 | `my_accounts_members` | Users + apps on accessible accounts (`MemberKind`, display `name`, role) | Caller has **any** role (Read+) on that account | **done** |
 | `my_transfers` | Transfers on caller’s accounts; enriched addresses, primary usernames, ledger name/scale | Debit **or** credit account in caller’s ACL; **no dedupe** if both sides match (may emit twice); no view `primary_key` until deduped | **done** |
@@ -775,7 +775,7 @@ Partial / component-specific patches (e.g. recipient fieldset) are **case-by-cas
 - `database/queries/*`, `database/gensql/*`, goose app migrations.
 - Embedded NATS/JetStream; SQLite volume on Fly.
 - digitalxero dependency; PostHog script; BitJita login; JetStream sessions/tokens.
-- Go toolchain from flake/CI once no scripts require it (`scripts/seed-hexcoin` may move to Rust or keep `go run` temporarily).
+- Go toolchain from flake/Taskfile (**done** 2026-09-26). `scripts/seed-hexcoin` is already gone. Fly `fly.toml` + GHA are the Topcoat edge + Maincloud publish (K4–K6).
 
 ### 8.7 Edge migration inventory (systems to recreate)
 
@@ -790,9 +790,9 @@ Work through these **one by one**. Status: `todo` until implemented in Topcoat. 
 | A3 | Request logging | stdout / structured logs (D31) | todo |
 | A4 | Panic / error recovery | Framework defaults + error pages | todo |
 | A5 | CORS | If public API proxy needs browser/cross-origin; otherwise minimal | todo |
-| A6 | Health check | `GET /health` → `ok` (no STDB). Do not change live Go `fly.toml` yet | **done** |
+| A6 | Health check | `GET /health` → `ok` (no STDB). Fly probe is this path, not module `/api/ping` | **done** |
 | A7 | Response compression | gzip/brotli if easy in stack | todo |
-| A8 | Env / config | BitAuth + STDB + PORT/ENV; drop JS_DIR/DB_FILE | todo |
+| A8 | Env / config | BitAuth + STDB + PORT/ENV; drop JS_DIR/DB_FILE | **done** (`fly.toml` `[env]`; secrets via `fly secrets`) |
 | A9 | App-wide shared state | Topcoat app context: pool, OIDC client, config | todo |
 
 #### B — Auth
@@ -911,12 +911,12 @@ Third-party **JSON HTTP** is **cutover-required**, not part of the Datastar page
 
 | ID | System | Notes | Status |
 |----|--------|-------|--------|
-| K1 | Dev server | **`topcoat dev`** for edge; later Taskfile recipe that runs STDB + Topcoat together | todo |
-| K2 | Taskfile | Keep `stdb:*`; replace Go `build`/`live` with Cargo/Topcoat; add combined dev task | todo |
-| K3 | Nix flake | Keep Rust/wasm/spacetime/topcoat-cli; drop Go toolchain when edge + scripts no longer need it | todo |
-| K4 | Fly | Stateless `fly.toml` (no volume); health check; secrets | todo |
-| K5 | CI | GHA: publish module to STDB + build/deploy edge container | todo |
-| K6 | Binary packaging | `cargo build --release` edge binary in image | todo |
+| K1 | Dev server | **`topcoat dev`** for edge; `task live` runs STDB + `spacetime dev` (module watch + Topcoat) | **done** |
+| K2 | Taskfile | Keep `stdb:*`; replace Go `build`/`live` with Cargo/Topcoat; combined `task live` | **done** |
+| K3 | Nix flake | Keep Rust/wasm/spacetime/topcoat-cli; drop Go toolchain when edge + scripts no longer need it | **done** |
+| K4 | Fly | Stateless `fly.toml` (no volume); health check; secrets | **done** (toml; set `BITAUTH_CLIENT_SECRET` + `SPACETIMEAUTH_CLIENT_SECRET` on the app, then destroy leftover `data` volume after deploy) |
+| K5 | CI | GHA: publish module to STDB + build/deploy edge container | **done** (`SPACETIMEDB_TOKEN` on the `production` environment; owner identity) |
+| K6 | Binary packaging | `cargo build --release` edge binary in image | **done** (`nix build .#container` → Topcoat edge + assets) |
 
 #### L — Explicit non-edge (module or delete)
 
@@ -1139,9 +1139,9 @@ stelofinance/
   docs/api/               # public API contract (edge paths + payloads)
 ```
 
-**Local workflow (target):** `task stdb:start` + module watch; `topcoat dev` (or Taskfile wrapper) for edge. Later: one Taskfile command for both. Wipe `tmp/spacetimedb` if snapshot/identity errors appear.
+**Local workflow:** `task live` (STDB + module watch + Topcoat on **PORT 8080**). Splits: `task stdb`, `task stdb:dev` (`--server-only`), `task edge`. Wipe `tmp/spacetimedb` if snapshot/identity errors appear.
 
-**During transition:** Go tree (`cmd/app`, `web/`, `internal/`) may still run production until P6 cutover; do not add new Go features.
+**During transition:** Go **source** is gone from the tree. Production Fly/GHA deploy the Topcoat edge and publish the module; do not add Go features.
 
 ---
 
@@ -1152,7 +1152,7 @@ stelofinance/
 - [x] Module crate + `spacetime.json` / `.dev.json` + Taskfile `stdb:*`
 - [x] Private domain tables (+ public `ledger`); enums; idempotency table + index
 - [x] `config.owner` at init; owner connect for CLI SQL
-- [x] `client_connected`: BitAuth iss/aud + User upsert (`Identity` PK, `preferred_username`)
+- [x] `client_connected`: BitAuth iss/aud + User upsert (`Identity` PK, `preferred_username`, unique `bitcraft_player_id: u64` parsed from `sub`)
 - [x] `User.is_admin` + `require_admin` helper (admin reducers TBD)
 - [x] BitAuth OIDC on **Go** parallel routes + cookies (`bitauth_token`) — historical spike
 - [x] Go STDB connect smoke (`/auth/bitauth/stdb-connect`) — historical
@@ -1173,6 +1173,8 @@ Track status in §8.7 inventory. Minimum P1 exit:
 - [x] One app page from STDB + Datastar subscribe → patch `#accounts-list` (H1; transfer-driven balance updates use the same sub)
 - [x] Health check for deploy (`GET /health`; stdout logging still open)
 - [x] Reverse-proxy slice: `/api/{*path}` → module `/route/{*path}` (I1/I2; I3 docs later)
+- [x] Combined local Taskfile (`task live`) + Go dropped from flake/Taskfile (K1–K3)
+- [x] Fly stateless `fly.toml` + GHA module publish (Maincloud) + edge container (K4–K6)
 
 ---
 
@@ -1221,7 +1223,7 @@ Any admin balance patch must either:
 6. App HTML surfaces per [app-surface-parity.md](./app-surface-parity.md) (~~shell~~ → ~~H1~~ → ~~H2 home~~ → ~~H3 Transfer send~~ → ~~Activity~~ → ~~H4 payment request~~ → ~~H5 logout~~ → ~~H2 request builder~~ → ~~deposit/withdraw + pending finalize~~ → ~~apps/tickets~~). **Skipped:** recent-on-account-page; app home redesign.
 7. Module HTTP reverse-proxy (**required** JSON API cutover: §8.5 / I* / §9); update `docs/api/*`.
 8. Admin reducers on module (parallel track).
-9. Fly stateless + GHA (module publish + edge deploy); cut over; delete Go.
+9. ~~Fly stateless + GHA (module publish + edge deploy)~~ **done** (K4–K6). Cut over when `SPACETIMEDB_TOKEN` is on the `production` environment and Fly secrets are set.
 
 Work items: tick §8.7 inventory, [app-surface-parity.md](./app-surface-parity.md), and §18.2 as they land.
 
@@ -1291,6 +1293,12 @@ Work items: tick §8.7 inventory, [app-surface-parity.md](./app-surface-parity.m
 | 2026-09-13 | **Pending is which side you act as:** debit as your-account → always pending; credit as your-account → posted. Do not infer from “Write on STELOBANK” (seed/admin users have both). |
 | 2026-09-13 | **H2 apps/tickets:** `my_apps` / `my_app_tickets` views; SpacetimeAuth OIDC mint (isolated cookies); ticket + one-shot fulfill; one-time token sheet; grant on this account. |
 | 2026-09-13 | **Apps on `/app/me`, Permissions on account:** mint/tickets/Replace moved off H2. Account People → Permissions (user or app). Global `app_search`. Grant via `grant_account_member` (not owner-only). |
+| 2026-09-26 | **K1–K3:** `task live` = local STDB + `spacetime dev` (module watch + Topcoat on 8080). Dropped Go from Taskfile/flake (`sqlc`/`goose`/`buildGoModule`). No seed-hexcoin replacement. Fly/GHA still Go until P6. |
+| 2026-09-26 | **K6:** `nix build .#edge` / `.#container` — Topcoat edge + asset bundle; streamLayeredImage named `stelo` (same GHA load path). Fly.toml still Go-shaped. |
+| 2026-09-30 | **K4 / A8:** `fly.toml` is the stateless Topcoat edge. Dropped `[mounts]` and SQLite/NATS env. Probe `GET /health`. Public BitAuth/STDB/SpacetimeAuth env in `[env]`; client secrets stay `fly secrets`. |
+| 2026-09-30 | **K5:** GHA publishes module WASM (`nix build .#module`) to Maincloud (`spacetime login --token` + `publish -s maincloud stelofinance-prod --bin-path`), then builds/pushes the edge container and `flyctl deploy`. Secret `SPACETIMEDB_TOKEN` must be the DB owner. No `--delete-data` in CI. Local DB name stays `stelofinance`. |
+| 2026-10-02 | **`User.bitcraft_player_id`:** unique BitAuth JWT `sub` (stable player id). `client_connected` writes it on insert and rejects a later mismatch. `my_user` exposes it. |
+| 2026-10-03 | **`bitcraft_player_id: u64`:** parse BitAuth `sub` as unsigned (fits values like `864691128479727096`). Changing column type cannot auto-migrate — local/prod republish needs `--delete-data` or an out-of-band backfill. |
 
 ---
 
