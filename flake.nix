@@ -223,6 +223,173 @@
         '';
       };
 
+      # Inlined: flakes do not see untracked paths, and this must run in the
+      # edge build to prove the installed binary's asset ids are in the manifest.
+      checkAssetIds = pkgs.writeText "check_asset_ids.rs" ''
+        //! Fail the Nix edge build when the shipped binary references an asset id
+        //! that is not in the bundle manifest installed next to it.
+        //!
+        //! Topcoat panics at request time (`failed to resolve asset`) if those drift.
+        //! `stylesheet!()` bakes the absolute `OUT_DIR` into the id, so a manifest
+        //! produced from any other cargo invocation will not match.
+
+        use std::collections::BTreeSet;
+        use std::env;
+        use std::fs;
+        use std::process::ExitCode;
+
+        fn main() -> ExitCode {
+            let mut args = env::args().skip(1);
+            let Some(binary_path) = args.next() else {
+                eprintln!("usage: check_asset_ids <binary> <manifest.toml>");
+                return ExitCode::from(2);
+            };
+            let Some(manifest_path) = args.next() else {
+                eprintln!("usage: check_asset_ids <binary> <manifest.toml>");
+                return ExitCode::from(2);
+            };
+
+            let binary = match fs::read(&binary_path) {
+                Ok(bytes) => bytes,
+                Err(err) => {
+                    eprintln!("read {binary_path}: {err}");
+                    return ExitCode::from(2);
+                }
+            };
+            let manifest = match fs::read_to_string(&manifest_path) {
+                Ok(text) => text,
+                Err(err) => {
+                    eprintln!("read {manifest_path}: {err}");
+                    return ExitCode::from(2);
+                }
+            };
+
+            let embedded = embedded_asset_ids(&binary);
+            let bundled = manifest_ids(&manifest);
+
+            if embedded.is_empty() {
+                eprintln!("no TOPCOAT_ASSET declarations found in {binary_path}");
+                return ExitCode::from(1);
+            }
+
+            let missing: Vec<u64> = embedded.difference(&bundled).copied().collect();
+            if missing.is_empty() {
+                println!(
+                    "asset ids match: {} embedded, {} in {}",
+                    embedded.len(),
+                    bundled.len(),
+                    manifest_path
+                );
+                return ExitCode::SUCCESS;
+            }
+
+            eprintln!(
+                "asset bundle does not match {binary_path}: {} id(s) embedded in the binary are missing from {manifest_path}",
+                missing.len()
+            );
+            for id in missing {
+                eprintln!("  missing id {id}");
+            }
+            eprintln!(
+                "stylesheet!() includes OUT_DIR in the asset id. Bundle the same binary that is installed (same --target and profile)."
+            );
+            ExitCode::from(1)
+        }
+
+        fn manifest_ids(text: &str) -> BTreeSet<u64> {
+            let mut ids = BTreeSet::new();
+            for line in text.lines() {
+                let Some(rest) = line.trim().strip_prefix("id = ") else {
+                    continue;
+                };
+                if let Ok(id) = rest.trim().parse::<u64>() {
+                    ids.insert(id);
+                }
+            }
+            ids
+        }
+
+        fn embedded_asset_ids(binary: &[u8]) -> BTreeSet<u64> {
+            const PREFIX: &[u8] = b"TOPCOAT_ASSET";
+            let mut ids = BTreeSet::new();
+            if binary.len() < PREFIX.len() {
+                return ids;
+            }
+            let mut i = 0;
+            while i + PREFIX.len() <= binary.len() {
+                if &binary[i..i + PREFIX.len()] == PREFIX {
+                    if let Some(id) = decode_asset_id(&binary[i..]) {
+                        ids.insert(id);
+                    }
+                }
+                i += 1;
+            }
+            ids
+        }
+
+        /// Decode one embedded `RawAsset` blob. Returns `None` when `buf` is not a
+        /// real declaration (the prefix can also show up as the const-evaluated
+        /// marker inside the library).
+        fn decode_asset_id(buf: &[u8]) -> Option<u64> {
+            let mut pos = b"TOPCOAT_ASSET".len();
+            let id = read_u64(buf, &mut pos)?;
+            let path = read_str(buf, &mut pos)?;
+            let crate_name = read_str(buf, &mut pos)?;
+            let manifest_dir = read_str(buf, &mut pos)?;
+            let source_file = read_str(buf, &mut pos)?;
+            for _ in 0..4 {
+                read_str_opt(buf, &mut pos)?;
+            }
+            if path.is_empty()
+                || path.len() > 4096
+                || crate_name.is_empty()
+                || crate_name.len() > 128
+                || manifest_dir.len() > 4096
+                || !source_file.ends_with(".rs")
+                || !crate_name
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+            {
+                return None;
+            }
+            Some(id)
+        }
+
+        fn read_u64(buf: &[u8], pos: &mut usize) -> Option<u64> {
+            let bytes = read_bytes(buf, pos, 8)?;
+            Some(u64::from_le_bytes(bytes.try_into().ok()?))
+        }
+
+        fn read_str<'a>(buf: &'a [u8], pos: &mut usize) -> Option<&'a str> {
+            let len = read_u16(buf, pos)? as usize;
+            let bytes = read_bytes(buf, pos, len)?;
+            std::str::from_utf8(bytes).ok()
+        }
+
+        fn read_str_opt<'a>(buf: &'a [u8], pos: &mut usize) -> Option<Option<&'a str>> {
+            match read_bytes(buf, pos, 1)?[0] {
+                0 => Some(None),
+                1 => read_str(buf, pos).map(Some),
+                _ => None,
+            }
+        }
+
+        fn read_u16(buf: &[u8], pos: &mut usize) -> Option<u16> {
+            let bytes = read_bytes(buf, pos, 2)?;
+            Some(u16::from_le_bytes([bytes[0], bytes[1]]))
+        }
+
+        fn read_bytes<'a>(buf: &'a [u8], pos: &mut usize, n: usize) -> Option<&'a [u8]> {
+            let end = pos.checked_add(n)?;
+            if end > buf.len() {
+                return None;
+            }
+            let slice = &buf[*pos..end];
+            *pos = end;
+            Some(slice)
+        }
+      '';
+
       edge = rustPlatform.buildRustPackage {
         pname = "stelofinance";
         version = "0.5.0";
@@ -271,14 +438,45 @@
           done
         '';
 
+        # `topcoat asset bundle` runs its own `cargo build` and strips CARGO*/RUSTFLAGS,
+        # and it does not pass `--target`. Nix compiles with `--target <triple>`, so
+        # that second build gets a different OUT_DIR. `stylesheet!()` hashes that
+        # absolute path into the asset id. The manifest would then not contain the
+        # id baked into the binary this hook installs, and the first HTML response
+        # panics (`failed to resolve asset`). Force the inner cargo to rebuild the
+        # same target directory the install hook copies.
         postBuild = ''
-          topcoat asset bundle --release -o bundled-assets
+          bin=$(find target -type f -path '*/release/stelofinance' ! -path '*/deps/*' -print -quit)
+          test -n "$bin"
+          test -x "$bin"
+          release_dir=$(dirname "$bin")
+          grand=$(dirname "$release_dir")
+          target_args=
+          if [ "$(basename "$grand")" != target ]; then
+            target_args="--target $(basename "$grand")"
+          fi
+
+          wrap="$TMPDIR/cargo-wrap"
+          mkdir -p "$wrap"
+          real_cargo=$(command -v cargo)
+          {
+            printf '%s\n' '#!/bin/sh'
+            printf '%s\n' 'if [ "$1" = "build" ]; then'
+            printf '  exec %s "$@" --offline %s\n' "$real_cargo" "$target_args"
+            printf '%s\n' 'fi'
+            printf 'exec %s "$@"\n' "$real_cargo"
+          } > "$wrap/cargo"
+          chmod +x "$wrap/cargo"
+          PATH="$wrap:$PATH" topcoat asset bundle --release -o bundled-assets
         '';
 
         postInstall = ''
           mkdir -p $out/bin/assets
           cp -R bundled-assets/. $out/bin/assets/
           test -f $out/bin/assets/manifest.toml
+          test -x $out/bin/stelofinance
+          rustc --edition 2021 -O -o "$TMPDIR/check_asset_ids" ${checkAssetIds}
+          "$TMPDIR/check_asset_ids" "$out/bin/stelofinance" "$out/bin/assets/manifest.toml"
         '';
 
         meta = with pkgs.lib; {
