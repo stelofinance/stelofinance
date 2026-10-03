@@ -6,6 +6,11 @@ on:
       - main
   workflow_dispatch:
 
+# Required on the `production` GitHub Environment:
+#   secrets.SPACETIMEDB_TOKEN  — `spacetime login show --token` as the DB owner
+#   secrets.FLY_STELO          — Fly API token (also used as registry password)
+#   vars.FLY_STELO_APP_NAME    — Fly app name (registry.fly.io/<name>)
+
 jobs:
   deploy-stelo:
     name: Deploy Stelo to production
@@ -35,6 +40,26 @@ jobs:
         # before trying to save a new cache
         # 1G = 1073741824
         gc-max-store-size-linux: 3G
+
+    - name: Build module WASM
+      run: nix build .#module -o module-out
+
+    - name: Publish module to Maincloud
+      env:
+        SPACETIMEDB_TOKEN: ${{ secrets.SPACETIMEDB_TOKEN }}
+      run: |
+        set -euo pipefail
+        if [[ -z "${SPACETIMEDB_TOKEN}" ]]; then
+          echo "SPACETIMEDB_TOKEN is not set on the production environment." >&2
+          echo "Create it from: spacetime login show --token" >&2
+          exit 1
+        fi
+        nix shell .#spacetimedb --command spacetime login --token "$SPACETIMEDB_TOKEN"
+        # spacetime.json defaults to server=local; override to maincloud.
+        # Do not pass --delete-data or --break-clients: a breaking schema fails the job.
+        nix shell .#spacetimedb --command spacetime publish \
+          -s maincloud stelofinance-prod -y \
+          --bin-path module-out/stelofinance.wasm
 
     - name: Build container
       run: nix build .#container

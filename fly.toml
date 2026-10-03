@@ -1,24 +1,23 @@
 # fly.toml app configuration file generated for stelofinance on 2024-12-08
-# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+# See https://docs.fly.io/reference/configuration/ for information about how to use this file.
 
 app = "stelofinance"
 primary_region = "iad"
 
+# Stateless Topcoat edge. Secrets stay on the app via `fly secrets` (not here):
+# BITAUTH_CLIENT_SECRET, SPACETIMEAUTH_CLIENT_SECRET
 [env]
 	PORT = "8080"
+	HOST = "0.0.0.0"
 	ENV = "prod"
-	JS_DIR = "/data/nats"
-	DB_FILE = "file:/data/prod.db?_texttotime=1&_time_format=sqlite&_timezone=UTC&_pragma=foreign_keys(1)"
-	GOOSE_DRIVER = "sqlite3"
-	GOOSE_DBSTRING = "/data/prod.db"
-
-[mounts]
-	source = "data"
-	destination = "/data"
-	initial_size = "1gb"
-	auto_extend_size_threshold = 90
-	auto_extend_size_limit = "50gb"
-	auto_extend_size_increment = "1gb"
+	BITAUTH_ISSUER = "https://auth.trinit.is/"
+	BITAUTH_CLIENT_ID = "nintron-stelofinance"
+	BITAUTH_REDIRECT_URL = "https://stelo.finance/auth/bitauth/callback"
+	STDB_HOST = "https://maincloud.spacetimedb.com"
+	STDB_DATABASE = "stelofinance-prod"
+	SPACETIMEAUTH_ISSUER = "https://auth.spacetimedb.com/oidc"
+	SPACETIMEAUTH_CLIENT_ID = "client_033wW7fObq5GPPc4ESCFsF"
+	SPACETIMEAUTH_REDIRECT_URL = "https://stelo.finance/auth/spacetimeauth/callback"
 
 [http_service]
 	internal_port = 8080
@@ -26,14 +25,13 @@ primary_region = "iad"
 	auto_stop_machines = "suspend"
 	auto_start_machines = true
 	min_machines_running = 1
-	# processes = ["app"]
 
 	[[http_service.checks]]
-		grace_period = "10s"
+		grace_period = "15s"
 		interval = "30s"
 		method = "GET"
 		timeout = "5s"
-		path = "/api/ping"
+		path = "/health"
 
 
 [[vm]]
