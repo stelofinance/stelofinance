@@ -21,6 +21,10 @@ https://stelo.finance/app/request
 https://stelo.finance/app/request?ledgerid=1&recipientid=42&amount=5000&memo=Invoice%20%23123
 ```
 
+## Create a request
+
+You can also create a request on an account's page on the site.
+
 ## Pre-filled Page
 
 When a user opens a valid payment request URL, the page loads with the ledger, recipient, amount, and memo (if provided) already filled in. The user then selects their sending account and confirms the payment.

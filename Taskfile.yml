@@ -1,69 +1,40 @@
-version: '3'
-
-env:
-  STATIC_DIR: "web/static"
+version: "3"
 
 dotenv: [".env"]
 
 tasks:
   live:
-    desc: Run live dev environment (watchexec restarts on source changes)
+    desc: SpacetimeDB + module watch + edge
+    deps: [stdb, _live]
+
+  stdb:
+    desc: Local SpacetimeDB
     cmds:
-      # Task's built-in watch is a poor process supervisor for long-running servers.
-      # watchexec owns kill→wait→restart; Task owns the build graph via `run`.
-      - >
-        watchexec
-        --restart
-        --debounce=200ms
-        --stop-timeout=10s
-        --exts=go,tmpl,sql,yaml,css
-        --ignore='database/gensql/**'
-        --ignore='bin/**'
-        --ignore='tmp/**'
-        --ignore='.task/**'
-        --ignore='web/static/tw-output.css'
-        --
-        task run
+      - spacetime start --data-dir tmp/spacetimedb
 
-  run:
-    desc: Run Stelo Finance
+  stdb:dev:
+    desc: Watch module; rebuild, publish, regenerate bindings
     cmds:
-      - bin/app
-    deps: [build:go:app]
+      - spacetime dev --server-only -y
 
-  build:
-    desc: Build all artifacts
-    deps: [build:go:app]
-
-  build:go:app:
-    deps: [build:go:sqlc, build:styles]
+  edge:
+    desc: Topcoat edge
     env:
-      GOARCH: amd64
-      GOOS: linux
-      CGO_ENABLED: 0
+      PORT: "8080"
     cmds:
-      - "go build -o bin/app cmd/app/main.go"
-    sources:
-      - "**/*.go"
-      - "**/*.html.tmpl"
-    generates:
-      - bin/app
+      - topcoat dev
 
-  build:go:sqlc:
+  _live:
+    internal: true
     cmds:
-      - sqlc generate
-    sources:
-      - "sqlc.yaml"
-      - "database/queries/**/*.sql"
-      - "database/migrations/**/*.sql"
-    generates:
-      - "database/gensql/**/*"
-
-  build:styles:
-    cmds:
-      - "tailwindcss -i web/styles/tw-input.css -o {{.STATIC_DIR}}/tw-output.css --minify"
-    sources:
-      - "web/**/*.{html.tmpl,go}"
-      - web/styles/tw-input.css
-    generates:
-      - web/static/tw-output.css
+      - |
+        n=0
+        until spacetime server ping local >/dev/null 2>&1; do
+          n=$((n + 1))
+          if [ "$n" -ge 120 ]; then
+            echo "timed out waiting for SpacetimeDB"
+            exit 1
+          fi
+          sleep 0.25
+        done
+      - spacetime dev -y

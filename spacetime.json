@@ -1,0 +1,8 @@
+{
+  "dev": {
+    "run": "task edge"
+  },
+  "database": "stelofinance",
+  "module-path": "./spacetimedb",
+  "server": "local"
+}

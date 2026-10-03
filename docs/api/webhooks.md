@@ -16,16 +16,19 @@ Your server (specified by the URL you've set) will be sent a POST request with a
 
 ```jsonc
 {
-    "id": 123, // transfer ID — use as your idempotency key
+    "id": 123, // transfer ID — use as your idempotency key (with state for pending/finalize)
     "debitAccId": 281,
     "creditAccId": 93,
-    "amount": 28308,
+    "amount": 28308, // pending amount if state is Pending; else posted amount
     "ledgerId": 2,
-    "code": 1, // This is the type of transfer
-    "memo": "lorem was here", // May be null
-    "createdAt": "2006-01-02T15:04:05.999999999Z07:00" // RFC3339Nano
+    "kind": "Asset", // "Liability" | "Asset" | "Issue" | "Redeem"
+    "state": "Posted", // "Posted" | "Pending" | "PostPending" | "VoidPending"
+    "memo": "lorem was here", // may be null
+    "createdAt": "2006-01-02T15:04:05.999999999Z07:00" // RFC3339
 }
 ```
+
+> **STDB module:** deliveries are scheduled from transfer reducers (pending create, posted create, finalize). At-least-once with retries (max 10). Legacy `code` integer field is replaced by string `kind` + `state`.
 
 ## Routes
 

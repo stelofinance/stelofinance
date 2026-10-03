@@ -3,31 +3,28 @@
 - Transact with any other player, anytime, no matter where in-game they are (if they even are in-game)
 - Build financial applications and tools on top!
 
-## API Documentation
+## API Documentation - (WIP!!)
 For API documentation, see [here](docs/api)
 
 ## Development
-1. Use the Nix Flake shell
-2. Run `task live`. This will create a hot-reloading dev environment
 
-### DB
-Currently using sqlite, but want to switch to [Turso](https://github.com/tursodatabase/turso) for the db once it's more stable/supported.
+Domain logic lives in the SpacetimeDB module (`spacetimedb/`). The website is a stateless Rust [Topcoat](https://github.com/tokio-rs/topcoat) edge (`src/`) that talks to SpacetimeDB as the logged-in user.
 
-Migrations are done with [Goose](https://github.com/pressly/goose). Migrations are in `database/migrations/*`.
+1. Use the Nix flake shell (`direnv` or `nix develop`)
+2. Copy `.env.example` to `.env` and fill BitAuth (and optional SpacetimeAuth) values
+3. Run `task live`
 
-Queries are handled with [SQLC](https://sqlc.dev/). Queries are located in `database/queries/*`
+That starts local SpacetimeDB (data under `tmp/spacetimedb`), watches the module (rebuild / publish / regenerate `src/module_bindings`), and runs `topcoat dev` on **port 8080**. Topcoat’s default port is 3000, which collides with SpacetimeDB.
 
-### NATS (& JetStream)
-During development, JetStream data is stored in `tmp/js`.
+| Command | What |
+|---------|------|
+| `task live` | Full stack |
+| `task stdb` | SpacetimeDB only |
+| `task stdb:dev` | Module watch only (needs STDB) |
+| `task edge` | Topcoat only (needs STDB + published module) |
 
-### Environment Secrets
-The required ENV secrets are stored in `.env` at the project root, and are as follows:
+Wipe `tmp/spacetimedb` if snapshot or identity errors appear after a schema break.
 
-- `ENV`: "dev" or "prod"
-- `PORT`: Port for the web server to run on, such as "8080"
-- `JS_DIR`: Directory to store JetStream data
-- `GOOSE_DRIVER`: "sqlite3"
-- `GOOSE_DBSTRING`: DB connection URI string (ex `./tmp/dev.db`)
-- `GOOSE_MIGRATION_DIR`: "./database/migrations"
-- `DB_FILE`: Same as `GOOSE_DBSTRING`, the DB file location
-- `ADMIN_KEY`: This is an admin key that can be used to make admin API requests
+### Environment
+
+Loaded from `.env` at the repo root (see `.env.example`).
