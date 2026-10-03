@@ -67,24 +67,24 @@
       # Update `spacetimeVersion` + hashes when bumping.
       # Release assets: https://github.com/clockworklabs/SpacetimeDB/releases
       # ---------------------------------------------------------------------------
-      spacetimeVersion = "2.8.1";
+      spacetimeVersion = "2.10.2";
 
       spacetimeAsset = {
         x86_64-linux = {
           triple = "x86_64-unknown-linux-gnu";
-          hash = "sha256-TsPnaTQgNexbsbglLWJTb2bkMM98mJxoPRI6TpxZ97A=";
+          hash = "sha256-Xb4/J6jJ4nodmqhukQHw629c9a6+oCQLWJdQ5CSmlb0=";
         };
         aarch64-linux = {
           triple = "aarch64-unknown-linux-gnu";
-          hash = "sha256-2Gi2krrXVtihoNyzKaf2t087+/Fz1k5aASzhUz+XcJs=";
+          hash = "sha256-FhI4JBuW1E6YE9AcMddxSSeQxCdSoqoj5NU4Kq9mF/U=";
         };
         x86_64-darwin = {
           triple = "x86_64-apple-darwin";
-          hash = "sha256-iVhcnFi+qC8slN0dGotK3WLUE0f6hpnf4xZI6iMhL5A=";
+          hash = "sha256-bNKyvmKZKwqAHW/HcEjGe/yMzYoldO1K805Crzg6lJY=";
         };
         aarch64-darwin = {
           triple = "aarch64-apple-darwin";
-          hash = "sha256-XaF7NpUjwi0arlwit81QzSNAFTj+AjMfeiFtMkRztnk=";
+          hash = "sha256-U/g8kg4UKRixz/1Z4zvaiYvsV0L8TpH4xU/hNPJ/P3Q=";
         };
       }.${system} or (throw "SpacetimeDB release binaries are not packaged for ${system}");
 

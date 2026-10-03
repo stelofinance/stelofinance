@@ -11,7 +11,7 @@
 	openidconnect = "4.0.1"
 	reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 	serde = { version = "1", features = ["derive"] }
-	spacetimedb-sdk = "2.7.*"
+	spacetimedb-sdk = "=2.10.2"
 	tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 	topcoat = { version = "0.5.0", features = ["tailwind", "icon-iconify", "datastar"] }
 
