@@ -25,6 +25,10 @@ pub struct User {
 	/// ASCII-upper search key. Btree for prefix range subscriptions.
 	#[index(btree)]
 	pub bitcraft_username_normalized: String,
+
+	/// BitAuth JWT `sub` parsed as u64 (stable BitCraft player id, not the display username).
+	#[unique]
+	pub bitcraft_player_id: u64,
 }
 
 #[derive(SpacetimeType, Clone, Copy, Debug, PartialEq, Eq)]

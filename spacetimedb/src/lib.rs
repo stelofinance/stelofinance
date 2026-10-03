@@ -96,7 +96,8 @@ pub fn client_connected(ctx: &ReducerContext) -> Result<(), String> {
 	return match provider {
 		OidcProvider::BitAuth => {
 			let username = display_name_from_jwt(jwt)?;
-			ensure_user(ctx, identity, username)?;
+			let player_id = player_id_from_jwt(jwt)?;
+			ensure_user(ctx, identity, username, player_id)?;
 			Ok(())
 		}
 		OidcProvider::SpacetimeAuth => {
@@ -357,9 +358,17 @@ pub(crate) fn require_account_role(
 	}
 }
 
-fn ensure_user(ctx: &ReducerContext, identity: Identity, username: String) -> Result<(), String> {
+fn ensure_user(
+	ctx: &ReducerContext,
+	identity: Identity,
+	username: String,
+	player_id: u64,
+) -> Result<(), String> {
 	match ctx.db.user().id().find(&identity) {
 		Some(existing) => {
+			if existing.bitcraft_player_id != player_id {
+				return Err("bitcraft_player_id mismatch for identity".to_string());
+			}
 			if existing.bitcraft_username != username {
 				let updated = User {
 					bitcraft_username: username.clone(),
@@ -384,13 +393,17 @@ fn ensure_user(ctx: &ReducerContext, identity: Identity, username: String) -> Re
 			}
 		}
 		None => {
-			ctx.db.user().insert(User {
-				id: identity,
-				bitcraft_username: username.clone(),
-				bitcraft_username_normalized: username.to_ascii_uppercase(),
-				is_admin: false,
-				created_at: ctx.timestamp,
-			});
+			ctx.db
+				.user()
+				.try_insert(User {
+					id: identity,
+					bitcraft_username: username.clone(),
+					bitcraft_username_normalized: username.to_ascii_uppercase(),
+					bitcraft_player_id: player_id,
+					is_admin: false,
+					created_at: ctx.timestamp,
+				})
+				.map_err(|e| format!("create user failed: {e}"))?;
 			log::info!("created user {username} for identity {identity}");
 		}
 	}
@@ -410,6 +423,16 @@ fn display_name_from_jwt(jwt: &spacetimedb::JwtClaims) -> Result<String, String>
 		.ok_or_else(|| "missing preferred_username in token claims".to_string())?;
 
 	Ok(username.to_string())
+}
+
+/// BitAuth JWT `sub` parsed as the stable BitCraft player id.
+fn player_id_from_jwt(jwt: &spacetimedb::JwtClaims) -> Result<u64, String> {
+	let raw = jwt.subject().trim();
+	if raw.is_empty() {
+		return Err("missing sub in token claims".to_string());
+	}
+	raw.parse::<u64>()
+		.map_err(|_| format!("invalid bitcraft_player_id in token sub: {raw}"))
 }
 
 /// `None` -> random 8-char address.

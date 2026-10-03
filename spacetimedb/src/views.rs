@@ -9,6 +9,7 @@ use spacetimedb::{Identity, ScheduleAt, SpacetimeType, Timestamp, ViewContext, v
 pub struct MyUserRow {
 	pub id: Identity,
 	pub bitcraft_username: String,
+	pub bitcraft_player_id: u64,
 	pub created_at: Timestamp,
 	pub is_admin: bool,
 }
@@ -119,6 +120,7 @@ fn my_user(ctx: &ViewContext) -> Option<MyUserRow> {
 	ctx.db.user().id().find(&ctx.sender()).map(|u| MyUserRow {
 		id: u.id,
 		bitcraft_username: u.bitcraft_username,
+		bitcraft_player_id: u.bitcraft_player_id,
 		created_at: u.created_at,
 		is_admin: u.is_admin,
 	})

@@ -2,14 +2,14 @@ use crate::require_account_role;
 use crate::require_principal;
 use crate::tables::*;
 use crate::transfers::{
-	create_transfer_core, finalize_transfer_core, CreateTransferOutcome, TransferActor,
+	CreateTransferOutcome, TransferActor, create_transfer_core, finalize_transfer_core,
 };
 use crate::views::computed_balance;
-use spacetimedb::http::{handler, router, Body, HandlerContext, Request, Response, Router};
+use spacetimedb::http::{Body, HandlerContext, Request, Response, Router, handler, router};
 use spacetimedb::{
-	procedure,
-	rand::{rngs::StdRng, Rng, RngCore, SeedableRng},
-	reducer, Identity, ProcedureContext, ReducerContext, Table, Timestamp, TxContext,
+	Identity, ProcedureContext, ReducerContext, Table, Timestamp, TxContext, procedure,
+	rand::{Rng, RngCore, SeedableRng, rngs::StdRng},
+	reducer,
 };
 
 /// Alphabet for opaque token secrets (no ambiguous punctuation).
