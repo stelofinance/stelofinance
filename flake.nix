@@ -165,6 +165,8 @@
 
         # Topcoat frontend framework CLI (`topcoat dev`, fmt, assets)
         topcoat-cli
+        # Edge `build.rs` looks up `tailwindcss` on PATH (Topcoat Tailwind feature).
+        tailwindcss_4
       ];
 
       # Remote files Topcoat would otherwise download during `cargo build` /
