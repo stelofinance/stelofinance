@@ -3,7 +3,7 @@
 - Transact with any other player, anytime, no matter where in-game they are (if they even are in-game)
 - Build financial applications and tools on top!
 
-## API Documentation - WIP
+## API Documentation - (WIP!!)
 For API documentation, see [here](docs/api)
 
 ## Development
