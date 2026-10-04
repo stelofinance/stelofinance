@@ -13,8 +13,11 @@ pub fn unix_now_micros() -> i64 {
 
 /// Format a raw integer amount using the ledger's decimal `scale`.
 ///
-/// `123450` at scale `2` → `"1,234.50"`. Trailing fractional zeros are kept so
-/// balances line up visually (matches “always show scale digits”).
+/// This is the only display formatter for balances and transfer amounts.
+/// `123450` at scale `2` → `"1,234.5"`. Trailing fractional zeros are dropped,
+/// and the decimal point is omitted when nothing remains after it (`100` at
+/// scale `2` → `"1"`). Zeros that are not trailing stay (`5` at scale `2` →
+/// `"0.05"`).
 pub fn format_qty(amount: u64, scale: u8) -> String {
 	if scale == 0 {
 		return group_thousands(amount);
@@ -22,13 +25,17 @@ pub fn format_qty(amount: u64, scale: u8) -> String {
 
 	let div = 10u64.saturating_pow(u32::from(scale));
 	let whole = amount / div;
-	let frac = amount % div;
-	format!(
-		"{}.{:0width$}",
-		group_thousands(whole),
-		frac,
-		width = usize::from(scale)
-	)
+	let mut frac = amount % div;
+	if frac == 0 {
+		return group_thousands(whole);
+	}
+
+	let mut width = usize::from(scale);
+	while frac.is_multiple_of(10) {
+		frac /= 10;
+		width -= 1;
+	}
+	format!("{}.{:0width$}", group_thousands(whole), frac, width = width)
 }
 
 /// Parse a human quantity into the ledger's raw integer.
@@ -188,10 +195,22 @@ mod tests {
 	}
 
 	#[test]
-	fn scale_two_pads_fraction() {
-		assert_eq!(format_qty(123_450, 2), "1,234.50");
+	fn scale_two_drops_trailing_zeros() {
+		assert_eq!(format_qty(123_450, 2), "1,234.5");
+		assert_eq!(format_qty(123_400, 2), "1,234");
+		assert_eq!(format_qty(123_456, 2), "1,234.56");
+		assert_eq!(format_qty(150, 2), "1.5");
+		assert_eq!(format_qty(100, 2), "1");
 		assert_eq!(format_qty(5, 2), "0.05");
-		assert_eq!(format_qty(0, 2), "0.00");
+		assert_eq!(format_qty(0, 2), "0");
+	}
+
+	#[test]
+	fn scale_three_keeps_significant_fraction_zeros() {
+		assert_eq!(format_qty(1_010, 3), "1.01");
+		assert_eq!(format_qty(1_100, 3), "1.1");
+		assert_eq!(format_qty(10, 3), "0.01");
+		assert_eq!(format_qty(1, 3), "0.001");
 	}
 
 	#[test]

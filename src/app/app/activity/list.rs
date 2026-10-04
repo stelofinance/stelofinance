@@ -392,12 +392,15 @@ mod tests {
 
 		let pending = article(&html, 1);
 		assert!(pending.contains(">Pending</span>"));
-		assert!(pending.contains("25.00"));
+		assert!(pending.contains("+25"));
+		assert!(pending.contains("−25"));
+		assert!(!pending.contains("25.00"));
 
 		let finalized = article(&html, 2);
 		assert!(finalized.contains(">Finalized</span>"));
-		assert!(finalized.contains("+50.00"));
-		assert!(finalized.contains("−50.00"));
+		assert!(finalized.contains("+50"));
+		assert!(finalized.contains("−50"));
+		assert!(!finalized.contains("50.00"));
 		assert!(!finalized.contains(">-</p>"));
 
 		// Both legs are ours, so All / sender / receiver each render an amount.
