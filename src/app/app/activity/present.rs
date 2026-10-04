@@ -76,6 +76,8 @@ pub struct TransferCard {
 	pub qty: String,
 	pub memo: Option<String>,
 	pub state_label: Option<&'static str>,
+	/// Historical `pending_amount` when voided. Shown struck through, with no sign.
+	pub voided_qty: Option<String>,
 	pub involved: Vec<u64>,
 	pub all: Line,
 	pub per_account: Vec<(u64, Line)>,
@@ -162,6 +164,8 @@ pub fn transfer_card(tr: &MyTransferRow, accounts: &[MyAccountRow]) -> Option<Tr
 			.filter(|s| !s.is_empty())
 			.map(str::to_owned),
 		state_label: state_label(tr.state),
+		voided_qty: (tr.state == TransferState::VoidPending)
+			.then(|| format_qty(tr.pending_amount.unwrap_or(0), tr.ledger_scale)),
 		involved,
 		all,
 		per_account,
@@ -173,7 +177,8 @@ fn state_label(state: TransferState) -> Option<&'static str> {
 	match state {
 		TransferState::Posted => None,
 		TransferState::Pending => Some("Pending"),
-		TransferState::PostPending | TransferState::VoidPending => Some("Finalizing"),
+		TransferState::PostPending => Some("Finalized"),
+		TransferState::VoidPending => Some("Voided"),
 	}
 }
 

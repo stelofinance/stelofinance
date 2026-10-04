@@ -188,26 +188,33 @@ fn push_card(out: &mut String, card: &TransferCard, selected: Option<u64>, now_m
 }
 
 fn push_line(out: &mut String, card: &TransferCard, line: &super::present::Line, now_micros: i64) {
-	let qty = match line.sign {
-		AmountSign::In => format!("+{}", card.qty),
-		AmountSign::Out => format!("−{}", card.qty),
-		AmountSign::Flat => card.qty.clone(),
-	};
-	let qty_class = match line.sign {
-		AmountSign::In => "shrink-0 text-xl font-medium tabular-nums text-anakiwa sm:text-2xl",
-		AmountSign::Out | AmountSign::Flat => {
-			"shrink-0 text-xl font-medium tabular-nums sm:text-2xl"
-		}
+	// Void has no balance effect on any filter. Strike the historical hold.
+	// Grey, with no "+" or "-" sign.
+	let (qty_html, qty_class) = if let Some(held) = &card.voided_qty {
+		(
+			format!(r#"<span class="line-through">{}</span>"#, escape_html(held)),
+			"shrink-0 text-xl font-medium tabular-nums text-neutral-400 sm:text-2xl",
+		)
+	} else {
+		let qty = match line.sign {
+			AmountSign::In => format!("+{}", card.qty),
+			AmountSign::Out => format!("−{}", card.qty),
+			AmountSign::Flat => card.qty.clone(),
+		};
+		let class = match line.sign {
+			AmountSign::In => "shrink-0 text-xl font-medium tabular-nums text-anakiwa sm:text-2xl",
+			AmountSign::Out | AmountSign::Flat => {
+				"shrink-0 text-xl font-medium tabular-nums sm:text-2xl"
+			}
+		};
+		(escape_html(&qty), class)
 	};
 	out.push_str(r#"<div class="flex items-start justify-between gap-3">"#);
 	out.push_str(&format!(
 		r#"<p class="min-w-0 truncate text-sm font-medium">{}</p>"#,
 		escape_html(&line.title),
 	));
-	out.push_str(&format!(
-		r#"<p class="{qty_class}">{}</p>"#,
-		escape_html(&qty),
-	));
+	out.push_str(&format!(r#"<p class="{qty_class}">{qty_html}</p>"#));
 	out.push_str("</div>");
 	out.push_str(r#"<div class="mt-0.5 flex items-baseline justify-between gap-3">"#);
 	out.push_str(r#"<p class="min-w-0 truncate text-sm text-neutral-300">"#);
@@ -305,4 +312,103 @@ fn escape_html(s: &str) -> String {
 		}
 	}
 	out
+}
+
+#[cfg(test)]
+mod tests {
+	use super::activity_body_html;
+	use crate::module_bindings::{
+		AccountKind, LedgerKind, MyAccountRow, MyTransferRow, Role, TransferKind, TransferState,
+	};
+	use crate::stdb::ActivitySnapshot;
+	use spacetimedb_sdk::Timestamp;
+
+	fn ts() -> Timestamp {
+		Timestamp::from_micros_since_unix_epoch(1_700_000_000_000_000)
+	}
+
+	fn account(id: u64) -> MyAccountRow {
+		MyAccountRow {
+			account_id: id,
+			address: format!("addr{id}"),
+			label: Some(format!("Acct {id}")),
+			kind: AccountKind::Debit,
+			balance: 0,
+			ledger_id: 1,
+			ledger_name: "USD".into(),
+			ledger_scale: 2,
+			ledger_kind: LedgerKind::Digital,
+			role: Role::Owner,
+			is_primary: id == 1,
+			owner_username: Some("me".into()),
+			webhook: None,
+			created_at: ts(),
+		}
+	}
+
+	fn transfer(id: u64, state: TransferState, pending: u64, posted: Option<u64>) -> MyTransferRow {
+		MyTransferRow {
+			id,
+			debit_account_id: 2,
+			credit_account_id: 1,
+			debit_address: "addr2".into(),
+			credit_address: "addr1".into(),
+			debit_username: None,
+			credit_username: None,
+			pending_amount: Some(pending),
+			posted_amount: posted,
+			ledger_id: 1,
+			ledger_name: "USD".into(),
+			ledger_scale: 2,
+			kind: TransferKind::Asset,
+			state,
+			memo: None,
+			created_at: ts(),
+			finalized_at: None,
+		}
+	}
+
+	fn article<'a>(html: &'a str, id: u64) -> &'a str {
+		let marker = format!(r#"data-transfer-id="{id}""#);
+		let start = html.find(&marker).expect("card");
+		let rest = &html[start..];
+		let end = rest.find("</article>").expect("article end");
+		&rest[..end]
+	}
+
+	#[test]
+	fn finalized_and_voided_tags_and_void_amount_strikes_the_hold() {
+		let data = ActivitySnapshot {
+			accounts: vec![account(1), account(2)],
+			transfers: vec![
+				transfer(1, TransferState::Pending, 2_500, None),
+				transfer(2, TransferState::PostPending, 5_000, Some(5_000)),
+				// Void keeps the historical hold and posts 0.
+				transfer(3, TransferState::VoidPending, 123_456, Some(0)),
+			],
+		};
+		let html = activity_body_html(&data, None, 1_700_000_000_000_000);
+		assert!(!html.contains("Finalizing"));
+
+		let pending = article(&html, 1);
+		assert!(pending.contains(">Pending</span>"));
+		assert!(pending.contains("25.00"));
+
+		let finalized = article(&html, 2);
+		assert!(finalized.contains(">Finalized</span>"));
+		assert!(finalized.contains("+50.00"));
+		assert!(finalized.contains("−50.00"));
+		assert!(!finalized.contains(">-</p>"));
+
+		// Both legs are ours, so All / sender / receiver each render an amount.
+		let voided = article(&html, 3);
+		assert!(voided.contains(">Voided</span>"));
+		let struck = r#"<span class="line-through">1,234.56</span>"#;
+		assert_eq!(voided.matches(struck).count(), 3);
+		assert!(voided.contains("text-neutral-400"));
+		assert!(!voided.contains("text-anakiwa"));
+		assert!(!voided.contains("0.00"));
+		assert!(!voided.contains('+'));
+		assert!(!voided.contains('−'));
+	}
 }
