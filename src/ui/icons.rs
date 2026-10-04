@@ -5,7 +5,7 @@
 use topcoat::{
 	Result,
 	icon::{IconData, icon},
-	view::{View, attributes, component, svg::ViewBox, view},
+	view::{Unescaped, View, attributes, component, svg::ViewBox, view},
 };
 
 const LOGO_COLORED_BODY: &str = include_str!("svg/logo-colored.svg");
@@ -43,8 +43,8 @@ const ACTIVITY: IconData = IconData::unescaped_unchecked(
 
 /// Colored hexagonal star (hero). Non-square; size via `class`.
 #[component]
-pub async fn logo_colored(#[into] class: String) -> Result {
-	view! {
+pub async fn logo_colored(#[into] class: String) -> Result<impl View> {
+	Ok(view! {
 		<svg
 			class=(class)
 			aria-label="Stelo icon, a hexagonal star"
@@ -54,15 +54,15 @@ pub async fn logo_colored(#[into] class: String) -> Result {
 			fill="none"
 			xmlns="http://www.w3.org/2000/svg"
 		>
-			(View::unescaped_unchecked(LOGO_COLORED_BODY))
+			(Unescaped::new_unchecked(LOGO_COLORED_BODY))
 		</svg>
-	}
+	})
 }
 
 /// Wordmark + mark (nav/footer). Non-square; size via `class`.
 #[component]
-pub async fn logo_full(#[into] class: String) -> Result {
-	view! {
+pub async fn logo_full(#[into] class: String) -> Result<impl View> {
+	Ok(view! {
 		<svg
 			class=(class)
 			aria-label="Stelo icon, a hexagonal star with the word Stelo on the right"
@@ -72,73 +72,73 @@ pub async fn logo_full(#[into] class: String) -> Result {
 			fill="none"
 			xmlns="http://www.w3.org/2000/svg"
 		>
-			(View::unescaped_unchecked(LOGO_FULL_BODY))
+			(Unescaped::new_unchecked(LOGO_FULL_BODY))
 		</svg>
-	}
+	})
 }
 
 #[component]
-pub async fn right_arrow(#[into] class: String) -> Result {
-	view! {
+pub async fn right_arrow(#[into] class: String) -> Result<impl View> {
+	Ok(view! {
 		icon(
 			data: RIGHT_ARROW,
 			label: "right arrow",
 			attrs: attributes! { class=(class) },
 		)
-	}
+	})
 }
 
 #[component]
-pub async fn github(#[into] class: String) -> Result {
-	view! {
+pub async fn github(#[into] class: String) -> Result<impl View> {
+	Ok(view! {
 		icon(
 			data: GITHUB,
 			label: "GitHub Icon",
 			attrs: attributes! { class=(class) },
 		)
-	}
+	})
 }
 
 #[component]
-pub async fn discord(#[into] class: String) -> Result {
-	view! {
+pub async fn discord(#[into] class: String) -> Result<impl View> {
+	Ok(view! {
 		icon(
 			data: DISCORD,
 			label: "Discord Icon",
 			attrs: attributes! { class=(class) },
 		)
-	}
+	})
 }
 
 #[component]
-pub async fn wallet(#[into] class: String) -> Result {
-	view! {
+pub async fn wallet(#[into] class: String) -> Result<impl View> {
+	Ok(view! {
 		icon(
 			data: WALLET,
 			label: "Accounts",
 			attrs: attributes! { class=(class) },
 		)
-	}
+	})
 }
 
 #[component]
-pub async fn transfer(#[into] class: String) -> Result {
-	view! {
+pub async fn transfer(#[into] class: String) -> Result<impl View> {
+	Ok(view! {
 		icon(
 			data: TRANSFER,
 			label: "Transfer",
 			attrs: attributes! { class=(class) },
 		)
-	}
+	})
 }
 
 #[component]
-pub async fn activity(#[into] class: String) -> Result {
-	view! {
+pub async fn activity(#[into] class: String) -> Result<impl View> {
+	Ok(view! {
 		icon(
 			data: ACTIVITY,
 			label: "Activity",
 			attrs: attributes! { class=(class) },
 		)
-	}
+	})
 }

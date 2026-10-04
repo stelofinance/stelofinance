@@ -16,12 +16,12 @@ use topcoat::{
 	context::Cx,
 	datastar::{PatchSignals, Signals},
 	router::{error::internal_server_error, page, route},
-	view::{component, view},
+	view::{View, ViewExt, component, view},
 };
 
 /// `GET /app/accounts` — SSR current `my_accounts` + create sheet.
 #[page]
-async fn page(cx: &Cx) -> Result {
+async fn page(cx: &Cx) -> Result<impl View> {
 	let user = require_user(cx).await?;
 	let conn = acquire_user_db(cx).await?;
 	let data = fetch_accounts_page(conn.get())
@@ -43,7 +43,7 @@ async fn page(cx: &Cx) -> Result {
 		"{{creatingAcc:false,ledgerId:'{initial_ledger_id}',accountKind:'debit',address:'',label:'',createError:'',copiedId:0,primaryIds:'{primary_ids}'}}"
 	);
 
-	view! {
+	Ok(view! {
 		<main
 			id="page-content"
 			class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10"
@@ -58,7 +58,7 @@ async fn page(cx: &Cx) -> Result {
 			)
 			accounts_list(rows: data.accounts)
 		</main>
-	}
+	})
 }
 
 /// `POST /app/accounts` — command only. List updates via `/updates` subscription.
@@ -202,12 +202,12 @@ fn create_signals(
 }
 
 #[component]
-async fn page_header(can_create: bool, initial_ledger_id: String) -> Result {
+async fn page_header(can_create: bool, initial_ledger_id: String) -> Result<impl View> {
 	let open = format!(
 		"$creatingAcc = true; $createError = ''; $ledgerId = '{initial_ledger_id}'; $accountKind = 'debit'; $address = ''; $label = ''"
 	);
 
-	view! {
+	Ok(view! {
 		<div class="mb-6 flex items-center justify-between gap-3">
 			<h1 class="text-2xl font-medium md:text-3xl">"Accounts"</h1>
 			if can_create {
@@ -221,20 +221,21 @@ async fn page_header(can_create: bool, initial_ledger_id: String) -> Result {
 				</button>
 			}
 		</div>
-	}
+	})
 }
 
 #[component]
-async fn create_form(ledgers: Vec<Ledger>, username: String, is_admin: bool) -> Result {
+async fn create_form(ledgers: Vec<Ledger>, username: String, is_admin: bool) -> Result<impl View> {
 	if ledgers.is_empty() {
-		return view! {
+		return Ok(view! {
 			<p class="mt-2 text-sm text-neutral-400">
 				"No assets are on the platform yet."
 			</p>
-		};
+		}
+		.boxed());
 	}
 
-	view! {
+	Ok(view! {
 		<div
 			data-show="$creatingAcc"
 			class="mb-6 rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5"
@@ -302,18 +303,18 @@ async fn create_form(ledgers: Vec<Ledger>, username: String, is_admin: bool) -> 
 				</button>
 			</div>
 		</div>
-	}
+	}.boxed())
 }
 
 #[component]
-async fn ledger_choice(ledger: &Ledger) -> Result {
+async fn ledger_choice(ledger: &Ledger) -> Result<impl View> {
 	let id = ledger.id.to_string();
 	let click = format!("$ledgerId = '{id}'; $createError = ''");
 	let is_on = format!("$ledgerId == '{id}'");
 	let is_off = format!("$ledgerId != '{id}'");
 	let kind = ledger_kind_label(ledger.kind);
 
-	view! {
+	Ok(view! {
 		<button
 			type="button"
 			class="flex w-full cursor-pointer items-start justify-between gap-3 rounded-lg border border-neutral-800 bg-neutral-900 p-4 text-left transition-colors hover:border-neutral-600"
@@ -337,11 +338,11 @@ async fn ledger_choice(ledger: &Ledger) -> Result {
 				"✓"
 			</span>
 		</button>
-	}
+	})
 }
 
 #[component]
-async fn create_helper(ledger: &Ledger, username: String) -> Result {
+async fn create_helper(ledger: &Ledger, username: String) -> Result<impl View> {
 	let id = ledger.id;
 	let show_first = format!(
 		"$ledgerId == '{id}' && $accountKind != 'credit' && !$primaryIds.includes('|{id}|')"
@@ -355,15 +356,15 @@ async fn create_helper(ledger: &Ledger, username: String) -> Result {
 	);
 	let existing = format!("Friends sending to @{username} still go to your primary.");
 
-	view! {
+	Ok(view! {
 		<p class="mt-3 text-sm text-neutral-300" data-show=(show_first)>(first)</p>
 		<p class="mt-3 text-sm text-neutral-300" data-show=(show_existing)>(existing)</p>
-	}
+	})
 }
 
 #[component]
-async fn admin_advanced() -> Result {
-	view! {
+async fn admin_advanced() -> Result<impl View> {
+	Ok(view! {
 		<details class="mt-4 rounded-md border border-neutral-800">
 			<summary class="cursor-pointer px-3 py-2 text-sm text-neutral-300 hover:text-white">
 				"Advanced"
@@ -394,7 +395,7 @@ async fn admin_advanced() -> Result {
 				</label>
 			</div>
 		</details>
-	}
+	})
 }
 
 fn ledger_kind_label(kind: crate::module_bindings::LedgerKind) -> &'static str {

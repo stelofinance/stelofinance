@@ -19,32 +19,32 @@ use chrome::{app_bottom_nav, app_header};
 use topcoat::{
 	Result,
 	context::Cx,
-	router::{layout, page},
-	view::view,
+	router::{Slot, layout, page},
+	view::{View, view},
 };
 
 /// Wraps every page under `/app`. Requires auth; renders app chrome (not marketing).
 #[layout]
-async fn app_layout(cx: &Cx, slot: Result) -> Result {
+async fn app_layout(cx: &Cx, slot: Slot<'_>) -> Result<impl View> {
 	let user = require_user(cx).await?;
 
-	view! {
+	Ok(view! {
 		<div class="flex min-h-dvh flex-col bg-neutral-900 pb-16 md:pb-0">
 			app_header(username: user.bitcraft_username.clone())
 			<div class="flex-1">
-				(slot?)
+				(slot)
 			</div>
 			app_bottom_nav()
 		</div>
-	}
+	})
 }
 
 /// `GET /app` — thin welcome until a real dashboard exists.
 #[page]
-async fn home(cx: &Cx) -> Result {
+async fn home(cx: &Cx) -> Result<impl View> {
 	let user = require_user(cx).await?;
 
-	view! {
+	Ok(view! {
 		<main class="flex flex-col items-center justify-center px-4 py-16 text-center text-white">
 			<p class="text-lg md:text-xl">
 				"Hey " (user.bitcraft_username.clone()) ", "
@@ -68,5 +68,5 @@ async fn home(cx: &Cx) -> Result {
 				</a>
 			</div>
 		</main>
-	}
+	})
 }

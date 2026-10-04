@@ -2,7 +2,7 @@
 
 use topcoat::{
 	Result,
-	view::{View, component, view},
+	view::{Unescaped, View, component, view},
 };
 
 const NINTRON_PROFILE: &str = include_str!("svg/nintron-profile.svg");
@@ -10,10 +10,10 @@ const NINTRON_HEX_BODY: &str = include_str!("svg/nintron-hex.svg");
 
 /// Nintron contribute-section figure (profile + spinning hex).
 #[component]
-pub async fn nintron(#[into] class: String) -> Result {
-	view! {
+pub async fn nintron(#[into] class: String) -> Result<impl View> {
+	Ok(view! {
 		<div class=(format!("relative {class}"))>
-			(View::unescaped_unchecked(NINTRON_PROFILE))
+			(Unescaped::new_unchecked(NINTRON_PROFILE))
 			<svg
 				class="absolute animate-spin-slow"
 				aria-label="Interconnected spinning hexagon"
@@ -24,8 +24,8 @@ pub async fn nintron(#[into] class: String) -> Result {
 				fill="none"
 				xmlns="http://www.w3.org/2000/svg"
 			>
-				(View::unescaped_unchecked(NINTRON_HEX_BODY))
+				(Unescaped::new_unchecked(NINTRON_HEX_BODY))
 			</svg>
 		</div>
-	}
+	})
 }

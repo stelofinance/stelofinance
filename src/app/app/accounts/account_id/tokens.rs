@@ -10,14 +10,14 @@ use topcoat::{
 	context::Cx,
 	datastar::{PatchSignals, Signals},
 	router::{path_param, route},
-	view::{component, view},
+	view::{View, component, view},
 };
 
 /// Create + one-time secret sheet. Lives outside `#account-home` so remorphs keep it.
 #[component]
-pub async fn token_forms(account_id: u64) -> Result {
+pub async fn token_forms(account_id: u64) -> Result<impl View> {
 	let create_url = format!("@post('/app/accounts/{account_id}/tokens')");
-	view! {
+	Ok(view! {
 		<section
 			class="mt-4 rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5"
 			data-show="$creatingToken && !$newToken"
@@ -92,7 +92,7 @@ pub async fn token_forms(account_id: u64) -> Result {
 				"Done"
 			</button>
 		</section>
-	}
+	})
 }
 
 /// `POST /app/accounts/{account_id}/tokens` — mint; secret in `$newToken` only.

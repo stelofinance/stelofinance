@@ -10,7 +10,7 @@ use topcoat::{
 	context::{Cx, app_context, memoize},
 	router::{
 		error::{internal_server_error, redirect},
-		uri,
+		request::uri,
 	},
 };
 
@@ -52,7 +52,7 @@ impl std::error::Error for SessionError {}
 /// failures (pool full, timeout, subscribe error) surface as
 /// [`SessionError::Backend`] so callers can 500 instead of sending the user
 /// to login.
-#[memoize]
+#[memoize(as_ref)]
 async fn resolve_session(cx: &Cx) -> std::result::Result<AppUser, SessionError> {
 	let bearer = match ensure_bearer(cx).await {
 		Ok(b) => b,

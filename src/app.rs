@@ -4,9 +4,9 @@ use topcoat::{
 	context::Cx,
 	cookie::RouterBuilderCookieExt,
 	font::{Font, font},
-	router::{Router, RouterBuilderDiscoverExt, layout, module_router, page},
+	router::{Router, RouterBuilderDiscoverExt, Slot, layout, module_router, page},
 	tailwind,
-	view::view,
+	view::{View, view},
 };
 
 mod api;
@@ -69,8 +69,8 @@ pub async fn router() -> Router {
 }
 
 #[layout]
-async fn root_layout(slot: Result) -> Result {
-	view! {
+async fn root_layout(slot: Slot<'_>) -> Result<impl View> {
+	Ok(view! {
 		<!DOCTYPE html>
 		<html lang="en">
 			<head>
@@ -94,17 +94,17 @@ async fn root_layout(slot: Result) -> Result {
 			<body class="bg-neutral-900 font-source-code-pro text-white">
 				// Document shell only. Marketing pages opt into public_nav/footer;
 				// `/app/*` uses its own chrome in `app::app` layout.
-				(slot?)
+				(slot)
 			</body>
 		</html>
-	}
+	})
 }
 
 /// Marketing homepage — port of Go `handlers.Index` + `pages/index.html.tmpl`.
 ///
 /// Auth only toggles Log In vs Dashboard; no STDB calls on this page.
 #[page]
-async fn home(cx: &Cx) -> Result {
+async fn home(cx: &Cx) -> Result<impl View> {
 	let is_authed =
 		get_cookie(cx, COOKIE_TOKEN).is_some() || get_cookie(cx, COOKIE_REFRESH).is_some();
 
@@ -149,7 +149,7 @@ async fn home(cx: &Cx) -> Result {
 	let cta_href = if is_authed { "/app" } else { "/login" };
 	let cta_label = if is_authed { "Dashboard" } else { "Log In" };
 
-	view! {
+	Ok(view! {
 		public_nav()
 		<main>
 			<div class="relative flex h-screen-available flex-col items-center justify-center">
@@ -278,5 +278,5 @@ async fn home(cx: &Cx) -> Result {
 			</div>
 		</main>
 		public_footer()
-	}
+	})
 }

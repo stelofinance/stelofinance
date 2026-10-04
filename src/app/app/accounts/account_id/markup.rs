@@ -6,7 +6,7 @@ use crate::stdb::{format_qty, format_rel_time, unix_now_micros};
 use spacetimedb_sdk::Identity;
 use topcoat::{
 	Result,
-	view::{Unescaped, component, view},
+	view::{Unescaped, View, component, view},
 };
 
 #[derive(Clone)]
@@ -16,10 +16,10 @@ pub struct HomeChrome {
 }
 
 #[component]
-pub async fn account_home(data: AccountHomeData, chrome: HomeChrome) -> Result {
-	view! {
+pub async fn account_home(data: AccountHomeData, chrome: HomeChrome) -> Result<impl View> {
+	Ok(view! {
 		(Unescaped::new_unchecked(account_home_html(&data, &chrome)))
-	}
+	})
 }
 
 pub fn account_home_html(data: &AccountHomeData, chrome: &HomeChrome) -> String {
@@ -148,10 +148,10 @@ pub fn account_home_html(data: &AccountHomeData, chrome: &HomeChrome) -> String 
 
 /// Live `#account-people` — sits below the request-link form so remorphs skip it.
 #[component]
-pub async fn account_people(data: AccountHomeData, chrome: HomeChrome) -> Result {
-	view! {
+pub async fn account_people(data: AccountHomeData, chrome: HomeChrome) -> Result<impl View> {
+	Ok(view! {
 		(Unescaped::new_unchecked(account_people_html(&data, &chrome)))
-	}
+	})
 }
 
 pub fn account_people_html(data: &AccountHomeData, chrome: &HomeChrome) -> String {
@@ -178,10 +178,10 @@ pub fn account_people_html(data: &AccountHomeData, chrome: &HomeChrome) -> Strin
 /// Live `#account-tokens` — API token list. Admin+ only (empty for others).
 /// Create sheet lives outside this fragment so remorphs don't wipe it.
 #[component]
-pub async fn account_tokens(data: AccountHomeData, chrome: HomeChrome) -> Result {
-	view! {
+pub async fn account_tokens(data: AccountHomeData, chrome: HomeChrome) -> Result<impl View> {
+	Ok(view! {
 		(Unescaped::new_unchecked(account_tokens_html(&data, &chrome)))
-	}
+	})
 }
 
 pub fn account_tokens_html(data: &AccountHomeData, chrome: &HomeChrome) -> String {

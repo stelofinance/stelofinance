@@ -6,7 +6,7 @@ use crate::stdb::{ActivitySnapshot, day_heading, format_rel_time};
 use std::collections::HashSet;
 use topcoat::{
 	Result,
-	view::{Unescaped, component, view},
+	view::{Unescaped, View, component, view},
 };
 
 #[component]
@@ -14,10 +14,10 @@ pub async fn activity_body(
 	data: ActivitySnapshot,
 	selected: Option<u64>,
 	now_micros: i64,
-) -> Result {
-	view! {
+) -> Result<impl View> {
+	Ok(view! {
 		(Unescaped::new_unchecked(activity_body_html(&data, selected, now_micros)))
-	}
+	})
 }
 
 pub fn activity_body_html(

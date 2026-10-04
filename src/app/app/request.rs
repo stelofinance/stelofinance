@@ -13,7 +13,7 @@ use topcoat::{
 	context::Cx,
 	datastar::{PatchSignals, Signals},
 	router::{error::internal_server_error, page, query_params, route},
-	view::{Unescaped, component, view},
+	view::{Unescaped, View, ViewExt, component, view},
 };
 
 const MAX_MEMO_LEN: usize = 32;
@@ -42,7 +42,7 @@ enum PayQueryError {
 
 /// `GET /app/request` — confirm a query-prefilled payment.
 #[page]
-async fn page(cx: &Cx) -> Result {
+async fn page(cx: &Cx) -> Result<impl View> {
 	let _user = require_user(cx).await?;
 	let raw = query_params::<PayQuery>(cx).ok();
 	let ledgerid = raw.and_then(|q| q.ledgerid.clone());
@@ -57,9 +57,10 @@ async fn page(cx: &Cx) -> Result {
 	) {
 		Ok(s) => s,
 		Err(_) => {
-			return view! {
+			return Ok(view! {
 				invalid_link()
-			};
+			}
+			.boxed());
 		}
 	};
 
@@ -73,17 +74,19 @@ async fn page(cx: &Cx) -> Result {
 		.find(|l| l.id == spec.ledger_id)
 		.cloned()
 	else {
-		return view! {
+		return Ok(view! {
 			invalid_link()
-		};
+		}
+		.boxed());
 	};
 
 	let recipient = match lookup_account(conn.get(), spec.recipient_id).await {
 		Ok(hit) if hit.ledger_id == spec.ledger_id => hit,
 		Ok(_) | Err(_) => {
-			return view! {
+			return Ok(view! {
 				invalid_link()
-			};
+			}
+			.boxed());
 		}
 	};
 
@@ -114,7 +117,7 @@ async fn page(cx: &Cx) -> Result {
 		memo: spec.memo.clone(),
 	};
 
-	view! {
+	Ok(view! {
 		<main
 			id="page-content"
 			class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10"
@@ -135,6 +138,7 @@ async fn page(cx: &Cx) -> Result {
 			}
 		</main>
 	}
+	.boxed())
 }
 
 #[derive(Clone)]
@@ -147,8 +151,8 @@ struct Invoice {
 }
 
 #[component]
-async fn invalid_link() -> Result {
-	view! {
+async fn invalid_link() -> Result<impl View> {
+	Ok(view! {
 		<main class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10">
 			<h1 class="mb-6 text-2xl font-medium md:text-3xl">"Pay"</h1>
 			<div class="rounded-lg border border-neutral-800 bg-neutral-950 px-5 py-10 text-center">
@@ -162,12 +166,12 @@ async fn invalid_link() -> Result {
 				</a>
 			</div>
 		</main>
-	}
+	})
 }
 
 #[component]
-async fn no_account(#[into] ledger_name: String) -> Result {
-	view! {
+async fn no_account(#[into] ledger_name: String) -> Result<impl View> {
+	Ok(view! {
 		<div class="mt-6 rounded-lg border border-neutral-800 bg-neutral-950 px-5 py-10 text-center">
 			<p class="text-neutral-300">
 				"You need a writable "
@@ -184,14 +188,14 @@ async fn no_account(#[into] ledger_name: String) -> Result {
 				"Accounts"
 			</a>
 		</div>
-	}
+	})
 }
 
 #[component]
-async fn invoice_card(invoice: Invoice) -> Result {
-	view! {
+async fn invoice_card(invoice: Invoice) -> Result<impl View> {
+	Ok(view! {
 		(Unescaped::new_unchecked(invoice_html(&invoice)))
-	}
+	})
 }
 
 fn invoice_html(invoice: &Invoice) -> String {
@@ -232,7 +236,7 @@ async fn pay_form(
 	selected_id: u64,
 	invoice: Invoice,
 	amount: u64,
-) -> Result {
+) -> Result<impl View> {
 	let short = short_expr(&accounts, amount);
 	let disabled = if short.is_empty() {
 		"$sending || !$fromId".to_owned()
@@ -244,7 +248,7 @@ async fn pay_form(
 	let sent_addr = invoice.recipient_addr.clone();
 	let sent_qty = format!("{} {}", invoice.qty, invoice.ledger_name);
 
-	view! {
+	Ok(view! {
 		<div class="mt-6" data-show="!$sent">
 			from_panel(accounts: accounts.clone(), can_pick: can_pick, selected_id: selected_id)
 			short_hints(accounts: accounts, amount: amount, selected_id: selected_id)
@@ -293,30 +297,35 @@ async fn pay_form(
 				</div>
 			</div>
 		</div>
-	}
+	})
 }
 
 #[component]
-async fn short_hints(accounts: Vec<MyAccountRow>, amount: u64, selected_id: u64) -> Result {
-	view! {
+async fn short_hints(
+	accounts: Vec<MyAccountRow>,
+	amount: u64,
+	selected_id: u64,
+) -> Result<impl View> {
+	Ok(view! {
 		for acc in accounts.iter().filter(|a| a.balance < amount) {
 			short_hint(acc: acc, amount: amount, selected: acc.account_id == selected_id)
 		}
-	}
+	})
 }
 
 #[component]
-async fn short_hint(acc: &MyAccountRow, amount: u64, selected: bool) -> Result {
+async fn short_hint(acc: &MyAccountRow, amount: u64, selected: bool) -> Result<impl View> {
 	let _ = amount;
 	let show = format!("$fromId == '{}'", acc.account_id);
 	if selected {
-		view! {
+		Ok(view! {
 			<p class="mt-2 text-sm text-red-400" data-show=(show)>
 				"Not enough available on this account."
 			</p>
 		}
+		.boxed())
 	} else {
-		view! {
+		Ok(view! {
 			<p
 				class="mt-2 text-sm text-red-400"
 				data-show=(show)
@@ -325,6 +334,7 @@ async fn short_hint(acc: &MyAccountRow, amount: u64, selected: bool) -> Result {
 				"Not enough available on this account."
 			</p>
 		}
+		.boxed())
 	}
 }
 

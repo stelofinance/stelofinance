@@ -25,17 +25,18 @@ use topcoat::{
 	datastar::{PatchSignals, Signals},
 	router::{
 		error::{internal_server_error, not_found},
-		page, path_param, route,
+		module_param, page, path_param, route,
 	},
-	view::{component, view},
+	view::{View, component, view},
 };
 use webhook::webhook_form;
 
-#[path_param(error = not_found)]
-pub struct AccountId(u64);
+// `module_param!` both declares `AccountId` and makes this module's URL segment
+// `{account_id}`. `path_param!` alone would leave the segment static.
+module_param!(pub account_id: u64, error = not_found);
 
 #[page]
-async fn show(cx: &Cx) -> Result {
+async fn show(cx: &Cx) -> Result<impl View> {
 	let user = require_user(cx).await?;
 	let account_id = *path_param::<AccountId>(cx)?;
 	let conn = acquire_user_db(cx).await?;
@@ -66,7 +67,7 @@ async fn show(cx: &Cx) -> Result {
 		caller_username: user.bitcraft_username.clone(),
 	};
 
-	view! {
+	Ok(view! {
 		<main
 			id="page-content"
 			class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10"
@@ -95,7 +96,7 @@ async fn show(cx: &Cx) -> Result {
 				data-text="$accountError"
 			></p>
 		</main>
-	}
+	})
 }
 
 #[component]
@@ -104,7 +105,7 @@ async fn add_permission_form(
 	members_url: String,
 	users_url: String,
 	apps_url: String,
-) -> Result {
+) -> Result<impl View> {
 	let _ = account_id;
 	let user_search = format!("@get('{users_url}')");
 	let app_search = format!("@get('{apps_url}')");
@@ -117,7 +118,7 @@ async fn add_permission_form(
 	// (`expected =`), so use the object form. Hyphen `data-class-bg-*` is ignored.
 	let person_cls = "{'bg-anakiwa-700': $permKind == 'user', 'text-white': $permKind == 'user', 'bg-neutral-800': $permKind != 'user', 'text-neutral-300': $permKind != 'user'}";
 	let app_cls = "{'bg-anakiwa-700': $permKind == 'app', 'text-white': $permKind == 'app', 'bg-neutral-800': $permKind != 'app', 'text-neutral-300': $permKind != 'app'}";
-	view! {
+	Ok(view! {
 		<section
 			class="mt-4 rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5"
 			data-show="$addingPerm"
@@ -216,12 +217,12 @@ async fn add_permission_form(
 				</button>
 			</div>
 		</section>
-	}
+	})
 }
 
 #[component]
-async fn admin_forms(label_url: String) -> Result {
-	view! {
+async fn admin_forms(label_url: String) -> Result<impl View> {
+	Ok(view! {
 		<section class="mt-8 rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5">
 			<h2 class="text-sm font-medium uppercase tracking-wide text-neutral-400">
 				"Label"
@@ -248,7 +249,7 @@ async fn admin_forms(label_url: String) -> Result {
 				</button>
 			</div>
 		</section>
-	}
+	})
 }
 
 #[route(POST "/app/accounts/{account_id}/primary")]

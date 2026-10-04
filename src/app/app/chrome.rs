@@ -11,8 +11,8 @@ use topcoat::{
 	Result,
 	context::Cx,
 	icon::{IconData, icon, iconify::iconify_icon},
-	router::uri,
-	view::{attributes, component, view},
+	router::request::uri,
+	view::{View, attributes, component, view},
 };
 
 /// Lucide chevron for the Transfer `<details>` summary (Iconify, compile-time).
@@ -74,7 +74,7 @@ fn bottom_link_class(active: bool) -> &'static str {
 
 /// Sticky top header for all `/app/*` pages.
 #[component]
-pub async fn app_header(cx: &Cx, #[into] username: String) -> Result {
+pub async fn app_header(cx: &Cx, #[into] username: String) -> Result<impl View> {
 	let section = section_from_path(uri(cx).path());
 	let accounts_on = section == NavSection::Accounts;
 	let activity_on = section == NavSection::Activity;
@@ -99,7 +99,7 @@ pub async fn app_header(cx: &Cx, #[into] username: String) -> Result {
 		"ml-auto max-w-[40vw] truncate text-sm text-neutral-300 hover:text-white md:text-base"
 	};
 
-	view! {
+	Ok(view! {
 		<header
 			class="sticky top-0 z-30 border-b border-neutral-800 bg-neutral-900"
 			aria-label="App header"
@@ -182,18 +182,18 @@ pub async fn app_header(cx: &Cx, #[into] username: String) -> Result {
 				</a>
 			</nav>
 		</header>
-	}
+	})
 }
 
 /// Compact bottom destinations — mobile only (`md:hidden`).
 #[component]
-pub async fn app_bottom_nav(cx: &Cx) -> Result {
+pub async fn app_bottom_nav(cx: &Cx) -> Result<impl View> {
 	let section = section_from_path(uri(cx).path());
 	let accounts_on = section == NavSection::Accounts;
 	let activity_on = section == NavSection::Activity;
 	let transfer_on = section == NavSection::Transfer;
 
-	view! {
+	Ok(view! {
 		<nav
 			class="fixed inset-x-0 bottom-0 z-30 border-t border-neutral-800 bg-neutral-900/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
 			aria-label="App destinations"
@@ -213,18 +213,18 @@ pub async fn app_bottom_nav(cx: &Cx) -> Result {
 				</a>
 			</div>
 		</nav>
-	}
+	})
 }
 
 /// Shared stub body for unfinished app pages.
 #[component]
-pub async fn stub_page(#[into] title: String, #[into] blurb: String) -> Result {
-	view! {
+pub async fn stub_page(#[into] title: String, #[into] blurb: String) -> Result<impl View> {
+	Ok(view! {
 		<main class="mx-auto max-w-5xl px-4 py-10 text-center text-white">
 			<h1 class="text-2xl font-medium md:text-3xl">(title)</h1>
 			<p class="mx-auto mt-3 max-w-md text-sm text-neutral-300 md:text-base">
 				(blurb)
 			</p>
 		</main>
-	}
+	})
 }

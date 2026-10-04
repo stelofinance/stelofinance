@@ -6,16 +6,16 @@ use topcoat::{
 	context::Cx,
 	datastar::{PatchSignals, Signals},
 	router::{page, route},
-	view::view,
+	view::{View, view},
 };
 
 /// `GET /app/withdraw` — player debit → issuer credit.
 #[page]
-async fn page(cx: &Cx) -> Result {
+async fn page(cx: &Cx) -> Result<impl View> {
 	let _ = cx;
-	view! {
+	Ok(view! {
 		flow_page(flow: Flow::Withdraw)
-	}
+	})
 }
 
 #[route(POST)]

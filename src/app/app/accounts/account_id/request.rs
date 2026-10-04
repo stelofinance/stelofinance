@@ -10,21 +10,21 @@ use topcoat::{
 	context::Cx,
 	datastar::{PatchSignals, Signals},
 	router::{path_param, route},
-	view::{component, view},
+	view::{View, component, view},
 };
 
 const MAX_MEMO_LEN: usize = 32;
 
 /// Amount + memo form. Lives outside remorph targets so typing survives `/updates`.
 #[component]
-pub async fn request_form(account_id: u64, ledger_name: String, debit: bool) -> Result {
+pub async fn request_form(account_id: u64, ledger_name: String, debit: bool) -> Result<impl View> {
 	let create = format!("@post('/app/accounts/{account_id}/request')");
 	let helper = if debit {
 		"Share a link so someone can pay this account."
 	} else {
 		"Share a link so someone can pay this issuer account."
 	};
-	view! {
+	Ok(view! {
 		<section class="mt-10">
 			<div data-show="!$requestLink">
 				<h2 class="text-sm font-medium uppercase tracking-wide text-neutral-400">
@@ -129,7 +129,7 @@ pub async fn request_form(account_id: u64, ledger_name: String, debit: bool) -> 
 				</div>
 			</div>
 		</section>
-	}
+	})
 }
 
 /// `POST /app/accounts/{account_id}/request` — path+query in `$requestLink`.

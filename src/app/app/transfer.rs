@@ -16,7 +16,7 @@ use topcoat::{
 	context::Cx,
 	datastar::{PatchSignals, Signals},
 	router::{error::internal_server_error, page, query_params, route},
-	view::{component, view},
+	view::{View, ViewExt, component, view},
 };
 
 #[query_params]
@@ -26,7 +26,7 @@ struct SendQuery {
 
 /// `GET /app/transfer` — from-account, recipient, amount, memo.
 #[page]
-async fn page(cx: &Cx) -> Result {
+async fn page(cx: &Cx) -> Result<impl View> {
 	let _user = require_user(cx).await?;
 	let requested = query_params::<SendQuery>(cx)
 		.ok()
@@ -54,7 +54,7 @@ async fn page(cx: &Cx) -> Result {
 		"{{fromId:'{from_id}',fromLedgerId:'{from_ledger}',pickingFrom:false,recipientId:'',recipientName:'',recipientAddr:'',recipientLabel:'',recipientSearch:'',amount:'',memo:'',idempotencyKey:'{key}',sendError:'',sent:false,sentQty:'',sentTo:'',sentAddr:''}}"
 	);
 
-	view! {
+	Ok(view! {
 		<main
 			id="page-content"
 			class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10"
@@ -71,12 +71,12 @@ async fn page(cx: &Cx) -> Result {
 				)
 			}
 		</main>
-	}
+	})
 }
 
 #[component]
-async fn empty_state() -> Result {
-	view! {
+async fn empty_state() -> Result<impl View> {
+	Ok(view! {
 		<div class="rounded-lg border border-neutral-800 bg-neutral-950 px-5 py-10 text-center">
 			<p class="text-neutral-300">"You need a writable account to send."</p>
 			<p class="mt-2 text-sm text-neutral-400">
@@ -89,12 +89,16 @@ async fn empty_state() -> Result {
 				"Create an account"
 			</a>
 		</div>
-	}
+	})
 }
 
 #[component]
-async fn send_form(accounts: Vec<MyAccountRow>, can_pick: bool, selected_id: u64) -> Result {
-	view! {
+async fn send_form(
+	accounts: Vec<MyAccountRow>,
+	can_pick: bool,
+	selected_id: u64,
+) -> Result<impl View> {
+	Ok(view! {
 		<div data-show="!$sent">
 			from_panel(accounts: accounts.clone(), can_pick: can_pick, selected_id: selected_id)
 
@@ -230,29 +234,30 @@ async fn send_form(accounts: Vec<MyAccountRow>, can_pick: bool, selected_id: u64
 				</button>
 			</div>
 		</div>
-	}
+	})
 }
 
 #[component]
-async fn amount_suffixes(accounts: Vec<MyAccountRow>, selected_id: u64) -> Result {
-	view! {
+async fn amount_suffixes(accounts: Vec<MyAccountRow>, selected_id: u64) -> Result<impl View> {
+	Ok(view! {
 		for acc in &accounts {
 			ledger_suffix(acc: acc, selected: acc.account_id == selected_id)
 		}
-	}
+	})
 }
 
 #[component]
-async fn ledger_suffix(acc: &MyAccountRow, selected: bool) -> Result {
+async fn ledger_suffix(acc: &MyAccountRow, selected: bool) -> Result<impl View> {
 	let show = format!("$fromId == '{}'", acc.account_id);
 	if selected {
-		view! {
+		Ok(view! {
 			<span class="shrink-0 text-sm text-neutral-300" data-show=(show)>
 				(acc.ledger_name.clone())
 			</span>
 		}
+		.boxed())
 	} else {
-		view! {
+		Ok(view! {
 			<span
 				class="shrink-0 text-sm text-neutral-300"
 				data-show=(show)
@@ -261,31 +266,33 @@ async fn ledger_suffix(acc: &MyAccountRow, selected: bool) -> Result {
 				(acc.ledger_name.clone())
 			</span>
 		}
+		.boxed())
 	}
 }
 
 #[component]
-async fn amount_hints(accounts: Vec<MyAccountRow>, selected_id: u64) -> Result {
-	view! {
+async fn amount_hints(accounts: Vec<MyAccountRow>, selected_id: u64) -> Result<impl View> {
+	Ok(view! {
 		for acc in &accounts {
 			avail_hint(acc: acc, selected: acc.account_id == selected_id)
 		}
-	}
+	})
 }
 
 #[component]
-async fn avail_hint(acc: &MyAccountRow, selected: bool) -> Result {
+async fn avail_hint(acc: &MyAccountRow, selected: bool) -> Result<impl View> {
 	let show = format!("$fromId == '{}'", acc.account_id);
 	let qty = crate::stdb::format_qty(acc.balance, acc.ledger_scale);
 	if selected {
-		view! {
+		Ok(view! {
 			<p class="mt-1 text-xs text-neutral-400" data-show=(show)>
 				"Available "
 				<span class="text-anakiwa">(qty)</span>
 			</p>
 		}
+		.boxed())
 	} else {
-		view! {
+		Ok(view! {
 			<p
 				class="mt-1 text-xs text-neutral-400"
 				data-show=(show)
@@ -295,6 +302,7 @@ async fn avail_hint(acc: &MyAccountRow, selected: bool) -> Result {
 				<span class="text-anakiwa">(qty)</span>
 			</p>
 		}
+		.boxed())
 	}
 }
 

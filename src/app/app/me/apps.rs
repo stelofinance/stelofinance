@@ -12,14 +12,14 @@ use topcoat::{
 	context::{Cx, app_context},
 	datastar::PatchSignals,
 	router::route,
-	view::{Unescaped, component, view},
+	view::{Unescaped, View, component, view},
 };
 
 #[component]
-pub async fn my_apps_list(data: MyAppsData, mint_enabled: bool) -> Result {
-	view! {
+pub async fn my_apps_list(data: MyAppsData, mint_enabled: bool) -> Result<impl View> {
+	Ok(view! {
 		(Unescaped::new_unchecked(my_apps_html(&data, mint_enabled)))
-	}
+	})
 }
 
 pub fn my_apps_html(data: &MyAppsData, mint_enabled: bool) -> String {
@@ -90,10 +90,10 @@ pub fn my_apps_html(data: &MyAppsData, mint_enabled: bool) -> String {
 
 /// New-app form + one-time token sheet (outside live remorph).
 #[component]
-pub async fn app_forms(mint_enabled: bool) -> Result {
+pub async fn app_forms(mint_enabled: bool) -> Result<impl View> {
 	let go_create = "window.location.href = '/auth/spacetimeauth/login?redirect=/app/me&purpose=create&name=' + encodeURIComponent($appName.trim())".to_owned();
 	let go_replace = "window.location.href = '/auth/spacetimeauth/login?redirect=/app/me&purpose=replace&name=' + encodeURIComponent($appName.trim())".to_owned();
-	view! {
+	Ok(view! {
 		if mint_enabled {
 			<section
 				class="mt-4 rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5"
@@ -228,7 +228,7 @@ pub async fn app_forms(mint_enabled: bool) -> Result {
 				"Done"
 			</button>
 		</section>
-	}
+	})
 }
 
 #[route(GET "/app/me/apps/mint")]

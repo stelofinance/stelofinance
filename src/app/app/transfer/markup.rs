@@ -5,14 +5,18 @@ use crate::stdb::DirectoryHit;
 use crate::stdb::format_qty;
 use topcoat::{
 	Result,
-	view::{Unescaped, component, view},
+	view::{Unescaped, View, component, view},
 };
 
 #[component]
-pub async fn from_panel(accounts: Vec<MyAccountRow>, can_pick: bool, selected_id: u64) -> Result {
-	view! {
+pub async fn from_panel(
+	accounts: Vec<MyAccountRow>,
+	can_pick: bool,
+	selected_id: u64,
+) -> Result<impl View> {
+	Ok(view! {
 		(Unescaped::new_unchecked(from_panel_html(&accounts, can_pick, selected_id)))
-	}
+	})
 }
 
 pub fn from_panel_html(accounts: &[MyAccountRow], can_pick: bool, selected_id: u64) -> String {

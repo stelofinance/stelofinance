@@ -2,7 +2,7 @@
 
 use topcoat::{
 	Result,
-	view::{component, view},
+	view::{View, component, view},
 };
 
 use super::icons::logo_full;
@@ -28,8 +28,8 @@ const FOOTER_LINKS: &[FooterLink] = &[
 ];
 
 #[component]
-pub async fn public_footer() -> Result {
-	view! {
+pub async fn public_footer() -> Result<impl View> {
+	Ok(view! {
 		<footer class="relative flex items-center gap-4 px-3 pt-4 pb-8 text-white lg:gap-10 lg:px-16 lg:pt-6 lg:pb-10 2xl:gap-12">
 			logo_full(class: "mr-auto h-auto w-24 lg:w-32 2xl:w-36")
 			for link in FOOTER_LINKS {
@@ -46,5 +46,5 @@ pub async fn public_footer() -> Result {
 				"Not affiliated with Clockwork Labs"
 			</p>
 		</footer>
-	}
+	})
 }

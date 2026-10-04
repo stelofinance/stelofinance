@@ -4,7 +4,7 @@ use topcoat::{
 	Result,
 	context::Cx,
 	router::{page, query_params},
-	view::view,
+	view::{View, view},
 };
 
 #[query_params]
@@ -17,7 +17,7 @@ struct LoginPageQuery {
 /// Forwards a safe `?redirect=` to the OIDC start so `/app` gates can return
 /// the user to the page they wanted after sign-in.
 #[page]
-async fn login(cx: &Cx) -> Result {
+async fn login(cx: &Cx) -> Result<impl View> {
 	let bitauth_href = match query_params::<LoginPageQuery>(cx) {
 		Ok(q) => match q.redirect.as_deref() {
 			Some(r) if is_valid_redirect(r) => format!("/auth/bitauth/login?redirect={r}"),
@@ -26,7 +26,7 @@ async fn login(cx: &Cx) -> Result {
 		Err(_) => "/auth/bitauth/login".to_owned(),
 	};
 
-	view! {
+	Ok(view! {
 		public_nav()
 		<main class="flex h-screen-available flex-col items-center justify-center px-4 text-white">
 			<h1 class="text-4xl font-medium">"Login"</h1>
@@ -43,5 +43,5 @@ async fn login(cx: &Cx) -> Result {
 			</p>
 		</main>
 		public_footer()
-	}
+	})
 }

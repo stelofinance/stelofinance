@@ -37,7 +37,7 @@
         rustc = rustToolchain;
       };
 
-      topcoatCliVersion = "0.5.0";
+      topcoatCliVersion = "0.10.0";
       topcoat-cli = rustPlatform.buildRustPackage {
         pname = "topcoat-cli";
         version = topcoatCliVersion;
@@ -45,11 +45,11 @@
         src = pkgs.fetchCrate {
           pname = "topcoat-cli";
           version = topcoatCliVersion;
-          hash = "sha256-Z/Z9KCIj6M36MvKOpC3b0S24MPpov2nQCdNCg1Fp98U=";
+          hash = "sha256-lk13D/RqrskzhXwLNz+KEbWowllQqGxoGU47T4ZdBvk=";
         };
 
         # Vendor hash of crates.io deps from Cargo.lock; rebuild to refresh when bumping version.
-        cargoHash = "sha256-9KeF31rlUp5EuirfvIN7Cs0KUuZFvirYyQWFB4Ud5CE=";
+        cargoHash = "sha256-/uztLZLC8A7lgAin8YoIrhv3+mOvy7OKJWdfAbQay9g=";
 
         # Skip tests: crate tests pull in the full topcoat framework and are not needed for the CLI bin.
         doCheck = false;

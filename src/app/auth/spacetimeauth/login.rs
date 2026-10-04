@@ -21,7 +21,7 @@ struct LoginStartQuery {
 
 /// Start SpacetimeAuth OIDC. Requires a BitAuth session. Does not touch BitAuth cookies.
 #[page]
-async fn login(cx: &Cx) -> Result {
+async fn login(cx: &Cx) -> Result<()> {
 	let _user = require_user(cx).await?;
 	let stauth = app_context::<SpacetimeAuthState>(cx);
 	let Some(client) = stauth.client.as_ref() else {

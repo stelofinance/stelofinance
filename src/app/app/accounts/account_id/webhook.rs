@@ -10,19 +10,19 @@ use topcoat::{
 	context::Cx,
 	datastar::{PatchSignals, Signals},
 	router::{path_param, route},
-	view::{component, view},
+	view::{View, component, view},
 };
 
 /// Lives below API tokens. Input is signal-bound so remorphs of the token list stay out of the way.
 #[component]
-pub async fn webhook_form(account_id: u64) -> Result {
+pub async fn webhook_form(account_id: u64) -> Result<impl View> {
 	let save = format!(
 		"$webhookNotice = ''; $webhookError = ''; @post('/app/accounts/{account_id}/webhook')"
 	);
 	let clear = format!(
 		"$webhookUrl = ''; $webhookNotice = ''; $webhookError = ''; @post('/app/accounts/{account_id}/webhook')"
 	);
-	view! {
+	Ok(view! {
 		<section class="mt-10">
 			<h2 class="text-sm font-medium uppercase tracking-wide text-neutral-400">
 				"Webhook"
@@ -69,7 +69,7 @@ pub async fn webhook_form(account_id: u64) -> Result {
 				data-text="$webhookError"
 			></p>
 		</section>
-	}
+	})
 }
 
 /// `POST /app/accounts/{account_id}/webhook` — set or clear (`None` if blank).

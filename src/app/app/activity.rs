@@ -14,7 +14,7 @@ use topcoat::{
 	Result,
 	context::Cx,
 	router::{error::internal_server_error, page, query_params},
-	view::view,
+	view::{View, view},
 };
 
 #[query_params]
@@ -24,7 +24,7 @@ struct ActivityQuery {
 
 /// `GET /app/activity` — chips + day-grouped `my_transfers`. Optional `?account=`.
 #[page]
-async fn page(cx: &Cx) -> Result {
+async fn page(cx: &Cx) -> Result<impl View> {
 	let _user = require_user(cx).await?;
 	let requested = query_params::<ActivityQuery>(cx)
 		.ok()
@@ -40,7 +40,7 @@ async fn page(cx: &Cx) -> Result {
 		format!("{{accountId:'{account_id}',finalizeId:'',finalizeAction:'',finalizeError:''}}");
 	let now = unix_now_micros();
 
-	view! {
+	Ok(view! {
 		<main
 			id="page-content"
 			class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10"
@@ -63,5 +63,5 @@ async fn page(cx: &Cx) -> Result {
 				data-text="$finalizeError"
 			></p>
 		</main>
-	}
+	})
 }

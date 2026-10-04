@@ -5,8 +5,9 @@ use topcoat::{
 	Result,
 	context::{Cx, app_context},
 	router::{
-		Bytes, HeaderMap, HeaderValue, StatusCode, header, headers, method, raw_path_params, route,
-		segment, uri,
+		HeaderMap, HeaderValue, RawPathParamValue, StatusCode, header, raw_path_params,
+		request::{Bytes, headers, method, uri},
+		route, segment,
 	},
 };
 
@@ -21,9 +22,6 @@ async fn proxy(cx: &Cx, body: Bytes) -> Result<(StatusCode, HeaderMap, Bytes)> {
 	let Some(path) = catch_all_path(cx) else {
 		return Ok(json_status(StatusCode::BAD_REQUEST, BAD_PATH));
 	};
-	if !is_safe_module_path(path) {
-		return Ok(json_status(StatusCode::BAD_REQUEST, BAD_PATH));
-	}
 
 	let stdb = app_context::<StdbState>(cx);
 	let url = stdb.config.module_route_url(path, uri(cx).query());
@@ -55,17 +53,20 @@ async fn proxy(cx: &Cx, body: Bytes) -> Result<(StatusCode, HeaderMap, Bytes)> {
 	Ok((status, out_headers, bytes))
 }
 
+/// Encoded catch-all tail, after rejecting empty, `.`, and `..` segments.
+///
+/// `raw_path_params` yields a [`RawPathParamValue`]: the tail keeps the
+/// client's percent-encoding (so it can be placed in the upstream URL), and
+/// the segments are decoded for the safety check.
 fn catch_all_path(cx: &Cx) -> Option<&str> {
-	raw_path_params(cx)
-		.iter()
-		.find_map(|(name, value)| (name == "path").then_some(value))
-}
-
-fn is_safe_module_path(path: &str) -> bool {
-	!path.is_empty()
-		&& path
-			.split('/')
-			.all(|seg| !seg.is_empty() && seg != "." && seg != "..")
+	let (_, value) = raw_path_params(cx).find(|(name, _)| *name == "path")?;
+	let RawPathParamValue::CatchAll { tail, segments } = value else {
+		return None;
+	};
+	let safe = segments
+		.clone()
+		.all(|seg| !seg.is_empty() && seg != "." && seg != "..");
+	safe.then_some(tail)
 }
 
 fn copy_allowlisted_headers(

@@ -10,7 +10,7 @@ use topcoat::{
 	context::Cx,
 	datastar::{PatchSignals, Signals},
 	router::{error::not_found, page, route},
-	view::view,
+	view::{View, view},
 };
 
 async fn require_admin(cx: &Cx) -> Result<&AppUser> {
@@ -23,9 +23,9 @@ async fn require_admin(cx: &Cx) -> Result<&AppUser> {
 
 /// `GET /app/admin` — 404 unless `User.is_admin`.
 #[page]
-async fn page(cx: &Cx) -> Result {
+async fn page(cx: &Cx) -> Result<impl View> {
 	let _user = require_admin(cx).await?;
-	view! {
+	Ok(view! {
 		<main
 			id="page-content"
 			class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10"
@@ -99,7 +99,7 @@ async fn page(cx: &Cx) -> Result {
 				></p>
 			</section>
 		</main>
-	}
+	})
 }
 
 #[derive(Debug, Deserialize)]

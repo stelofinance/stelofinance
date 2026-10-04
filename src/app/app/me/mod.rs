@@ -12,7 +12,7 @@ use topcoat::{
 	Result,
 	context::{Cx, app_context},
 	router::{error::internal_server_error, page, query_params},
-	view::view,
+	view::{View, view},
 };
 
 #[allow(non_snake_case)]
@@ -22,7 +22,7 @@ struct MeQuery {
 }
 
 #[page]
-async fn me(cx: &Cx) -> Result {
+async fn me(cx: &Cx) -> Result<impl View> {
 	let user = require_user(cx).await?;
 	let conn = acquire_user_db(cx).await?;
 	let data = fetch_my_apps(conn.get())
@@ -45,7 +45,7 @@ async fn me(cx: &Cx) -> Result {
 		js_single(&app_error)
 	);
 
-	view! {
+	Ok(view! {
 		<main
 			id="page-content"
 			class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10"
@@ -87,7 +87,7 @@ async fn me(cx: &Cx) -> Result {
 				</form>
 			</section>
 		</main>
-	}
+	})
 }
 
 fn js_single(s: &str) -> String {

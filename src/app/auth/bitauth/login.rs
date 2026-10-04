@@ -19,7 +19,7 @@ struct LoginStartQuery {
 
 /// Start BitAuth OIDC: set CSRF/PKCE cookies and redirect to the IdP.
 #[page]
-async fn login(cx: &Cx) -> Result {
+async fn login(cx: &Cx) -> Result<()> {
 	let start = app_context::<BitAuth>(cx).auth_start();
 	let jar = cookies(cx);
 	let oauth_age = Duration::seconds(OAUTH_ROUNDTRIP_MAX_AGE_SECS);
