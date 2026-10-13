@@ -9,9 +9,11 @@ use crate::module_bindings::{
 	SubscriptionHandle as ModuleSubHandle, app_search, create_app_ticket,
 	my_app_ticketsQueryTableAccess, my_appsQueryTableAccess, replace_app_ticket,
 };
+use serde::Deserialize;
 use spacetimedb_sdk::{DbContext, Event, SubscriptionHandle, Table, TableWithPrimaryKey};
 use tokio::task::spawn_blocking;
 
+use super::StdbState;
 use super::connector::StdbConn;
 use super::query::subscribe_once;
 
@@ -73,6 +75,33 @@ async fn wait_reducer(
 	.await
 	.map_err(|e| format!("reducer wait task: {e}"))?;
 	wait?
+}
+
+/// Identity + locally-signed token minted by the SpacetimeDB host.
+#[derive(Deserialize)]
+pub struct MintedIdentity {
+	/// Lowercase hex identity.
+	pub identity: String,
+	pub token: String,
+}
+
+/// `POST /v1/identity` on the SpacetimeDB host.
+pub async fn mint_app_identity(stdb: &StdbState) -> Result<MintedIdentity, String> {
+	let resp = stdb
+		.http
+		.post(stdb.config.identity_url())
+		.send()
+		.await
+		.map_err(|e| format!("identity mint: {e}"))?;
+	if !resp.status().is_success() {
+		return Err(format!("identity mint: host returned {}", resp.status()));
+	}
+	let mut minted: MintedIdentity = resp
+		.json()
+		.await
+		.map_err(|e| format!("identity mint response: {e}"))?;
+	minted.identity.make_ascii_lowercase();
+	Ok(minted)
 }
 
 pub async fn create_user_app_ticket(

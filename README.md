@@ -11,7 +11,7 @@ For API documentation, see [here](docs/api)
 Domain logic lives in the SpacetimeDB module (`spacetimedb/`). The website is a stateless Rust [Topcoat](https://github.com/tokio-rs/topcoat) edge (`src/`) that talks to SpacetimeDB as the logged-in user.
 
 1. Use the Nix flake shell (`direnv` or `nix develop`)
-2. Copy `.env.example` to `.env` and fill BitAuth (and optional SpacetimeAuth) values
+2. Copy `.env.example` to `.env` and fill BitAuth values
 3. Run `task live`
 
 That starts local SpacetimeDB (data under `tmp/spacetimedb`), watches the module (rebuild / publish / regenerate `src/module_bindings`), and runs `topcoat dev` on **port 8080**. Topcoat’s default port is 3000, which collides with SpacetimeDB.

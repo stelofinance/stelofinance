@@ -1,50 +1,45 @@
-//! App list HTML, mint sheet, and `GET /app/me/apps/mint`.
+//! App list HTML, token sheet, and `POST /app/me/apps/token`.
 
-use crate::auth::cookies::{COOKIE_STAUTH_MINT, clear_cookie, get_cookie};
 use crate::auth::require_user;
-use crate::auth::spacetimeauth::SpacetimeAuthState;
 use crate::module_bindings::AppTicketPurpose;
-use crate::stdb::apps::MyAppsData;
-use crate::stdb::{format_rel_time, unix_now_micros};
-use serde::Serialize;
+use crate::stdb::apps::{MyAppsData, mint_app_identity};
+use crate::stdb::{
+	StdbState, acquire_user_db, create_user_app_ticket, format_rel_time, replace_user_app_ticket,
+	unix_now_micros,
+};
+use serde::{Deserialize, Serialize};
 use topcoat::{
 	Result,
 	context::{Cx, app_context},
-	datastar::PatchSignals,
+	datastar::{PatchSignals, Signals},
 	router::route,
 	view::{Unescaped, View, component, view},
 };
 
 #[component]
-pub async fn my_apps_list(data: MyAppsData, mint_enabled: bool) -> Result<impl View> {
+pub async fn my_apps_list(data: MyAppsData) -> Result<impl View> {
 	Ok(view! {
-		(Unescaped::new_unchecked(my_apps_html(&data, mint_enabled)))
+		(Unescaped::new_unchecked(my_apps_html(&data)))
 	})
 }
 
-pub fn my_apps_html(data: &MyAppsData, mint_enabled: bool) -> String {
+pub fn my_apps_html(data: &MyAppsData) -> String {
 	let mut out = String::from(r#"<div id="me-apps" class="flex flex-col">"#);
 	out.push_str(r#"<section class="mt-8">"#);
 	out.push_str(r#"<div class="flex flex-wrap items-center justify-between gap-3">"#);
 	out.push_str(
 		r#"<h2 class="text-sm font-medium uppercase tracking-wide text-neutral-400">Apps</h2>"#,
 	);
-	if mint_enabled {
-		out.push_str(
-			r#"<button type="button" class="cursor-pointer rounded-md bg-anakiwa-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50" data-attr:disabled="$creatingApp || $replacingApp || $appIdToken != ''" data-on:click="$creatingApp = true; $replacingApp = false; $appError = ''; $appName = ''">New app</button>"#,
-		);
-	}
+	out.push_str(
+		r#"<button type="button" class="cursor-pointer rounded-md bg-anakiwa-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50" data-attr:disabled="$creatingApp || $replacingApp || $appToken != ''" data-on:click="$creatingApp = true; $replacingApp = false; $appError = ''; $appName = ''">New app</button>"#,
+	);
 	out.push_str("</div>");
 	out.push_str(
-		r#"<p class="mt-2 text-sm text-neutral-400">Bots you own. Copy tokens once, then grant a role on an account under Permissions.</p>"#,
+		r#"<p class="mt-2 text-sm text-neutral-400">Bots you own. Copy the token once, then grant a role on an account under Permissions.</p>"#,
 	);
-	if !mint_enabled {
+	if data.apps.is_empty() && data.tickets.is_empty() {
 		out.push_str(
-			r#"<p class="mt-3 text-sm text-neutral-300">SpacetimeAuth isn't loaded. Set <code class="text-anakiwa">SPACETIMEAUTH_CLIENT_ID</code>, <code class="text-anakiwa">CLIENT_SECRET</code>, and <code class="text-anakiwa">REDIRECT_URL</code> in <code class="text-anakiwa">.env</code>, then restart the edge. Log line: <code class="text-anakiwa">spacetimeauth: OIDC client ready</code>.</p>"#,
-		);
-	} else if data.apps.is_empty() && data.tickets.is_empty() {
-		out.push_str(
-			r#"<p class="mt-3 text-sm text-neutral-400">No apps yet. Use <span class="text-neutral-200">New app</span> to mint tokens.</p>"#,
+			r#"<p class="mt-3 text-sm text-neutral-400">No apps yet. Use <span class="text-neutral-200">New app</span> to generate a token.</p>"#,
 		);
 	}
 	if !data.tickets.is_empty() {
@@ -71,15 +66,13 @@ pub fn my_apps_html(data: &MyAppsData, mint_enabled: bool) -> String {
 		for a in &data.apps {
 			let name = escape_html(&a.name);
 			let hex = escape_html(&a.id.to_hex());
+			let name_js = escape_html(&js_single(&a.name));
 			out.push_str(&format!(
 				r#"<div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2.5"><div class="min-w-0"><p class="truncate text-sm text-neutral-100">{name}</p><p class="mt-0.5 truncate font-mono text-xs text-neutral-500">{hex}</p></div>"#
 			));
-			if mint_enabled {
-				let name_js = js_single(&a.name);
-				out.push_str(&format!(
-					r#"<button type="button" class="cursor-pointer text-sm text-neutral-300 hover:text-white disabled:cursor-not-allowed disabled:opacity-50" data-attr:disabled="$creatingApp || $replacingApp || $appIdToken != ''" data-on:click="$replacingApp = true; $creatingApp = false; $appError = ''; $appName = {name_js}">Replace</button>"#
-				));
-			}
+			out.push_str(&format!(
+				r#"<button type="button" class="cursor-pointer text-sm text-neutral-300 hover:text-white disabled:cursor-not-allowed disabled:opacity-50" data-attr:disabled="$creatingApp || $replacingApp || $appToken != ''" data-on:click="$replacingApp = true; $creatingApp = false; $appError = ''; $appName = {name_js}">Replace</button>"#
+			));
 			out.push_str("</div>");
 		}
 		out.push_str("</div>");
@@ -90,85 +83,84 @@ pub fn my_apps_html(data: &MyAppsData, mint_enabled: bool) -> String {
 
 /// New-app form + one-time token sheet (outside live remorph).
 #[component]
-pub async fn app_forms(mint_enabled: bool) -> Result<impl View> {
-	let go_create = "window.location.href = '/auth/spacetimeauth/login?redirect=/app/me&purpose=create&name=' + encodeURIComponent($appName.trim())".to_owned();
-	let go_replace = "window.location.href = '/auth/spacetimeauth/login?redirect=/app/me&purpose=replace&name=' + encodeURIComponent($appName.trim())".to_owned();
+pub async fn app_forms() -> Result<impl View> {
 	Ok(view! {
-		if mint_enabled {
-			<section
-				class="mt-4 rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5"
-				data-show="$creatingApp && !$appIdToken"
-				style="display: none"
-			>
-				<h2 class="text-lg font-medium">"New app"</h2>
-				<p class="mt-1 text-sm text-neutral-300">
-					"Signs in with SpacetimeAuth (anonymous) to mint bot tokens. Copy them once. Then grant the app a role on an account."
-				</p>
-				<input
-					type="text"
-					class="mt-4 w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-400"
-					data-bind="appName"
-					maxlength="64"
-					placeholder="App name"
-					autocomplete="off"
-				>
-				<div class="mt-4 flex flex-wrap gap-2">
-					<button
-						type="button"
-						class="cursor-pointer rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 hover:border-neutral-500 hover:text-white"
-						data-on:click="$creatingApp = false; $appName = ''; $appError = ''"
-					>
-						"Cancel"
-					</button>
-					<button
-						type="button"
-						class="cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50"
-						data-on:click=(go_create)
-						data-attr-disabled="$appName.trim() == ''"
-					>
-						"Continue with SpacetimeAuth"
-					</button>
-				</div>
-			</section>
-			<section
-				class="mt-4 rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5"
-				data-show="$replacingApp && !$appIdToken"
-				style="display: none"
-			>
-				<h2 class="text-lg font-medium">"Replace app identity"</h2>
-				<p class="mt-1 text-sm text-neutral-300">
-					"Mints a new SpacetimeAuth identity and tokens for this app. The name stays the same; existing account grants move to the new identity. Copy the new tokens once."
-				</p>
-				<p class="mt-4 truncate text-sm text-neutral-100">
-					<span class="text-neutral-500">"Name "</span>
-					<span data-text="$appName"></span>
-				</p>
-				<div class="mt-4 flex flex-wrap gap-2">
-					<button
-						type="button"
-						class="cursor-pointer rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 hover:border-neutral-500 hover:text-white"
-						data-on:click="$replacingApp = false; $appName = ''; $appError = ''"
-					>
-						"Cancel"
-					</button>
-					<button
-						type="button"
-						class="cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600"
-						data-on:click=(go_replace)
-					>
-						"Continue with SpacetimeAuth"
-					</button>
-				</div>
-			</section>
-		}
 		<section
 			class="mt-4 rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5"
-			data-show="$appIdToken"
+			data-show="$creatingApp && !$appToken"
 			style="display: none"
 		>
-			<h2 class="text-lg font-medium">"App tokens"</h2>
+			<h2 class="text-lg font-medium">"New app"</h2>
 			<p class="mt-1 text-sm text-neutral-300">
-				"Copy these now. The bot uses them to connect. We won't show them again."
+				"Generates a SpacetimeDB identity and token for your bot. Copy the token once. Then grant the app a role on an account."
+			</p>
+			<input
+				type="text"
+				class="mt-4 w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-400"
+				data-bind="appName"
+				maxlength="64"
+				placeholder="App name"
+				autocomplete="off"
+			>
+			<div class="mt-4 flex flex-wrap gap-2">
+				<button
+					type="button"
+					class="cursor-pointer rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 hover:border-neutral-500 hover:text-white"
+					data-on:click="$creatingApp = false; $appName = ''; $appError = ''"
+				>
+					"Cancel"
+				</button>
+				<button
+					type="button"
+					class="cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50"
+					data-on:click="$appError = ''; @post('/app/me/apps/token')"
+					data-indicator="mintingApp"
+					data-attr-disabled="$mintingApp || $appName.trim() == ''"
+				>
+					"Generate Token"
+				</button>
+			</div>
+		</section>
+		<section
+			class="mt-4 rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5"
+			data-show="$replacingApp && !$appToken"
+			style="display: none"
+		>
+			<h2 class="text-lg font-medium">"Replace app identity"</h2>
+			<p class="mt-1 text-sm text-neutral-300">
+				"Generates a new SpacetimeDB identity and token for this app. The name stays the same; existing account grants move to the new identity. Copy the new token once."
+			</p>
+			<p class="mt-4 truncate text-sm text-neutral-100">
+				<span class="text-neutral-500">"Name "</span>
+				<span data-text="$appName"></span>
+			</p>
+			<div class="mt-4 flex flex-wrap gap-2">
+				<button
+					type="button"
+					class="cursor-pointer rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 hover:border-neutral-500 hover:text-white"
+					data-on:click="$replacingApp = false; $appName = ''; $appError = ''"
+				>
+					"Cancel"
+				</button>
+				<button
+					type="button"
+					class="cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50"
+					data-on:click="$appError = ''; @post('/app/me/apps/token')"
+					data-indicator="mintingApp"
+					data-attr-disabled="$mintingApp"
+				>
+					"Generate Token"
+				</button>
+			</div>
+		</section>
+		<section
+			class="mt-4 rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5"
+			data-show="$appToken"
+			style="display: none"
+		>
+			<h2 class="text-lg font-medium">"App token"</h2>
+			<p class="mt-1 text-sm text-neutral-300">
+				"Copy this now. The bot uses it to connect. We won't show it again."
 			</p>
 			<p class="mt-2 truncate text-sm text-neutral-400" data-show="$appMintName">
 				<span class="text-neutral-500">"Name "</span>
@@ -177,45 +169,18 @@ pub async fn app_forms(mint_enabled: bool) -> Result<impl View> {
 			<p class="mt-1 truncate font-mono text-xs text-neutral-500" data-show="$appMintId">
 				<span data-text="$appMintId"></span>
 			</p>
-			<p class="mt-4 text-xs font-medium uppercase tracking-wide text-neutral-500">
-				"ID token"
-			</p>
+			<p class="mt-4 text-xs font-medium uppercase tracking-wide text-neutral-500">"Token"</p>
 			<div class="mt-1 flex items-stretch overflow-hidden rounded-lg border border-neutral-800">
 				<code
 					class="min-w-0 flex-1 truncate bg-neutral-900 px-3 py-2 text-sm text-anakiwa"
-					data-text="$appIdToken"
+					data-text="$appToken"
 				></code>
 				<button
 					type="button"
 					class="shrink-0 cursor-pointer border-l border-neutral-800 px-3 text-xs text-neutral-300 hover:bg-neutral-900 hover:text-white"
-					data-on:click="window.navigator.clipboard.writeText($appIdToken); $appCopied = 'id'"
-					data-on:click__delay.2000ms="$appCopied = ''"
-					data-text="$appCopied == 'id' ? 'Copied' : 'Copy'"
-				>
-					"Copy"
-				</button>
-			</div>
-			<p
-				class="mt-4 text-xs font-medium uppercase tracking-wide text-neutral-500"
-				data-show="$appRefreshToken"
-			>
-				"Refresh token"
-			</p>
-			<div
-				class="mt-1 flex items-stretch overflow-hidden rounded-lg border border-neutral-800"
-				data-show="$appRefreshToken"
-				style="display: none"
-			>
-				<code
-					class="min-w-0 flex-1 truncate bg-neutral-900 px-3 py-2 text-sm text-anakiwa"
-					data-text="$appRefreshToken"
-				></code>
-				<button
-					type="button"
-					class="shrink-0 cursor-pointer border-l border-neutral-800 px-3 text-xs text-neutral-300 hover:bg-neutral-900 hover:text-white"
-					data-on:click="window.navigator.clipboard.writeText($appRefreshToken); $appCopied = 'refresh'"
-					data-on:click__delay.2000ms="$appCopied = ''"
-					data-text="$appCopied == 'refresh' ? 'Copied' : 'Copy'"
+					data-on:click="window.navigator.clipboard.writeText($appToken); $appCopied = true"
+					data-on:click__delay.2000ms="$appCopied = false"
+					data-text="$appCopied ? 'Copied' : 'Copy'"
 				>
 					"Copy"
 				</button>
@@ -223,7 +188,7 @@ pub async fn app_forms(mint_enabled: bool) -> Result<impl View> {
 			<button
 				type="button"
 				class="mt-4 cursor-pointer rounded-md bg-neutral-800 px-4 py-2 text-sm hover:bg-neutral-700"
-				data-on:click="$appIdToken = ''; $appRefreshToken = ''; $appMintName = ''; $appMintId = ''; $appCopied = ''; $appName = ''; $creatingApp = false; $replacingApp = false"
+				data-on:click="$appToken = ''; $appMintName = ''; $appMintId = ''; $appCopied = false; $appName = ''; $creatingApp = false; $replacingApp = false"
 			>
 				"Done"
 			</button>
@@ -231,35 +196,66 @@ pub async fn app_forms(mint_enabled: bool) -> Result<impl View> {
 	})
 }
 
-#[route(GET "/app/me/apps/mint")]
-async fn mint(cx: &Cx) -> Result<PatchSignals> {
-	let user = require_user(cx).await?;
-	let stauth = app_context::<SpacetimeAuthState>(cx);
-	let Some(key) = get_cookie(cx, COOKIE_STAUTH_MINT) else {
-		return empty_mint();
-	};
-	clear_cookie(cx, COOKIE_STAUTH_MINT);
-	let Some(flash) = stauth.mints.take(&key) else {
-		return empty_mint();
-	};
-	if flash.user != user.identity {
-		return empty_mint();
+/// `POST /app/me/apps/token` — mint a host-signed identity, reserve it with a ticket, and
+/// return the token in `$appToken` only.
+#[route(POST "/app/me/apps/token")]
+async fn token(cx: &Cx, Signals(form): Signals<TokenSignals>) -> Result<PatchSignals> {
+	let _user = require_user(cx).await?;
+	let name = form.app_name.trim().to_owned();
+	if name.is_empty() || name.len() > 64 {
+		return mint_err("Enter an app name (max 64 characters).");
 	}
+
+	let stdb = app_context::<StdbState>(cx);
+	let minted = match mint_app_identity(stdb).await {
+		Ok(m) => m,
+		Err(e) => {
+			eprintln!("app token: {e}");
+			return mint_err("Couldn't mint a token from SpacetimeDB.");
+		}
+	};
+
+	let conn = acquire_user_db(cx).await?;
+	let ticket = if form.replacing_app {
+		replace_user_app_ticket(conn.get(), name.clone(), minted.identity.clone()).await
+	} else {
+		create_user_app_ticket(conn.get(), name.clone(), minted.identity.clone()).await
+	};
+	if let Err(e) = ticket {
+		return mint_err(&e);
+	}
+
+	// Connect once as the app so the ticket is fulfilled right away rather than
+	// waiting on the bot's first connection (tickets expire after 15 minutes).
+	// If this fails the token isn't usable, so don't hand it out.
+	match stdb.pool.acquire(&minted.token).await {
+		Ok(_) => stdb.pool.invalidate_token(&minted.token),
+		Err(e) => {
+			eprintln!("app token: fulfill connect: {e}");
+			return mint_err("Couldn't register the app with SpacetimeDB. Try again.");
+		}
+	}
+
 	PatchSignals::json(&MintPatch {
-		app_id_token: flash.id_token,
-		app_refresh_token: flash.refresh_token.unwrap_or_default(),
-		app_mint_name: flash.name,
-		app_mint_id: flash.identity_hex.unwrap_or_default(),
+		app_token: minted.token,
+		app_mint_name: name,
+		app_mint_id: minted.identity,
 		app_error: String::new(),
 	})
 }
 
+#[derive(Debug, Deserialize)]
+struct TokenSignals {
+	#[serde(default, rename = "appName")]
+	app_name: String,
+	#[serde(default, rename = "replacingApp")]
+	replacing_app: bool,
+}
+
 #[derive(Serialize)]
 struct MintPatch {
-	#[serde(rename = "appIdToken")]
-	app_id_token: String,
-	#[serde(rename = "appRefreshToken")]
-	app_refresh_token: String,
+	#[serde(rename = "appToken")]
+	app_token: String,
 	#[serde(rename = "appMintName")]
 	app_mint_name: String,
 	#[serde(rename = "appMintId")]
@@ -268,13 +264,15 @@ struct MintPatch {
 	app_error: String,
 }
 
-fn empty_mint() -> Result<PatchSignals> {
-	PatchSignals::json(&MintPatch {
-		app_id_token: String::new(),
-		app_refresh_token: String::new(),
-		app_mint_name: String::new(),
-		app_mint_id: String::new(),
-		app_error: String::new(),
+#[derive(Serialize)]
+struct MintErrorPatch {
+	#[serde(rename = "appError")]
+	app_error: String,
+}
+
+fn mint_err(error: &str) -> Result<PatchSignals> {
+	PatchSignals::json(&MintErrorPatch {
+		app_error: error.to_owned(),
 	})
 }
 

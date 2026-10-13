@@ -145,8 +145,8 @@ pub struct AccountToken {
 	pub created_at: Timestamp,
 }
 
-/// Third-party / bot principal (SpacetimeAuth anonymous Identity).
-/// Bound on first connect when an `app_ticket` matches the JWT `sub`.
+/// Third-party / bot principal (locally-signed SpacetimeDB Identity).
+/// Bound on first connect when an `app_ticket` matches the connecting identity hex.
 #[spacetimedb::table(accessor = app)]
 #[derive(Clone, Debug)]
 pub struct App {
@@ -191,7 +191,7 @@ pub struct AppTicket {
 	#[unique]
 	pub name: String,
 
-	/// OIDC `sub` that will own this app Identity on connect
+	/// Hex of the Identity that will own this app on connect (column name is historical)
 	#[unique]
 	pub sub: String,
 

@@ -12,7 +12,7 @@ const MAX_APP_NAME_LEN: usize = 64;
 // Ticket reducers (BitAuth human)
 // ---------------------------------------------------------------------------
 
-/// Create (or replace own) a Create-purpose ticket for a new app name + SpacetimeAuth `sub`.
+/// Create (or replace own) a Create-purpose ticket for a new app name + the app's identity (hex).
 #[reducer]
 pub fn create_app_ticket(ctx: &ReducerContext, name: String, sub: String) -> Result<(), String> {
 	require_registered_user(ctx)?;
@@ -68,7 +68,8 @@ pub fn expire_app_ticket(ctx: &mut ProcedureContext, ticket: AppTicket) {
 // Connect-time bind (called from client_connected)
 // ---------------------------------------------------------------------------
 
-/// If a SpacetimeAuth connection has a matching open ticket, create or replace the app.
+/// If a locally-signed connection has a matching open ticket (keyed by identity hex), create or
+/// replace the app.
 /// Returns `Ok(true)` if an app now exists for `sender` (created, replaced, or already handled).
 pub(crate) fn try_fulfill_app_ticket(
 	ctx: &ReducerContext,
@@ -267,9 +268,9 @@ fn normalize_name(name: String) -> Result<String, String> {
 }
 
 fn normalize_sub(sub: String) -> Result<String, String> {
-	let sub = sub.trim().to_string();
-	if sub.is_empty() {
-		return Err("sub required".to_string());
+	let sub = sub.trim().to_ascii_lowercase();
+	if sub.len() != 64 || !sub.bytes().all(|b| b.is_ascii_hexdigit()) {
+		return Err("sub must be an identity hex string".to_string());
 	}
 	Ok(sub)
 }

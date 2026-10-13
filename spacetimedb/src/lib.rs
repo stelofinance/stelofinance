@@ -15,21 +15,22 @@ use spacetimedb::{Identity, ReducerContext, Table, rand::Rng, reducer};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OidcProvider {
 	BitAuth,
-	SpacetimeAuth,
+	/// Tokens minted by the SpacetimeDB host itself (`POST /v1/identity`), used by apps.
+	Local,
 }
 
 impl OidcProvider {
 	pub const fn issuer(self) -> &'static str {
 		match self {
 			Self::BitAuth => "https://auth.trinit.is/",
-			Self::SpacetimeAuth => "https://auth.spacetimedb.com/oidc",
+			Self::Local => "localhost",
 		}
 	}
 
 	pub const fn audience(self) -> &'static str {
 		match self {
 			Self::BitAuth => "nintron-stelofinance",
-			Self::SpacetimeAuth => "client_033wW7fObq5GPPc4ESCFsF",
+			Self::Local => "spacetimedb",
 		}
 	}
 
@@ -37,7 +38,7 @@ impl OidcProvider {
 	pub fn from_issuer(issuer: &str) -> Option<Self> {
 		match issuer {
 			"https://auth.trinit.is/" => Some(Self::BitAuth),
-			"https://auth.spacetimedb.com/oidc" => Some(Self::SpacetimeAuth),
+			"localhost" => Some(Self::Local),
 			_ => None,
 		}
 	}
@@ -100,7 +101,7 @@ pub fn client_connected(ctx: &ReducerContext) -> Result<(), String> {
 			ensure_user(ctx, identity, username, player_id)?;
 			Ok(())
 		}
-		OidcProvider::SpacetimeAuth => {
+		OidcProvider::Local => {
 			if ctx.db.app().id().find(&identity).is_some() {
 				return Ok(());
 			}
@@ -108,7 +109,8 @@ pub fn client_connected(ctx: &ReducerContext) -> Result<(), String> {
 			if ctx.db.user().id().find(&identity).is_some() {
 				return Err("identity cannot be both user and app".to_string());
 			}
-			apps::try_fulfill_app_ticket(ctx, identity, jwt.subject())?;
+			// Locally minted `sub`s are opaque; tickets are keyed by identity hex instead.
+			apps::try_fulfill_app_ticket(ctx, identity, &identity.to_hex().to_string())?;
 			log::info!("app ticket fulfilled identity={identity}");
 			return Ok(());
 		}
