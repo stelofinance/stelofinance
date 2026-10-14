@@ -4,14 +4,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::apps::my_apps_html;
 use crate::auth::require_user;
-use crate::auth::spacetimeauth::SpacetimeAuthState;
 use crate::stdb::apps::LiveMyApps;
 use crate::stdb::{StdbError, acquire_user_db};
 use futures_core::Stream;
 use futures_util::stream;
 use topcoat::{
 	Result,
-	context::{Cx, app_context},
+	context::Cx,
 	datastar::PatchElements,
 	router::{
 		content::sse::{Event, KeepAlive, Sse, last_event_id},
@@ -28,23 +27,22 @@ async fn updates(cx: &Cx) -> Result<Sse<impl Stream<Item = Result<Event>> + use<
 	let (tx, rx) = tokio::sync::watch::channel(None);
 	let live = LiveMyApps::start(pooled, tx, reconnect)
 		.map_err(|e| internal_server_error(StdbError(e)))?;
-	let mint_enabled = app_context::<SpacetimeAuthState>(cx).configured();
 
 	let seed = if reconnect { None } else { Some(seed_event()) };
 
 	let events = stream::unfold(
-		(rx, live, seed, mint_enabled),
-		|(mut rx, live, seed, mint_enabled)| async move {
+		(rx, live, seed),
+		|(mut rx, live, seed)| async move {
 			let event = if let Some(seed) = seed {
 				seed
 			} else {
 				rx.changed().await.ok()?;
 				let data = rx.borrow().clone()?;
-				PatchElements::new(my_apps_html(&data, mint_enabled))
+				PatchElements::new(my_apps_html(&data))
 					.id(event_id())
 					.into()
 			};
-			Some((Ok(event), (rx, live, None, mint_enabled)))
+			Some((Ok(event), (rx, live, None)))
 		},
 	);
 

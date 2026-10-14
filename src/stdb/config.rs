@@ -21,6 +21,11 @@ impl StdbConfig {
 		Self { host, database }
 	}
 
+	/// Host endpoint that mints a fresh identity + locally-signed token: `$STDB/v1/identity`.
+	pub fn identity_url(&self) -> String {
+		format!("{}/v1/identity", self.host.trim_end_matches('/'))
+	}
+
 	/// Upstream URL for a module HTTP route: `$STDB/v1/database/$DB/route/{path}`.
 	///
 	/// `path` is the remainder after the public `/api/` prefix (no leading slash).
@@ -45,6 +50,11 @@ mod tests {
 			host: "http://127.0.0.1:3000/".to_owned(),
 			database: "stelofinance".to_owned(),
 		}
+	}
+
+	#[test]
+	fn identity_url_strips_host_slash() {
+		assert_eq!(cfg().identity_url(), "http://127.0.0.1:3000/v1/identity");
 	}
 
 	#[test]

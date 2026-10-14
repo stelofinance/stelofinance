@@ -5,7 +5,7 @@ app = "stelofinance"
 primary_region = "iad"
 
 # Stateless Topcoat edge. Secrets stay on the app via `fly secrets` (not here):
-# BITAUTH_CLIENT_SECRET, SPACETIMEAUTH_CLIENT_SECRET
+# BITAUTH_CLIENT_SECRET
 [env]
 	PORT = "8080"
 	HOST = "0.0.0.0"
@@ -15,9 +15,6 @@ primary_region = "iad"
 	BITAUTH_REDIRECT_URL = "https://stelo.finance/auth/bitauth/callback"
 	STDB_HOST = "https://maincloud.spacetimedb.com"
 	STDB_DATABASE = "stelofinance-prod"
-	SPACETIMEAUTH_ISSUER = "https://auth.spacetimedb.com/oidc"
-	SPACETIMEAUTH_CLIENT_ID = "client_033wW7fObq5GPPc4ESCFsF"
-	SPACETIMEAUTH_REDIRECT_URL = "https://stelo.finance/auth/spacetimeauth/callback"
 
 [http_service]
 	internal_port = 8080

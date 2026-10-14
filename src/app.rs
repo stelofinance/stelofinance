@@ -18,7 +18,6 @@ mod logout;
 
 use crate::auth::bitauth::BitAuth;
 use crate::auth::cookies::{COOKIE_REFRESH, COOKIE_TOKEN, get_cookie};
-use crate::auth::spacetimeauth::SpacetimeAuthState;
 use crate::stdb::StdbState;
 use crate::ui::{discord, github, logo_colored, nintron, public_footer, public_nav, right_arrow};
 
@@ -49,7 +48,6 @@ pub async fn router() -> Router {
 		.await
 		.unwrap_or_else(|e| panic!("BitAuth required to start: {e}"));
 	let stdb = StdbState::from_env();
-	let stauth = SpacetimeAuthState::from_env().await;
 	eprintln!(
 		"stdb: host={} database={} (einro token-keyed pool)",
 		stdb.config.host, stdb.config.database
@@ -59,7 +57,6 @@ pub async fn router() -> Router {
 		.discover()
 		.cookies()
 		.app_context(bitauth)
-		.app_context(stauth)
 		.app_context(stdb)
 		.assets(
 			AssetBundle::load()

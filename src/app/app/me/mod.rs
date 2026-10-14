@@ -4,13 +4,12 @@ mod apps;
 mod updates;
 
 use crate::auth::require_user;
-use crate::auth::spacetimeauth::SpacetimeAuthState;
 use crate::stdb::apps::fetch_my_apps;
 use crate::stdb::{StdbError, acquire_user_db};
 use apps::{app_forms, my_apps_list};
 use topcoat::{
 	Result,
-	context::{Cx, app_context},
+	context::Cx,
 	router::{error::internal_server_error, page, query_params},
 	view::{View, view},
 };
@@ -28,20 +27,12 @@ async fn me(cx: &Cx) -> Result<impl View> {
 	let data = fetch_my_apps(conn.get())
 		.await
 		.map_err(|e| internal_server_error(StdbError(e)))?;
-	let mint_enabled = app_context::<SpacetimeAuthState>(cx).configured();
 	let app_error = query_params::<MeQuery>(cx)
 		.ok()
 		.and_then(|q| q.appError.clone())
-		.map(|c| match c.as_str() {
-			"oauth" => "SpacetimeAuth sign-in failed.".to_owned(),
-			"ticket" => "Couldn't create that app (name taken or not allowed).".to_owned(),
-			"name" => "Enter an app name (max 64 characters).".to_owned(),
-			"config" => "SpacetimeAuth isn't configured.".to_owned(),
-			_ => c,
-		})
 		.unwrap_or_default();
 	let signals = format!(
-		"{{appName:'',appError:{},appIdToken:'',appRefreshToken:'',appMintName:'',appMintId:'',appCopied:'',creatingApp:false,replacingApp:false}}",
+		"{{appName:'',appError:{},appToken:'',appMintName:'',appMintId:'',appCopied:false,mintingApp:false,creatingApp:false,replacingApp:false}}",
 		js_single(&app_error)
 	);
 
@@ -50,7 +41,7 @@ async fn me(cx: &Cx) -> Result<impl View> {
 			id="page-content"
 			class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10"
 			data-signals=(signals)
-			data-init="@get('/app/me/apps/mint'); @get('/app/me/updates')"
+			data-init="@get('/app/me/updates')"
 		>
 			<h1 class="mb-6 text-2xl font-medium md:text-3xl">"You"</h1>
 			<article class="rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-3 sm:px-4 sm:py-4">
@@ -65,8 +56,8 @@ async fn me(cx: &Cx) -> Result<impl View> {
 					</a>
 				}
 			</article>
-			my_apps_list(data: data, mint_enabled: mint_enabled)
-			app_forms(mint_enabled: mint_enabled)
+			my_apps_list(data: data)
+			app_forms()
 			<p
 				class="mt-2 text-sm text-red-400"
 				data-show="$appError"
