@@ -6,7 +6,7 @@ use crate::webhooks::enqueue_transfer_webhooks;
 use spacetimedb::{ReducerContext, Table, reducer};
 
 const MAX_IDEMPOTENCY_KEY_LEN: usize = 64;
-const MAX_MEMO_LEN: usize = 32;
+const MAX_MEMO_LEN: usize = 64;
 
 /// Who is authorizing a transfer mutation.
 #[derive(Clone, Copy, Debug)]
