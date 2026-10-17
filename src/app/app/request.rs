@@ -16,7 +16,7 @@ use topcoat::{
 	view::{Unescaped, View, ViewExt, component, view},
 };
 
-const MAX_MEMO_LEN: usize = 32;
+const MAX_MEMO_LEN: usize = 64;
 
 #[query_params]
 struct PayQuery {
