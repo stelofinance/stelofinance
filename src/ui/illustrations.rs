@@ -1,5 +1,6 @@
 //! Marketing illustrations ported from `web/templates/illustrations/`.
 
+use topcoat::context::Cx;
 use topcoat::{
 	Result,
 	view::{Unescaped, View, component, view},
@@ -10,7 +11,7 @@ const NINTRON_HEX_BODY: &str = include_str!("svg/nintron-hex.svg");
 
 /// Nintron contribute-section figure (profile + spinning hex).
 #[component]
-pub async fn nintron(#[into] class: String) -> Result<impl View> {
+pub async fn nintron(cx: &Cx, #[into] class: String) -> Result<impl View> {
 	Ok(view! {
 		<div class=(format!("relative {class}"))>
 			(Unescaped::new_unchecked(NINTRON_PROFILE))

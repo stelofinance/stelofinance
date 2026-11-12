@@ -37,7 +37,7 @@
         rustc = rustToolchain;
       };
 
-      topcoatCliVersion = "0.10.0";
+      topcoatCliVersion = "0.12.1";
       topcoat-cli = rustPlatform.buildRustPackage {
         pname = "topcoat-cli";
         version = topcoatCliVersion;
@@ -45,11 +45,11 @@
         src = pkgs.fetchCrate {
           pname = "topcoat-cli";
           version = topcoatCliVersion;
-          hash = "sha256-lk13D/RqrskzhXwLNz+KEbWowllQqGxoGU47T4ZdBvk=";
+          hash = "sha256-v1t4H/i0D64yoRPFHks/tXYW81FFx/7j4DZfKGxLrvU=";
         };
 
         # Vendor hash of crates.io deps from Cargo.lock; rebuild to refresh when bumping version.
-        cargoHash = "sha256-/uztLZLC8A7lgAin8YoIrhv3+mOvy7OKJWdfAbQay9g=";
+        cargoHash = "sha256-xdnW5WjmbUuvmsZAEKHDemE9nh5qLGHcrEPGoKAyFAA=";
 
         # Skip tests: crate tests pull in the full topcoat framework and are not needed for the CLI bin.
         doCheck = false;
@@ -230,8 +230,9 @@
         //! that is not in the bundle manifest installed next to it.
         //!
         //! Topcoat panics at request time (`failed to resolve asset`) if those drift.
-        //! `stylesheet!()` bakes the absolute `OUT_DIR` into the id, so a manifest
-        //! produced from any other cargo invocation will not match.
+        //! `stylesheet!()` hashes `OUT_DIR` (relative to the crate manifest, so it
+        //! still contains the target triple and build hash) into the id, so a
+        //! manifest produced from any other cargo invocation will not match.
 
         use std::collections::BTreeSet;
         use std::env;
@@ -327,29 +328,19 @@
             ids
         }
 
-        /// Decode one embedded `RawAsset` blob. Returns `None` when `buf` is not a
-        /// real declaration (the prefix can also show up as the const-evaluated
-        /// marker inside the library).
+        /// Decode one embedded `RawAsset` blob (topcoat-asset 0.12 layout:
+        /// prefix, u64 id, path, then 4 optional strings for rename / extension /
+        /// checksum / content type). Mirrors `RawAsset::find_in_binary`, which
+        /// also skips declarations with an empty path (rust-analyzer placeholders).
+        /// Returns `None` for stray prefix matches that do not decode.
         fn decode_asset_id(buf: &[u8]) -> Option<u64> {
             let mut pos = b"TOPCOAT_ASSET".len();
             let id = read_u64(buf, &mut pos)?;
             let path = read_str(buf, &mut pos)?;
-            let crate_name = read_str(buf, &mut pos)?;
-            let manifest_dir = read_str(buf, &mut pos)?;
-            let source_file = read_str(buf, &mut pos)?;
             for _ in 0..4 {
                 read_str_opt(buf, &mut pos)?;
             }
-            if path.is_empty()
-                || path.len() > 4096
-                || crate_name.is_empty()
-                || crate_name.len() > 128
-                || manifest_dir.len() > 4096
-                || !source_file.ends_with(".rs")
-                || !crate_name
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-            {
+            if path.is_empty() || path.len() > 4096 {
                 return None;
             }
             Some(id)
@@ -441,7 +432,7 @@
         # `topcoat asset bundle` runs its own `cargo build` and strips CARGO*/RUSTFLAGS,
         # and it does not pass `--target`. Nix compiles with `--target <triple>`, so
         # that second build gets a different OUT_DIR. `stylesheet!()` hashes that
-        # absolute path into the asset id. The manifest would then not contain the
+        # path (relative to the crate manifest) into the asset id. The manifest would then not contain the
         # id baked into the binary this hook installs, and the first HTML response
         # panics (`failed to resolve asset`). Force the inner cargo to rebuild the
         # same target directory the install hook copies.

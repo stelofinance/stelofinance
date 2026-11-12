@@ -1,5 +1,6 @@
 //! Filter chips + day-grouped cards for GET `/app/activity` and live patches.
 
+use topcoat::context::Cx;
 use super::present::{AmountSign, TransferCard, account_title, transfer_card};
 use crate::module_bindings::MyAccountRow;
 use crate::stdb::{ActivitySnapshot, day_heading, format_rel_time};
@@ -11,6 +12,7 @@ use topcoat::{
 
 #[component]
 pub async fn activity_body(
+	cx: &Cx,
 	data: ActivitySnapshot,
 	selected: Option<u64>,
 	now_micros: i64,

@@ -7,7 +7,7 @@ use crate::auth::{
 };
 use topcoat::{
 	Result,
-	context::{Cx, app_context},
+	context::{Cx, context},
 	router::{
 		error::{SeeOther, bad_request, see_other},
 		query_params, route,
@@ -56,7 +56,7 @@ async fn callback(cx: &Cx) -> Result<SeeOther> {
 	let pkce =
 		get_cookie(cx, COOKIE_OAUTH_PKCE).ok_or_else(|| bad_request("missing pkce cookie"))?;
 
-	let tokens = app_context::<BitAuth>(cx)
+	let tokens = context::<BitAuth>(cx)
 		.exchange_code(code, &pkce, &nonce)
 		.await
 		.map_err(|e| {

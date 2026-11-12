@@ -2,7 +2,7 @@ use topcoat::{
 	Result,
 	asset::{AssetBundle, RouterBuilderAssetExt, asset},
 	context::Cx,
-	cookie::RouterBuilderCookieExt,
+	cookie::CookieLayer,
 	font::{Font, font},
 	router::{Router, RouterBuilderDiscoverExt, Slot, layout, module_router, page},
 	tailwind,
@@ -55,9 +55,9 @@ pub async fn router() -> Router {
 
 	module_router!()
 		.discover()
-		.cookies()
-		.app_context(bitauth)
-		.app_context(stdb)
+		.layer(CookieLayer::new())
+		.with(bitauth)
+		.with(stdb)
 		.assets(
 			AssetBundle::load()
 				.expect("asset bundle missing — run `topcoat asset bundle` or `topcoat dev`"),
@@ -66,7 +66,7 @@ pub async fn router() -> Router {
 }
 
 #[layout]
-async fn root_layout(slot: Slot<'_>) -> Result<impl View> {
+async fn root_layout(cx: &Cx, slot: Slot<'_>) -> Result<impl View> {
 	Ok(view! {
 		<!DOCTYPE html>
 		<html lang="en">

@@ -2,6 +2,7 @@
 //!
 //! SVG path bodies live in `svg/` so page code stays free of path markup.
 
+use topcoat::context::Cx;
 use topcoat::{
 	Result,
 	icon::{IconData, icon},
@@ -43,7 +44,7 @@ const ACTIVITY: IconData = IconData::unescaped_unchecked(
 
 /// Colored hexagonal star (hero). Non-square; size via `class`.
 #[component]
-pub async fn logo_colored(#[into] class: String) -> Result<impl View> {
+pub async fn logo_colored(cx: &Cx, #[into] class: String) -> Result<impl View> {
 	Ok(view! {
 		<svg
 			class=(class)
@@ -61,7 +62,7 @@ pub async fn logo_colored(#[into] class: String) -> Result<impl View> {
 
 /// Wordmark + mark (nav/footer). Non-square; size via `class`.
 #[component]
-pub async fn logo_full(#[into] class: String) -> Result<impl View> {
+pub async fn logo_full(cx: &Cx, #[into] class: String) -> Result<impl View> {
 	Ok(view! {
 		<svg
 			class=(class)
@@ -78,7 +79,7 @@ pub async fn logo_full(#[into] class: String) -> Result<impl View> {
 }
 
 #[component]
-pub async fn right_arrow(#[into] class: String) -> Result<impl View> {
+pub async fn right_arrow(cx: &Cx, #[into] class: String) -> Result<impl View> {
 	Ok(view! {
 		icon(
 			data: RIGHT_ARROW,
@@ -89,7 +90,7 @@ pub async fn right_arrow(#[into] class: String) -> Result<impl View> {
 }
 
 #[component]
-pub async fn github(#[into] class: String) -> Result<impl View> {
+pub async fn github(cx: &Cx, #[into] class: String) -> Result<impl View> {
 	Ok(view! {
 		icon(
 			data: GITHUB,
@@ -100,7 +101,7 @@ pub async fn github(#[into] class: String) -> Result<impl View> {
 }
 
 #[component]
-pub async fn discord(#[into] class: String) -> Result<impl View> {
+pub async fn discord(cx: &Cx, #[into] class: String) -> Result<impl View> {
 	Ok(view! {
 		icon(
 			data: DISCORD,
@@ -111,7 +112,7 @@ pub async fn discord(#[into] class: String) -> Result<impl View> {
 }
 
 #[component]
-pub async fn wallet(#[into] class: String) -> Result<impl View> {
+pub async fn wallet(cx: &Cx, #[into] class: String) -> Result<impl View> {
 	Ok(view! {
 		icon(
 			data: WALLET,
@@ -122,7 +123,7 @@ pub async fn wallet(#[into] class: String) -> Result<impl View> {
 }
 
 #[component]
-pub async fn transfer(#[into] class: String) -> Result<impl View> {
+pub async fn transfer(cx: &Cx, #[into] class: String) -> Result<impl View> {
 	Ok(view! {
 		icon(
 			data: TRANSFER,
@@ -133,7 +134,7 @@ pub async fn transfer(#[into] class: String) -> Result<impl View> {
 }
 
 #[component]
-pub async fn activity(#[into] class: String) -> Result<impl View> {
+pub async fn activity(cx: &Cx, #[into] class: String) -> Result<impl View> {
 	Ok(view! {
 		icon(
 			data: ACTIVITY,

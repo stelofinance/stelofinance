@@ -1,5 +1,6 @@
 //! Send-page fragments: from-account cards / picker + recipient results.
 
+use topcoat::context::Cx;
 use crate::module_bindings::{MyAccountRow, Role};
 use crate::stdb::DirectoryHit;
 use crate::stdb::format_qty;
@@ -10,6 +11,7 @@ use topcoat::{
 
 #[component]
 pub async fn from_panel(
+	cx: &Cx,
 	accounts: Vec<MyAccountRow>,
 	can_pick: bool,
 	selected_id: u64,

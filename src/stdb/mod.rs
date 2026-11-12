@@ -36,7 +36,7 @@ use crate::auth::{EnsureBearerError, ensure_bearer, require_user};
 use crate::einro::{IdentityPool, PoolConfig, PoolError, PooledConn};
 use topcoat::{
 	Result,
-	context::{Cx, app_context},
+	context::{Cx, context},
 	router::error::internal_server_error,
 };
 
@@ -79,7 +79,7 @@ pub async fn acquire_user_db(cx: &Cx) -> Result<PooledConn<StdbConn>> {
 			return Err(internal_server_error(StdbError(e)).into());
 		}
 	};
-	let stdb = app_context::<StdbState>(cx);
+	let stdb = context::<StdbState>(cx);
 	stdb.pool
 		.acquire(&bearer.token)
 		.await

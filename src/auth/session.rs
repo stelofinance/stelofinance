@@ -7,7 +7,7 @@ use super::cookies::{
 	COOKIE_REFRESH, COOKIE_TOKEN, TOKEN_REFRESH_SKEW_SECS, get_cookie, set_auth_cookies,
 };
 use super::jwt_peek;
-use topcoat::context::{Cx, app_context};
+use topcoat::context::{Cx, context};
 
 /// Result of [`ensure_bearer`]: ID token string ready for `pool.acquire`.
 #[derive(Debug, Clone)]
@@ -68,7 +68,7 @@ pub async fn ensure_bearer(cx: &Cx) -> Result<Bearer, EnsureBearerError> {
 		};
 	};
 
-	let bitauth = app_context::<BitAuth>(cx);
+	let bitauth = context::<BitAuth>(cx);
 	match bitauth.refresh(&refresh).await {
 		Ok(tokens) => {
 			let token = tokens.id_token.clone();

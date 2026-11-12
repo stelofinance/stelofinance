@@ -7,7 +7,7 @@
 use spacetimedb_sdk::Identity;
 use topcoat::{
 	Result,
-	context::{Cx, app_context, memoize},
+	context::{Cx, context, memoize},
 	router::{
 		error::{internal_server_error, redirect},
 		request::uri,
@@ -64,7 +64,7 @@ async fn resolve_session(cx: &Cx) -> std::result::Result<AppUser, SessionError> 
 		}
 	};
 
-	let stdb = app_context::<StdbState>(cx);
+	let stdb = context::<StdbState>(cx);
 	let pooled = match stdb.pool.acquire(&bearer.token).await {
 		Ok(c) => c,
 		Err(PoolError::Connect(msg)) => {

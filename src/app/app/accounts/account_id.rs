@@ -25,20 +25,20 @@ use topcoat::{
 	datastar::{PatchSignals, Signals},
 	router::{
 		error::{internal_server_error, not_found},
-		module_param, page, path_param, route,
+		module_param, page, route,
 	},
 	view::{View, component, view},
 };
 use webhook::webhook_form;
 
-// `module_param!` both declares `AccountId` and makes this module's URL segment
-// `{account_id}`. `path_param!` alone would leave the segment static.
-module_param!(pub account_id: u64, error = not_found);
+// `module_param!` makes this module's URL segment `{account_id}` and declares
+// the `account_id(cx)` accessor (also used by the absolute `{account_id}` routes).
+module_param!(pub account_id: u64 else not_found);
 
 #[page]
 async fn show(cx: &Cx) -> Result<impl View> {
 	let user = require_user(cx).await?;
-	let account_id = *path_param::<AccountId>(cx)?;
+	let account_id = *account_id(cx)?;
 	let conn = acquire_user_db(cx).await?;
 	let data = fetch_account_home(conn.get(), account_id)
 		.await
@@ -101,6 +101,7 @@ async fn show(cx: &Cx) -> Result<impl View> {
 
 #[component]
 async fn add_permission_form(
+	cx: &Cx,
 	account_id: u64,
 	members_url: String,
 	users_url: String,
@@ -221,7 +222,7 @@ async fn add_permission_form(
 }
 
 #[component]
-async fn admin_forms(label_url: String) -> Result<impl View> {
+async fn admin_forms(cx: &Cx, label_url: String) -> Result<impl View> {
 	Ok(view! {
 		<section class="mt-8 rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5">
 			<h2 class="text-sm font-medium uppercase tracking-wide text-neutral-400">
@@ -254,7 +255,7 @@ async fn admin_forms(label_url: String) -> Result<impl View> {
 
 #[route(POST "/app/accounts/{account_id}/primary")]
 async fn set_primary_route(cx: &Cx) -> Result<PatchSignals> {
-	let account_id = *path_param::<AccountId>(cx)?;
+	let account_id = *account_id(cx)?;
 	let conn = acquire_user_db(cx).await?;
 	let data = match fetch_account_home(conn.get(), account_id).await {
 		Ok(d) => d,
@@ -274,7 +275,7 @@ async fn set_primary_route(cx: &Cx) -> Result<PatchSignals> {
 
 #[route(POST "/app/accounts/{account_id}/label")]
 async fn save_label(cx: &Cx, Signals(form): Signals<LabelSignals>) -> Result<PatchSignals> {
-	let account_id = *path_param::<AccountId>(cx)?;
+	let account_id = *account_id(cx)?;
 	let conn = acquire_user_db(cx).await?;
 	let trimmed = form.label.trim();
 	let label = if trimmed.is_empty() {
@@ -290,7 +291,7 @@ async fn save_label(cx: &Cx, Signals(form): Signals<LabelSignals>) -> Result<Pat
 
 #[route(POST "/app/accounts/{account_id}/members")]
 async fn add_member(cx: &Cx, Signals(form): Signals<MemberSignals>) -> Result<PatchSignals> {
-	let account_id = *path_param::<AccountId>(cx)?;
+	let account_id = *account_id(cx)?;
 	let editing = !form.edit_member_id.trim().is_empty();
 	let id_hex = if editing {
 		form.edit_member_id.trim()
@@ -339,7 +340,7 @@ async fn revoke_member_route(
 	cx: &Cx,
 	Signals(form): Signals<RevokeSignals>,
 ) -> Result<PatchSignals> {
-	let account_id = *path_param::<AccountId>(cx)?;
+	let account_id = *account_id(cx)?;
 	let Ok(member_id) = Identity::from_hex(form.revoke_id.trim()) else {
 		return err_signal("Invalid member.");
 	};
@@ -353,7 +354,7 @@ async fn revoke_member_route(
 #[route(POST "/app/accounts/{account_id}/leave")]
 async fn leave_account(cx: &Cx) -> Result<PatchSignals> {
 	let user = require_user(cx).await?;
-	let account_id = *path_param::<AccountId>(cx)?;
+	let account_id = *account_id(cx)?;
 	let conn = acquire_user_db(cx).await?;
 	match revoke_member(conn.get(), account_id, user.identity).await {
 		Ok(()) => PatchSignals::json(&AccountPatch {

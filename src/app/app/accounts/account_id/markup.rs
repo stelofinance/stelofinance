@@ -1,5 +1,6 @@
 //! Live `#account-home` fragment for H2.
 
+use topcoat::context::Cx;
 use crate::module_bindings::{AccountKind, LedgerKind, MemberKind, Role};
 use crate::stdb::account::{AccountHomeData, AccountTokenView, role_rank};
 use crate::stdb::{format_qty, format_rel_time, unix_now_micros};
@@ -16,7 +17,7 @@ pub struct HomeChrome {
 }
 
 #[component]
-pub async fn account_home(data: AccountHomeData, chrome: HomeChrome) -> Result<impl View> {
+pub async fn account_home(cx: &Cx, data: AccountHomeData, chrome: HomeChrome) -> Result<impl View> {
 	Ok(view! {
 		(Unescaped::new_unchecked(account_home_html(&data, &chrome)))
 	})
@@ -148,7 +149,7 @@ pub fn account_home_html(data: &AccountHomeData, chrome: &HomeChrome) -> String 
 
 /// Live `#account-people` — sits below the request-link form so remorphs skip it.
 #[component]
-pub async fn account_people(data: AccountHomeData, chrome: HomeChrome) -> Result<impl View> {
+pub async fn account_people(cx: &Cx, data: AccountHomeData, chrome: HomeChrome) -> Result<impl View> {
 	Ok(view! {
 		(Unescaped::new_unchecked(account_people_html(&data, &chrome)))
 	})
@@ -178,7 +179,7 @@ pub fn account_people_html(data: &AccountHomeData, chrome: &HomeChrome) -> Strin
 /// Live `#account-tokens` — API token list. Admin+ only (empty for others).
 /// Create sheet lives outside this fragment so remorphs don't wipe it.
 #[component]
-pub async fn account_tokens(data: AccountHomeData, chrome: HomeChrome) -> Result<impl View> {
+pub async fn account_tokens(cx: &Cx, data: AccountHomeData, chrome: HomeChrome) -> Result<impl View> {
 	Ok(view! {
 		(Unescaped::new_unchecked(account_tokens_html(&data, &chrome)))
 	})

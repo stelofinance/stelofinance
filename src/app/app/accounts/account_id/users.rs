@@ -1,6 +1,6 @@
 //! `GET /app/accounts/{account_id}/users` — username search for add-person.
 
-use super::AccountId;
+use super::account_id;
 use crate::auth::require_user;
 use crate::stdb::account::search_users;
 use crate::stdb::{StdbError, acquire_user_db};
@@ -9,7 +9,7 @@ use topcoat::{
 	Result,
 	context::Cx,
 	datastar::{PatchElements, Signals},
-	router::{error::internal_server_error, path_param, route},
+	router::{error::internal_server_error, route},
 };
 
 #[derive(Debug, Deserialize)]
@@ -21,7 +21,7 @@ struct SearchSignals {
 #[route(GET)]
 async fn user_search(cx: &Cx, Signals(form): Signals<SearchSignals>) -> Result<PatchElements> {
 	let user = require_user(cx).await?;
-	let _account_id = *path_param::<AccountId>(cx)?;
+	let _account_id = *account_id(cx)?;
 	let term = form.user_search.trim();
 	if term.is_empty() {
 		return Ok(PatchElements::new(results_html(&[], false)));

@@ -1,5 +1,6 @@
 //! Grouped portfolio markup for GET `/app/accounts` and live `#accounts-list` patches.
 
+use topcoat::context::Cx;
 use crate::module_bindings::{AccountKind, LedgerKind, MyAccountRow, Role};
 use crate::stdb::format_qty;
 use topcoat::{
@@ -9,7 +10,7 @@ use topcoat::{
 
 /// SSR wrapper so the live stream can reuse the same fragment.
 #[component]
-pub async fn accounts_list(rows: Vec<MyAccountRow>) -> Result<impl View> {
+pub async fn accounts_list(cx: &Cx, rows: Vec<MyAccountRow>) -> Result<impl View> {
 	Ok(view! {
 		(Unescaped::new_unchecked(accounts_list_html(&rows)))
 	})

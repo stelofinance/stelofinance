@@ -10,14 +10,14 @@ use crate::stdb::{
 use serde::{Deserialize, Serialize};
 use topcoat::{
 	Result,
-	context::{Cx, app_context},
+	context::{Cx, context},
 	datastar::{PatchSignals, Signals},
 	router::route,
 	view::{Unescaped, View, component, view},
 };
 
 #[component]
-pub async fn my_apps_list(data: MyAppsData) -> Result<impl View> {
+pub async fn my_apps_list(cx: &Cx, data: MyAppsData) -> Result<impl View> {
 	Ok(view! {
 		(Unescaped::new_unchecked(my_apps_html(&data)))
 	})
@@ -83,7 +83,7 @@ pub fn my_apps_html(data: &MyAppsData) -> String {
 
 /// New-app form + one-time token sheet (outside live remorph).
 #[component]
-pub async fn app_forms() -> Result<impl View> {
+pub async fn app_forms(cx: &Cx) -> Result<impl View> {
 	Ok(view! {
 		<section
 			class="mt-4 rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5"
@@ -206,7 +206,7 @@ async fn token(cx: &Cx, Signals(form): Signals<TokenSignals>) -> Result<PatchSig
 		return mint_err("Enter an app name (max 64 characters).");
 	}
 
-	let stdb = app_context::<StdbState>(cx);
+	let stdb = context::<StdbState>(cx);
 	let minted = match mint_app_identity(stdb).await {
 		Ok(m) => m,
 		Err(e) => {

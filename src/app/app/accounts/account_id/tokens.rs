@@ -1,6 +1,6 @@
 //! Create / revoke API tokens on an account (Admin+).
 
-use super::AccountId;
+use super::account_id;
 use crate::auth::require_user;
 use crate::stdb::account::{create_account_api_token, revoke_account_api_tokens};
 use crate::stdb::acquire_user_db;
@@ -9,13 +9,13 @@ use topcoat::{
 	Result,
 	context::Cx,
 	datastar::{PatchSignals, Signals},
-	router::{path_param, route},
+	router::{route},
 	view::{View, component, view},
 };
 
 /// Create + one-time secret sheet. Lives outside `#account-home` so remorphs keep it.
 #[component]
-pub async fn token_forms(account_id: u64) -> Result<impl View> {
+pub async fn token_forms(cx: &Cx, account_id: u64) -> Result<impl View> {
 	let create_url = format!("@post('/app/accounts/{account_id}/tokens')");
 	Ok(view! {
 		<section
@@ -99,7 +99,7 @@ pub async fn token_forms(account_id: u64) -> Result<impl View> {
 #[route(POST)]
 async fn create_token(cx: &Cx, Signals(form): Signals<CreateTokenSignals>) -> Result<PatchSignals> {
 	let _user = require_user(cx).await?;
-	let account_id = *path_param::<AccountId>(cx)?;
+	let account_id = *account_id(cx)?;
 	let label = form.token_label.trim().to_owned();
 	let conn = acquire_user_db(cx).await?;
 	match create_account_api_token(conn.get(), account_id, label).await {
@@ -117,7 +117,7 @@ async fn create_token(cx: &Cx, Signals(form): Signals<CreateTokenSignals>) -> Re
 #[route(POST "/app/accounts/{account_id}/tokens/revoke")]
 async fn revoke(cx: &Cx, Signals(form): Signals<RevokeTokenSignals>) -> Result<PatchSignals> {
 	let _user = require_user(cx).await?;
-	let account_id = *path_param::<AccountId>(cx)?;
+	let account_id = *account_id(cx)?;
 	if form.revoke_token_id == 0 {
 		return token_err("Pick a token to revoke.");
 	}

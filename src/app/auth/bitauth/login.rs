@@ -7,7 +7,7 @@ use crate::auth::{
 };
 use topcoat::{
 	Result,
-	context::{Cx, app_context},
+	context::{Cx, context},
 	cookie::{Cookie, Cookies, time::Duration},
 	router::{error::redirect, page, query_params},
 };
@@ -20,7 +20,7 @@ struct LoginStartQuery {
 /// Start BitAuth OIDC: set CSRF/PKCE cookies and redirect to the IdP.
 #[page]
 async fn login(cx: &Cx) -> Result<()> {
-	let start = app_context::<BitAuth>(cx).auth_start();
+	let start = context::<BitAuth>(cx).auth_start();
 	let jar = cookies(cx);
 	let oauth_age = Duration::seconds(OAUTH_ROUNDTRIP_MAX_AGE_SECS);
 

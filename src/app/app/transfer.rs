@@ -75,7 +75,7 @@ async fn page(cx: &Cx) -> Result<impl View> {
 }
 
 #[component]
-async fn empty_state() -> Result<impl View> {
+async fn empty_state(cx: &Cx) -> Result<impl View> {
 	Ok(view! {
 		<div class="rounded-lg border border-neutral-800 bg-neutral-950 px-5 py-10 text-center">
 			<p class="text-neutral-300">"You need a writable account to send."</p>
@@ -94,6 +94,7 @@ async fn empty_state() -> Result<impl View> {
 
 #[component]
 async fn send_form(
+	cx: &Cx,
 	accounts: Vec<MyAccountRow>,
 	can_pick: bool,
 	selected_id: u64,
@@ -238,7 +239,7 @@ async fn send_form(
 }
 
 #[component]
-async fn amount_suffixes(accounts: Vec<MyAccountRow>, selected_id: u64) -> Result<impl View> {
+async fn amount_suffixes(cx: &Cx, accounts: Vec<MyAccountRow>, selected_id: u64) -> Result<impl View> {
 	Ok(view! {
 		for acc in &accounts {
 			ledger_suffix(acc: acc, selected: acc.account_id == selected_id)
@@ -247,7 +248,7 @@ async fn amount_suffixes(accounts: Vec<MyAccountRow>, selected_id: u64) -> Resul
 }
 
 #[component]
-async fn ledger_suffix(acc: &MyAccountRow, selected: bool) -> Result<impl View> {
+async fn ledger_suffix(cx: &Cx, acc: &MyAccountRow, selected: bool) -> Result<impl View> {
 	let show = format!("$fromId == '{}'", acc.account_id);
 	if selected {
 		Ok(view! {
@@ -271,7 +272,7 @@ async fn ledger_suffix(acc: &MyAccountRow, selected: bool) -> Result<impl View> 
 }
 
 #[component]
-async fn amount_hints(accounts: Vec<MyAccountRow>, selected_id: u64) -> Result<impl View> {
+async fn amount_hints(cx: &Cx, accounts: Vec<MyAccountRow>, selected_id: u64) -> Result<impl View> {
 	Ok(view! {
 		for acc in &accounts {
 			avail_hint(acc: acc, selected: acc.account_id == selected_id)
@@ -280,7 +281,7 @@ async fn amount_hints(accounts: Vec<MyAccountRow>, selected_id: u64) -> Result<i
 }
 
 #[component]
-async fn avail_hint(acc: &MyAccountRow, selected: bool) -> Result<impl View> {
+async fn avail_hint(cx: &Cx, acc: &MyAccountRow, selected: bool) -> Result<impl View> {
 	let show = format!("$fromId == '{}'", acc.account_id);
 	let qty = crate::stdb::format_qty(acc.balance, acc.ledger_scale);
 	if selected {

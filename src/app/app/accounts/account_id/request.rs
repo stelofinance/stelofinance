@@ -1,6 +1,6 @@
 //! Build a shareable H4 payment-request link (Read+).
 
-use super::AccountId;
+use super::account_id;
 use crate::auth::require_user;
 use crate::stdb::account::fetch_account_home;
 use crate::stdb::{acquire_user_db, parse_qty};
@@ -9,7 +9,7 @@ use topcoat::{
 	Result,
 	context::Cx,
 	datastar::{PatchSignals, Signals},
-	router::{path_param, route},
+	router::{route},
 	view::{View, component, view},
 };
 
@@ -17,7 +17,7 @@ const MAX_MEMO_LEN: usize = 32;
 
 /// Amount + memo form. Lives outside remorph targets so typing survives `/updates`.
 #[component]
-pub async fn request_form(account_id: u64, ledger_name: String, debit: bool) -> Result<impl View> {
+pub async fn request_form(cx: &Cx, account_id: u64, ledger_name: String, debit: bool) -> Result<impl View> {
 	let create = format!("@post('/app/accounts/{account_id}/request')");
 	let helper = if debit {
 		"Share a link so someone can pay this account."
@@ -139,7 +139,7 @@ async fn create_request_link(
 	Signals(form): Signals<RequestSignals>,
 ) -> Result<PatchSignals> {
 	let _user = require_user(cx).await?;
-	let account_id = *path_param::<AccountId>(cx)?;
+	let account_id = *account_id(cx)?;
 	let conn = acquire_user_db(cx).await?;
 	let data = match fetch_account_home(conn.get(), account_id).await {
 		Ok(d) => d,

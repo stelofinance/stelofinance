@@ -2,7 +2,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::AccountId;
+use super::account_id;
 use super::markup::{HomeChrome, account_home_html, account_people_html, account_tokens_html};
 use crate::auth::require_user;
 use crate::stdb::account::LiveAccountHome;
@@ -16,14 +16,14 @@ use topcoat::{
 	router::{
 		content::sse::{Event, KeepAlive, Sse, last_event_id},
 		error::internal_server_error,
-		path_param, route,
+		route,
 	},
 };
 
 #[route(GET)]
 async fn updates(cx: &Cx) -> Result<Sse<impl Stream<Item = Result<Event>> + use<>>> {
 	let user = require_user(cx).await?;
-	let account_id = *path_param::<AccountId>(cx)?;
+	let account_id = *account_id(cx)?;
 	let reconnect = last_event_id(cx).is_some();
 	let pooled = acquire_user_db(cx).await?;
 	let (tx, rx) = tokio::sync::watch::channel(None);

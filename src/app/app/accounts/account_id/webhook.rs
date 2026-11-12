@@ -1,6 +1,6 @@
 //! Set / clear account webhook URL (Admin+).
 
-use super::AccountId;
+use super::account_id;
 use crate::auth::require_user;
 use crate::stdb::account::set_webhook;
 use crate::stdb::acquire_user_db;
@@ -9,13 +9,13 @@ use topcoat::{
 	Result,
 	context::Cx,
 	datastar::{PatchSignals, Signals},
-	router::{path_param, route},
+	router::{route},
 	view::{View, component, view},
 };
 
 /// Lives below API tokens. Input is signal-bound so remorphs of the token list stay out of the way.
 #[component]
-pub async fn webhook_form(account_id: u64) -> Result<impl View> {
+pub async fn webhook_form(cx: &Cx, account_id: u64) -> Result<impl View> {
 	let save = format!(
 		"$webhookNotice = ''; $webhookError = ''; @post('/app/accounts/{account_id}/webhook')"
 	);
@@ -76,7 +76,7 @@ pub async fn webhook_form(account_id: u64) -> Result<impl View> {
 #[route(POST)]
 async fn save_webhook(cx: &Cx, Signals(form): Signals<WebhookSignals>) -> Result<PatchSignals> {
 	let _user = require_user(cx).await?;
-	let account_id = *path_param::<AccountId>(cx)?;
+	let account_id = *account_id(cx)?;
 	let trimmed = form.webhook_url.trim();
 	let webhook = if trimmed.is_empty() {
 		None

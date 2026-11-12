@@ -218,7 +218,7 @@ pub async fn app_bottom_nav(cx: &Cx) -> Result<impl View> {
 
 /// Shared stub body for unfinished app pages.
 #[component]
-pub async fn stub_page(#[into] title: String, #[into] blurb: String) -> Result<impl View> {
+pub async fn stub_page(cx: &Cx, #[into] title: String, #[into] blurb: String) -> Result<impl View> {
 	Ok(view! {
 		<main class="mx-auto max-w-5xl px-4 py-10 text-center text-white">
 			<h1 class="text-2xl font-medium md:text-3xl">(title)</h1>

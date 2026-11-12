@@ -151,7 +151,7 @@ struct Invoice {
 }
 
 #[component]
-async fn invalid_link() -> Result<impl View> {
+async fn invalid_link(cx: &Cx) -> Result<impl View> {
 	Ok(view! {
 		<main class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10">
 			<h1 class="mb-6 text-2xl font-medium md:text-3xl">"Pay"</h1>
@@ -170,7 +170,7 @@ async fn invalid_link() -> Result<impl View> {
 }
 
 #[component]
-async fn no_account(#[into] ledger_name: String) -> Result<impl View> {
+async fn no_account(cx: &Cx, #[into] ledger_name: String) -> Result<impl View> {
 	Ok(view! {
 		<div class="mt-6 rounded-lg border border-neutral-800 bg-neutral-950 px-5 py-10 text-center">
 			<p class="text-neutral-300">
@@ -192,7 +192,7 @@ async fn no_account(#[into] ledger_name: String) -> Result<impl View> {
 }
 
 #[component]
-async fn invoice_card(invoice: Invoice) -> Result<impl View> {
+async fn invoice_card(cx: &Cx, invoice: Invoice) -> Result<impl View> {
 	Ok(view! {
 		(Unescaped::new_unchecked(invoice_html(&invoice)))
 	})
@@ -231,6 +231,7 @@ fn invoice_html(invoice: &Invoice) -> String {
 
 #[component]
 async fn pay_form(
+	cx: &Cx,
 	accounts: Vec<MyAccountRow>,
 	can_pick: bool,
 	selected_id: u64,
@@ -302,6 +303,7 @@ async fn pay_form(
 
 #[component]
 async fn short_hints(
+	cx: &Cx,
 	accounts: Vec<MyAccountRow>,
 	amount: u64,
 	selected_id: u64,
@@ -314,7 +316,7 @@ async fn short_hints(
 }
 
 #[component]
-async fn short_hint(acc: &MyAccountRow, amount: u64, selected: bool) -> Result<impl View> {
+async fn short_hint(cx: &Cx, acc: &MyAccountRow, amount: u64, selected: bool) -> Result<impl View> {
 	let _ = amount;
 	let show = format!("$fromId == '{}'", acc.account_id);
 	if selected {

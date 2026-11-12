@@ -3,7 +3,7 @@
 use crate::stdb::StdbState;
 use topcoat::{
 	Result,
-	context::{Cx, app_context},
+	context::{Cx, context},
 	router::{
 		HeaderMap, HeaderValue, RawPathParamValue, StatusCode, header, raw_path_params,
 		request::{Bytes, headers, method, uri},
@@ -11,7 +11,7 @@ use topcoat::{
 	},
 };
 
-segment!(kind = CatchAll, rename = "path");
+segment!(kind: CatchAll, rename: "path");
 
 const UPSTREAM_UNAVAILABLE: &str = r#"{"error":"upstream unavailable"}"#;
 const BAD_PATH: &str = r#"{"error":"invalid path"}"#;
@@ -23,7 +23,7 @@ async fn proxy(cx: &Cx, body: Bytes) -> Result<(StatusCode, HeaderMap, Bytes)> {
 		return Ok(json_status(StatusCode::BAD_REQUEST, BAD_PATH));
 	};
 
-	let stdb = app_context::<StdbState>(cx);
+	let stdb = context::<StdbState>(cx);
 	let url = stdb.config.module_route_url(path, uri(cx).query());
 
 	let mut req = stdb.http.request(method(cx).clone(), url);

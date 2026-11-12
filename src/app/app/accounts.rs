@@ -202,7 +202,7 @@ fn create_signals(
 }
 
 #[component]
-async fn page_header(can_create: bool, initial_ledger_id: String) -> Result<impl View> {
+async fn page_header(cx: &Cx, can_create: bool, initial_ledger_id: String) -> Result<impl View> {
 	let open = format!(
 		"$creatingAcc = true; $createError = ''; $ledgerId = '{initial_ledger_id}'; $accountKind = 'debit'; $address = ''; $label = ''"
 	);
@@ -225,7 +225,7 @@ async fn page_header(can_create: bool, initial_ledger_id: String) -> Result<impl
 }
 
 #[component]
-async fn create_form(ledgers: Vec<Ledger>, username: String, is_admin: bool) -> Result<impl View> {
+async fn create_form(cx: &Cx, ledgers: Vec<Ledger>, username: String, is_admin: bool) -> Result<impl View> {
 	if ledgers.is_empty() {
 		return Ok(view! {
 			<p class="mt-2 text-sm text-neutral-400">
@@ -307,7 +307,7 @@ async fn create_form(ledgers: Vec<Ledger>, username: String, is_admin: bool) -> 
 }
 
 #[component]
-async fn ledger_choice(ledger: &Ledger) -> Result<impl View> {
+async fn ledger_choice(cx: &Cx, ledger: &Ledger) -> Result<impl View> {
 	let id = ledger.id.to_string();
 	let click = format!("$ledgerId = '{id}'; $createError = ''");
 	let is_on = format!("$ledgerId == '{id}'");
@@ -342,7 +342,7 @@ async fn ledger_choice(ledger: &Ledger) -> Result<impl View> {
 }
 
 #[component]
-async fn create_helper(ledger: &Ledger, username: String) -> Result<impl View> {
+async fn create_helper(cx: &Cx, ledger: &Ledger, username: String) -> Result<impl View> {
 	let id = ledger.id;
 	let show_first = format!(
 		"$ledgerId == '{id}' && $accountKind != 'credit' && !$primaryIds.includes('|{id}|')"
@@ -363,7 +363,7 @@ async fn create_helper(ledger: &Ledger, username: String) -> Result<impl View> {
 }
 
 #[component]
-async fn admin_advanced() -> Result<impl View> {
+async fn admin_advanced(cx: &Cx) -> Result<impl View> {
 	Ok(view! {
 		<details class="mt-4 rounded-md border border-neutral-800">
 			<summary class="cursor-pointer px-3 py-2 text-sm text-neutral-300 hover:text-white">
