@@ -1,8 +1,10 @@
 //! Grouped portfolio markup for GET `/app/accounts` and live `#accounts-list` patches.
 
 use topcoat::context::Cx;
-use crate::module_bindings::{AccountKind, LedgerKind, MyAccountRow, Role};
-use crate::stdb::format_qty;
+use crate::domain::accounts::{LedgerGroup, group_by_ledger};
+use crate::ui::text::{escape_html, ledger_kind_label, role_label};
+use crate::module_bindings::{AccountKind, MyAccountRow, Role};
+use crate::domain::format_qty;
 use topcoat::{
 	Result,
 	view::{Unescaped, View, component, view},
@@ -29,50 +31,20 @@ pub fn accounts_list_html(rows: &[MyAccountRow]) -> String {
 			.filter(|a| matches!(a.kind, AccountKind::Credit))
 			.collect();
 
-		for group in groups(&debit) {
+		for group in group_by_ledger(debit.iter().copied()) {
 			push_ledger_group(&mut out, &group);
 		}
 		if !credit.is_empty() {
 			out.push_str(
 				r#"<h2 class="mt-4 mb-3 text-sm font-medium uppercase tracking-wide text-neutral-400">Issuer accounts</h2>"#,
 			);
-			for group in groups(&credit) {
+			for group in group_by_ledger(credit.iter().copied()) {
 				push_ledger_group(&mut out, &group);
 			}
 		}
 	}
 	out.push_str("</div>");
 	out
-}
-
-struct LedgerGroup<'a> {
-	ledger_name: &'a str,
-	ledger_kind: LedgerKind,
-	accounts: Vec<&'a MyAccountRow>,
-}
-
-fn groups<'a>(rows: &[&'a MyAccountRow]) -> Vec<LedgerGroup<'a>> {
-	let mut groups: Vec<LedgerGroup<'a>> = Vec::new();
-	for acc in rows {
-		if let Some(g) = groups
-			.iter_mut()
-			.find(|g| g.accounts[0].ledger_id == acc.ledger_id)
-		{
-			g.accounts.push(acc);
-		} else {
-			groups.push(LedgerGroup {
-				ledger_name: acc.ledger_name.as_str(),
-				ledger_kind: acc.ledger_kind,
-				accounts: vec![acc],
-			});
-		}
-	}
-	groups.sort_by(|a, b| {
-		a.ledger_name
-			.cmp(b.ledger_name)
-			.then(a.accounts[0].ledger_id.cmp(&b.accounts[0].ledger_id))
-	});
-	groups
 }
 
 fn push_ledger_group(out: &mut String, group: &LedgerGroup<'_>) {
@@ -180,34 +152,5 @@ fn empty_state_html() -> &'static str {
 	</div>"#
 }
 
-fn ledger_kind_label(kind: LedgerKind) -> &'static str {
-	match kind {
-		LedgerKind::Physical => "In-game item",
-		LedgerKind::Digital => "Digital",
-		LedgerKind::Derivation => "Derivation",
-	}
-}
 
-fn role_label(role: Role) -> &'static str {
-	match role {
-		Role::Read => "Read",
-		Role::Write => "Write",
-		Role::Admin => "Admin",
-		Role::Owner => "Owner",
-	}
-}
 
-fn escape_html(s: &str) -> String {
-	let mut out = String::with_capacity(s.len());
-	for c in s.chars() {
-		match c {
-			'&' => out.push_str("&amp;"),
-			'<' => out.push_str("&lt;"),
-			'>' => out.push_str("&gt;"),
-			'"' => out.push_str("&quot;"),
-			'\'' => out.push_str("&#39;"),
-			c => out.push(c),
-		}
-	}
-	out
-}

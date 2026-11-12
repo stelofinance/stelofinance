@@ -1,12 +1,11 @@
 //! App list HTML, token sheet, and `POST /app/me/apps/token`.
 
+use crate::ui::text::{escape_html, js_str};
 use crate::auth::require_user;
 use crate::module_bindings::AppTicketPurpose;
-use crate::stdb::apps::{MyAppsData, mint_app_identity};
-use crate::stdb::{
-	StdbState, acquire_user_db, create_user_app_ticket, format_rel_time, replace_user_app_ticket,
-	unix_now_micros,
-};
+use crate::stdb::{apps::MyAppsData, apps::mint_app_identity};
+use crate::stdb::{StdbState, acquire_user_db, create_user_app_ticket, replace_user_app_ticket};
+use crate::domain::{format_rel_time, unix_now_micros};
 use serde::{Deserialize, Serialize};
 use topcoat::{
 	Result,
@@ -64,7 +63,7 @@ pub fn my_apps_html(data: &MyAppsData) -> String {
 		for a in &data.apps {
 			let name = escape_html(&a.name);
 			let hex = escape_html(&a.id.to_hex());
-			let name_js = escape_html(&js_single(&a.name));
+			let name_js = escape_html(&js_str(&a.name));
 			out.push_str(&format!(
 				r#"<div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2.5"><div class="min-w-0"><p class="truncate text-sm text-neutral-100">{name}</p><p class="mt-0.5 truncate font-mono text-xs text-neutral-500">{hex}</p></div>"#
 			));
@@ -113,7 +112,7 @@ pub async fn app_forms(cx: &Cx) -> Result<impl View> {
                 class="cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50"
                 data-on:click="$appError = ''; @post('/app/me/apps/token')"
                 data-indicator="mintingApp"
-                data-attr-disabled="$mintingApp || $appName.trim() == ''"
+                data-attr:disabled="$mintingApp || $appName.trim() == ''"
             >
                 "Generate Token"
             </button>
@@ -145,7 +144,7 @@ pub async fn app_forms(cx: &Cx) -> Result<impl View> {
                 class="cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50"
                 data-on:click="$appError = ''; @post('/app/me/apps/token')"
                 data-indicator="mintingApp"
-                data-attr-disabled="$mintingApp"
+                data-attr:disabled="$mintingApp"
             >
                 "Generate Token"
             </button>
@@ -281,31 +280,4 @@ fn mint_err(error: &str) -> Result<PatchSignals> {
 	})
 }
 
-fn js_single(s: &str) -> String {
-	let mut out = String::from("'");
-	for c in s.chars() {
-		match c {
-			'\\' => out.push_str("\\\\"),
-			'\'' => out.push_str("\\'"),
-			'\n' => out.push_str("\\n"),
-			c => out.push(c),
-		}
-	}
-	out.push('\'');
-	out
-}
 
-fn escape_html(s: &str) -> String {
-	let mut out = String::with_capacity(s.len());
-	for c in s.chars() {
-		match c {
-			'&' => out.push_str("&amp;"),
-			'<' => out.push_str("&lt;"),
-			'>' => out.push_str("&gt;"),
-			'"' => out.push_str("&quot;"),
-			'\'' => out.push_str("&#39;"),
-			c => out.push(c),
-		}
-	}
-	out
-}

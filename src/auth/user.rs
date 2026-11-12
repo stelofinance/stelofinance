@@ -14,7 +14,7 @@ use topcoat::{
 	},
 };
 
-use super::cookies::is_valid_redirect;
+use super::redirect::with_redirect;
 use super::session::{EnsureBearerError, ensure_bearer};
 use crate::einro::PoolError;
 use crate::stdb::{StdbState, fetch_my_user};
@@ -94,15 +94,6 @@ async fn resolve_session(cx: &Cx) -> std::result::Result<AppUser, SessionError> 
 	}
 }
 
-/// Optional current user (signed-out → `None`). Backend errors still 500.
-pub async fn current_user(cx: &Cx) -> Result<Option<&AppUser>> {
-	match resolve_session(cx).await {
-		Ok(user) => Ok(Some(user)),
-		Err(SessionError::Unauthenticated) => Ok(None),
-		Err(e @ SessionError::Backend(_)) => Err(internal_server_error(e.clone()).into()),
-	}
-}
-
 /// Require a signed-in user or redirect to `/login?redirect=…`.
 ///
 /// Call from any `/app/*` page, layout, or component. Memoized: layout + page
@@ -111,13 +102,9 @@ pub async fn require_user(cx: &Cx) -> Result<&AppUser> {
 	match resolve_session(cx).await {
 		Ok(user) => Ok(user),
 		Err(SessionError::Unauthenticated) => {
-			let path = uri(cx).path();
-			let login = if is_valid_redirect(path) {
-				format!("/login?redirect={path}")
-			} else {
-				"/login".to_owned()
-			};
-			Err(redirect(&login).into())
+			// Keep the query: payment links carry their whole request in it.
+			let target = uri(cx).path_and_query().map_or("/", |pq| pq.as_str());
+			Err(redirect(&with_redirect("/login", target)).into())
 		}
 		Err(e @ SessionError::Backend(_)) => Err(internal_server_error(e.clone()).into()),
 	}

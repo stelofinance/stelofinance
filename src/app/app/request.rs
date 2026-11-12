@@ -1,22 +1,25 @@
-//! `GET/POST /app/request` — H4 pay a payment-request link.
+//! `GET/POST /app/request` — pay a payment-request link.
 
 use super::transfer::markup::from_panel;
 use crate::auth::require_user;
+use crate::domain::{
+	format_qty, map_transfer_error, new_idempotency_key, normalize_memo, pay_from_accounts,
+	pick_sendable,
+};
 use crate::module_bindings::{AccountSearchHit, MyAccountRow};
 use crate::stdb::{
-	StdbError, acquire_user_db, create_user_transfer, fetch_accounts_page, format_qty,
-	lookup_account, map_transfer_error, new_idempotency_key, pay_from_accounts, pick_sendable,
+	StdbError, acquire_user_db, create_user_transfer, fetch_accounts_page, lookup_account,
 };
+use crate::ui::text::{escape_html, js_str};
 use serde::{Deserialize, Serialize};
 use topcoat::{
 	Result,
 	context::Cx,
 	datastar::{PatchSignals, Signals},
+	metadata::Metadata,
 	router::{error::internal_server_error, page, query_params, route},
 	view::{Unescaped, View, ViewExt, component, view},
 };
-
-const MAX_MEMO_LEN: usize = 64;
 
 #[query_params]
 struct PayQuery {
@@ -34,14 +37,8 @@ struct PaySpec {
 	memo: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum PayQueryError {
-	Incomplete,
-	Invalid,
-}
-
 /// `GET /app/request` — confirm a query-prefilled payment.
-#[page]
+#[page(with(Metadata::new().title("Pay · Stelo Finance")))]
 async fn page(cx: &Cx) -> Result<impl View> {
 	let _user = require_user(cx).await?;
 	let raw = query_params::<PayQuery>(cx).ok();
@@ -55,10 +52,9 @@ async fn page(cx: &Cx) -> Result<impl View> {
 		amount.as_deref(),
 		memo.as_deref(),
 	) {
-		Ok(s) => s,
-		Err(_) => {
-			return Ok(view! { invalid_link() }
-			.boxed());
+		Some(s) => s,
+		None => {
+			return Ok(view! { invalid_link() }.boxed());
 		}
 	};
 
@@ -72,15 +68,13 @@ async fn page(cx: &Cx) -> Result<impl View> {
 		.find(|l| l.id == spec.ledger_id)
 		.cloned()
 	else {
-		return Ok(view! { invalid_link() }
-		.boxed());
+		return Ok(view! { invalid_link() }.boxed());
 	};
 
 	let recipient = match lookup_account(conn.get(), spec.recipient_id).await {
 		Ok(hit) if hit.ledger_id == spec.ledger_id => hit,
 		Ok(_) | Err(_) => {
-			return Ok(view! { invalid_link() }
-			.boxed());
+			return Ok(view! { invalid_link() }.boxed());
 		}
 	};
 
@@ -100,7 +94,7 @@ async fn page(cx: &Cx) -> Result<impl View> {
 		spec.ledger_id,
 		spec.recipient_id,
 		spec.amount,
-		js_single(memo_js),
+		js_str(memo_js),
 	);
 
 	let invoice = Invoice {
@@ -260,7 +254,7 @@ async fn pay_form(
             class="mt-6 w-full cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50"
             data-on:click="@post('/app/request')"
             data-indicator="sending"
-            data-attr-disabled=(disabled)
+            data-attr:disabled=(disabled)
         >
             (cta)
         </button>
@@ -314,14 +308,13 @@ async fn short_hints(
 ) -> Result<impl View> {
 	Ok(view! {
     for acc in accounts.iter().filter(|a| a.balance < amount) {
-        short_hint(acc: acc, amount: amount, selected: acc.account_id == selected_id)
+        short_hint(acc: acc, selected: acc.account_id == selected_id)
     }
 })
 }
 
 #[component]
-async fn short_hint(cx: &Cx, acc: &MyAccountRow, amount: u64, selected: bool) -> Result<impl View> {
-	let _ = amount;
+async fn short_hint(cx: &Cx, acc: &MyAccountRow, selected: bool) -> Result<impl View> {
 	let show = format!("$fromId == '{}'", acc.account_id);
 	if selected {
 		Ok(view! {
@@ -345,50 +338,43 @@ async fn short_hint(cx: &Cx, acc: &MyAccountRow, amount: u64, selected: bool) ->
 async fn create(cx: &Cx, Signals(form): Signals<PaySignals>) -> Result<PatchSignals> {
 	let _user = require_user(cx).await?;
 	let Ok(from_id) = form.from_id.trim().parse::<u64>() else {
-		return pay_err("Choose an account to pay from.", &form);
+		return pay_err("Choose an account to pay from.");
 	};
 	let Ok(recipient_id) = form.recipient_id.trim().parse::<u64>() else {
-		return pay_err("This payment link isn't valid.", &form);
+		return pay_err("This payment link isn't valid.");
 	};
 	let Ok(amount) = form.amount.trim().parse::<u64>() else {
-		return pay_err("This payment link isn't valid.", &form);
+		return pay_err("This payment link isn't valid.");
 	};
 	if amount == 0 {
-		return pay_err("This payment link isn't valid.", &form);
+		return pay_err("This payment link isn't valid.");
 	}
 	if form.idempotency_key.trim().is_empty() {
-		return pay_err("Refresh the page and try again.", &form);
+		return pay_err("Refresh the page and try again.");
 	}
 
 	let conn = acquire_user_db(cx).await?;
 	let data = match fetch_accounts_page(conn.get()).await {
 		Ok(d) => d,
-		Err(e) => return pay_err(&e, &form),
+		Err(e) => return pay_err(&e),
 	};
 	let recipient = match lookup_account(conn.get(), recipient_id).await {
 		Ok(hit) => hit,
-		Err(_) => return pay_err("This payment link isn't valid.", &form),
+		Err(_) => return pay_err("This payment link isn't valid."),
 	};
 	let from_accounts = pay_from_accounts(&data.accounts, recipient.ledger_id, recipient_id);
 	let Some(from) = from_accounts.iter().find(|a| a.account_id == from_id) else {
-		return pay_err("You can't pay from that account.", &form);
+		return pay_err("You can't pay from that account.");
 	};
 	if from.ledger_id != recipient.ledger_id {
-		return pay_err("This payment link isn't valid.", &form);
+		return pay_err("This payment link isn't valid.");
 	}
 	if amount > from.balance {
-		return pay_err("Not enough available balance.", &form);
+		return pay_err("Not enough available balance.");
 	}
 
-	let memo = {
-		let t = form.memo.trim();
-		if t.is_empty() {
-			None
-		} else if t.len() > MAX_MEMO_LEN {
-			return pay_err("This payment link isn't valid.", &form);
-		} else {
-			Some(t.to_owned())
-		}
+	let Ok(memo) = normalize_memo(&form.memo) else {
+		return pay_err("This payment link isn't valid.");
 	};
 
 	match create_user_transfer(
@@ -406,7 +392,7 @@ async fn create(cx: &Cx, Signals(form): Signals<PaySignals>) -> Result<PatchSign
 			send_error: String::new(),
 			sent: true,
 		}),
-		Err(e) => pay_err(&map_transfer_error(&e), &form),
+		Err(e) => pay_err(&map_transfer_error(&e)),
 	}
 }
 
@@ -431,54 +417,29 @@ struct PayPatch {
 	sent: bool,
 }
 
-fn pay_err(error: &str, _form: &PaySignals) -> Result<PatchSignals> {
+fn pay_err(error: &str) -> Result<PatchSignals> {
 	PatchSignals::json(&PayPatch {
 		send_error: error.to_owned(),
 		sent: false,
 	})
 }
 
+/// Parse a payment link's query. `None` when anything is missing or invalid.
 fn parse_pay_query(
 	ledgerid: Option<&str>,
 	recipientid: Option<&str>,
 	amount: Option<&str>,
 	memo: Option<&str>,
-) -> Result<PaySpec, PayQueryError> {
-	let ledgerid = ledgerid.map(str::trim).filter(|s| !s.is_empty());
-	let recipientid = recipientid.map(str::trim).filter(|s| !s.is_empty());
-	let amount = amount.map(str::trim).filter(|s| !s.is_empty());
-	if ledgerid.is_none() || recipientid.is_none() || amount.is_none() {
-		return Err(PayQueryError::Incomplete);
-	}
-	let ledger_id = ledgerid
-		.unwrap()
-		.parse::<u64>()
-		.map_err(|_| PayQueryError::Invalid)?;
-	let recipient_id = recipientid
-		.unwrap()
-		.parse::<u64>()
-		.map_err(|_| PayQueryError::Invalid)?;
-	let amount = amount
-		.unwrap()
-		.parse::<u64>()
-		.map_err(|_| PayQueryError::Invalid)?;
-	if amount == 0 {
-		return Err(PayQueryError::Invalid);
-	}
+) -> Option<PaySpec> {
+	let num = |s: Option<&str>| s?.trim().parse::<u64>().ok();
+	let ledger_id = num(ledgerid)?;
+	let recipient_id = num(recipientid)?;
+	let amount = num(amount).filter(|&a| a > 0)?;
 	let memo = match memo {
 		None => None,
-		Some(raw) => {
-			let t = raw.trim();
-			if t.is_empty() {
-				None
-			} else if t.len() > MAX_MEMO_LEN {
-				return Err(PayQueryError::Invalid);
-			} else {
-				Some(t.to_owned())
-			}
-		}
+		Some(raw) => normalize_memo(raw).ok()?,
 	};
-	Ok(PaySpec {
+	Some(PaySpec {
 		ledger_id,
 		recipient_id,
 		amount,
@@ -517,62 +478,32 @@ fn recipient_addr(hit: &AccountSearchHit) -> String {
 	}
 }
 
-fn js_single(s: &str) -> String {
-	let mut out = String::from('\'');
-	for c in s.chars() {
-		match c {
-			'\\' => out.push_str("\\\\"),
-			'\'' => out.push_str("\\'"),
-			'\n' | '\r' => {}
-			c => out.push(c),
-		}
-	}
-	out.push('\'');
-	out
-}
-
-fn escape_html(s: &str) -> String {
-	let mut out = String::with_capacity(s.len());
-	for c in s.chars() {
-		match c {
-			'&' => out.push_str("&amp;"),
-			'<' => out.push_str("&lt;"),
-			'>' => out.push_str("&gt;"),
-			'"' => out.push_str("&quot;"),
-			'\'' => out.push_str("&#39;"),
-			c => out.push(c),
-		}
-	}
-	out
-}
-
 #[cfg(test)]
 mod tests {
-	use super::{PayQueryError, parse_pay_query};
+	use super::parse_pay_query;
 
 	#[test]
-	fn missing_is_incomplete() {
-		assert_eq!(
-			parse_pay_query(None, Some("1"), Some("5"), None).unwrap_err(),
-			PayQueryError::Incomplete
-		);
+	fn missing_is_invalid() {
+		assert!(parse_pay_query(None, Some("1"), Some("5"), None).is_none());
+		assert!(parse_pay_query(Some(" "), Some("1"), Some("5"), None).is_none());
 	}
 
 	#[test]
 	fn zero_amount_invalid() {
-		assert_eq!(
-			parse_pay_query(Some("1"), Some("2"), Some("0"), None).unwrap_err(),
-			PayQueryError::Invalid
-		);
+		assert!(parse_pay_query(Some("1"), Some("2"), Some("0"), None).is_none());
 	}
 
 	#[test]
 	fn long_memo_invalid() {
-		let memo = "x".repeat(33);
-		assert_eq!(
-			parse_pay_query(Some("1"), Some("2"), Some("10"), Some(&memo)).unwrap_err(),
-			PayQueryError::Invalid
-		);
+		let memo = "x".repeat(crate::domain::MAX_MEMO_LEN + 1);
+		assert!(parse_pay_query(Some("1"), Some("2"), Some("10"), Some(&memo)).is_none());
+	}
+
+	#[test]
+	fn memo_at_limit_valid() {
+		let memo = "x".repeat(crate::domain::MAX_MEMO_LEN);
+		let spec = parse_pay_query(Some("1"), Some("2"), Some("10"), Some(&memo)).unwrap();
+		assert_eq!(spec.memo.as_deref(), Some(memo.as_str()));
 	}
 
 	#[test]

@@ -68,3 +68,10 @@ where
 	let _ = handle.unsubscribe();
 	wait?
 }
+
+/// Row callbacks also fire while a subscription applies (one insert per
+/// existing row) and on unsubscribe. Only reducer / transaction events are real
+/// changes worth pushing to the browser.
+pub(super) fn is_live_row_change(event: &spacetimedb_sdk::Event<crate::module_bindings::Reducer>) -> bool {
+	matches!(event, spacetimedb_sdk::Event::Reducer(_) | spacetimedb_sdk::Event::Transaction)
+}

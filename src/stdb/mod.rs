@@ -7,26 +7,19 @@ mod admin;
 pub mod apps;
 mod config;
 mod connector;
-mod format;
 mod query;
 mod user;
 
 mod transfer;
 
-pub use accounts::{LiveAccounts, create_user_account, fetch_accounts_page, has_primary_on_ledger};
-pub use activity::{
-	ActivitySnapshot, LiveActivity, can_finalize_transfer, display_amount, fetch_activity_page,
-	selected_account_id, sender_receiver, timestamp_micros,
-};
+pub use accounts::{LiveAccounts, create_user_account, fetch_accounts_page};
+pub use activity::{ActivitySnapshot, LiveActivity, fetch_activity_page};
 pub use admin::create_user_ledger;
 pub use apps::{create_user_app_ticket, replace_user_app_ticket, search_apps};
 pub use config::StdbConfig;
 pub use connector::{StdbConn, StdbConnector};
-pub use format::{day_heading, format_qty, format_rel_time, parse_qty, unix_now_micros};
 pub use transfer::{
-	DirectoryHit, counterpart_kind, create_user_transfer, finalize_user_transfer, flow_accounts,
-	lookup_account, map_transfer_error, new_idempotency_key, own_issuer, pay_from_accounts,
-	pick_flow, pick_sendable, search_directory, sendable_accounts,
+	DirectoryHit, create_user_transfer, finalize_user_transfer, lookup_account, search_directory,
 };
 pub use user::fetch_my_user;
 

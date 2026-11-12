@@ -1,8 +1,9 @@
 use crate::auth::{
 	bitauth::BitAuth,
+	redirect::is_safe_redirect,
 	cookies::{
 		COOKIE_OAUTH_NONCE, COOKIE_OAUTH_PKCE, COOKIE_OAUTH_REDIRECT, COOKIE_OAUTH_STATE,
-		clear_oauth_cookies, get_cookie, is_valid_redirect, set_auth_cookies,
+		clear_oauth_cookies, get_cookie, set_auth_cookies,
 	},
 };
 use topcoat::{
@@ -68,7 +69,7 @@ async fn callback(cx: &Cx) -> Result<SeeOther> {
 
 	let mut dest = "/".to_owned();
 	if let Some(redir) = get_cookie(cx, COOKIE_OAUTH_REDIRECT) {
-		if is_valid_redirect(&redir) {
+		if is_safe_redirect(&redir) {
 			dest = redir;
 		}
 	}

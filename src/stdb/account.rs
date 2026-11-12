@@ -3,20 +3,21 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::domain::role_rank;
 use crate::einro::PooledConn;
 use crate::module_bindings::{
 	MyAccountMemberRow, MyAccountRow, MyAccountTokenRow, MyAccountsMembersTableAccess,
-	MyAccountsTableAccess, MyAccountsTokensTableAccess, Reducer, Role,
+	MyAccountsTableAccess, MyAccountsTokensTableAccess, Role,
 	SubscriptionHandle as ModuleSubHandle, User, UserTableAccess, create_account_token,
 	grant_account_member, my_accounts_membersQueryTableAccess, my_accounts_tokensQueryTableAccess,
 	my_accountsQueryTableAccess, revoke_account_member, revoke_account_tokens, set_account_label,
 	set_account_primary, set_account_webhook, userQueryTableAccess,
 };
-use spacetimedb_sdk::{DbContext, Event, Identity, SubscriptionHandle, Table, TableWithPrimaryKey};
+use spacetimedb_sdk::{DbContext, Identity, SubscriptionHandle, Table, TableWithPrimaryKey};
 use tokio::task::spawn_blocking;
 
 use super::connector::StdbConn;
-use super::query::subscribe_once;
+use super::query::{is_live_row_change, subscribe_once};
 
 const REDUCER_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -120,25 +121,6 @@ fn sort_members(members: &mut [MyAccountMemberRow]) {
 			.then(a.name.cmp(&b.name))
 			.then(a.id.cmp(&b.id))
 	});
-}
-
-pub fn role_rank(role: Role) -> u8 {
-	match role {
-		Role::Read => 0,
-		Role::Write => 1,
-		Role::Admin => 2,
-		Role::Owner => 3,
-	}
-}
-
-pub fn parse_role(s: &str) -> Option<Role> {
-	match s.trim().to_ascii_lowercase().as_str() {
-		"read" => Some(Role::Read),
-		"write" => Some(Role::Write),
-		"admin" => Some(Role::Admin),
-		"owner" => Some(Role::Owner),
-		_ => None,
-	}
 }
 
 fn map_reducer(result: Result<Result<(), String>, impl ToString>) -> Result<(), String> {
@@ -371,10 +353,6 @@ pub async fn revoke_account_api_tokens(
 			.map_err(|e| format!("revoke_account_tokens send: {e}"))
 	})
 	.await
-}
-
-fn is_live_row_change(event: &Event<Reducer>) -> bool {
-	matches!(event, Event::Reducer(_) | Event::Transaction)
 }
 
 /// Live `my_accounts` + `my_accounts_members` + `my_accounts_tokens` for one account.

@@ -13,8 +13,6 @@ use topcoat::context::{Cx, context};
 #[derive(Debug, Clone)]
 pub struct Bearer {
 	pub token: String,
-	/// True when BitAuth refresh ran and cookies were rewritten this call.
-	pub refreshed: bool,
 }
 
 #[derive(Debug)]
@@ -53,7 +51,6 @@ pub async fn ensure_bearer(cx: &Cx) -> Result<Bearer, EnsureBearerError> {
 	if !should_refresh {
 		return Ok(Bearer {
 			token: id_token.expect("present when !should_refresh"),
-			refreshed: false,
 		});
 	}
 
@@ -62,7 +59,6 @@ pub async fn ensure_bearer(cx: &Cx) -> Result<Bearer, EnsureBearerError> {
 		return match id_token {
 			Some(t) if !token_is_past_exp(&t) => Ok(Bearer {
 				token: t,
-				refreshed: false,
 			}),
 			_ => Err(EnsureBearerError::Unauthenticated),
 		};
@@ -81,7 +77,6 @@ pub async fn ensure_bearer(cx: &Cx) -> Result<Bearer, EnsureBearerError> {
 			eprintln!("bitauth: refreshed id_token cookie");
 			Ok(Bearer {
 				token,
-				refreshed: true,
 			})
 		}
 		Err(e) => {
@@ -92,7 +87,6 @@ pub async fn ensure_bearer(cx: &Cx) -> Result<Bearer, EnsureBearerError> {
 					eprintln!("bitauth: using current id_token until exp");
 					return Ok(Bearer {
 						token: t,
-						refreshed: false,
 					});
 				}
 			}

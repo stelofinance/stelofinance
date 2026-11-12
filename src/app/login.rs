@@ -1,8 +1,9 @@
-use crate::auth::cookies::is_valid_redirect;
+use crate::auth::redirect::with_redirect;
 use crate::ui::{public_footer, public_nav};
 use topcoat::{
 	Result,
 	context::Cx,
+	metadata::Metadata,
 	router::{page, query_params},
 	view::{View, view},
 };
@@ -16,15 +17,13 @@ struct LoginPageQuery {
 ///
 /// Forwards a safe `?redirect=` to the OIDC start so `/app` gates can return
 /// the user to the page they wanted after sign-in.
-#[page]
+#[page(with(Metadata::new().title("Log in · Stelo Finance")))]
 async fn login(cx: &Cx) -> Result<impl View> {
-	let bitauth_href = match query_params::<LoginPageQuery>(cx) {
-		Ok(q) => match q.redirect.as_deref() {
-			Some(r) if is_valid_redirect(r) => format!("/auth/bitauth/login?redirect={r}"),
-			_ => "/auth/bitauth/login".to_owned(),
-		},
-		Err(_) => "/auth/bitauth/login".to_owned(),
-	};
+	let target = query_params::<LoginPageQuery>(cx)
+		.ok()
+		.and_then(|q| q.redirect.clone())
+		.unwrap_or_default();
+	let bitauth_href = with_redirect("/auth/bitauth/login", &target);
 
 	Ok(view! {
     public_nav()

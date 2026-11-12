@@ -1,20 +1,22 @@
-//! `GET/POST /app/transfer` — H3a send. Recipient search: `recipients`.
+//! `GET/POST /app/transfer` — send. Recipient search: `recipients`.
 
 pub(super) mod markup;
 mod recipients;
 
 use crate::auth::require_user;
-use crate::module_bindings::MyAccountRow;
-use crate::stdb::{
-	StdbError, acquire_user_db, create_user_transfer, fetch_accounts_page, map_transfer_error,
-	new_idempotency_key, parse_qty, sendable_accounts,
+use crate::domain::{
+	MAX_MEMO_LEN, map_transfer_error, new_idempotency_key, normalize_memo, parse_qty,
+	sendable_accounts,
 };
+use crate::module_bindings::MyAccountRow;
+use crate::stdb::{StdbError, acquire_user_db, create_user_transfer, fetch_accounts_page};
 use markup::from_panel;
 use serde::{Deserialize, Serialize};
 use topcoat::{
 	Result,
 	context::Cx,
 	datastar::{PatchSignals, Signals},
+	metadata::Metadata,
 	router::{error::internal_server_error, page, query_params, route},
 	view::{View, ViewExt, component, view},
 };
@@ -25,7 +27,7 @@ struct SendQuery {
 }
 
 /// `GET /app/transfer` — from-account, recipient, amount, memo.
-#[page]
+#[page(with(Metadata::new().title("Send · Stelo Finance")))]
 async fn page(cx: &Cx) -> Result<impl View> {
 	let _user = require_user(cx).await?;
 	let requested = query_params::<SendQuery>(cx)
@@ -190,13 +192,16 @@ async fn send_form(
                         "(optional)"
                     </span>
                 </p>
-                <p class="text-xs text-neutral-400" data-text="$memo.length + '/32'"></p>
+                <p
+                    class="text-xs text-neutral-400"
+                    data-text=(format!("$memo.length + '/{MAX_MEMO_LEN}'"))
+                ></p>
             </div>
             <input
                 type="text"
                 class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-400"
                 data-bind="memo"
-                maxlength="32"
+                maxlength=(MAX_MEMO_LEN)
                 placeholder="What's this for?"
                 autocomplete="off"
             >
@@ -209,7 +214,7 @@ async fn send_form(
             class="mt-6 w-full cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50"
             data-on:click="@post('/app/transfer')"
             data-indicator="sending"
-            data-attr-disabled="$sending || !$fromId || !$recipientId || $amount == ''"
+            data-attr:disabled="$sending || !$fromId || !$recipientId || $amount == ''"
         >
             "Send"
         </button>
@@ -249,7 +254,11 @@ async fn send_form(
 }
 
 #[component]
-async fn amount_suffixes(cx: &Cx, accounts: Vec<MyAccountRow>, selected_id: u64) -> Result<impl View> {
+async fn amount_suffixes(
+	cx: &Cx,
+	accounts: Vec<MyAccountRow>,
+	selected_id: u64,
+) -> Result<impl View> {
 	Ok(view! {
     for acc in &accounts {
         ledger_suffix(acc: acc, selected: acc.account_id == selected_id)
@@ -293,7 +302,7 @@ async fn amount_hints(cx: &Cx, accounts: Vec<MyAccountRow>, selected_id: u64) ->
 #[component]
 async fn avail_hint(cx: &Cx, acc: &MyAccountRow, selected: bool) -> Result<impl View> {
 	let show = format!("$fromId == '{}'", acc.account_id);
-	let qty = crate::stdb::format_qty(acc.balance, acc.ledger_scale);
+	let qty = crate::domain::format_qty(acc.balance, acc.ledger_scale);
 	if selected {
 		Ok(view! {
     <p class="mt-1 text-xs text-neutral-400" data-show=(show)>
@@ -318,41 +327,36 @@ async fn avail_hint(cx: &Cx, acc: &MyAccountRow, selected: bool) -> Result<impl 
 async fn create(cx: &Cx, Signals(form): Signals<SendSignals>) -> Result<PatchSignals> {
 	let _user = require_user(cx).await?;
 	let Ok(from_id) = form.from_id.trim().parse::<u64>() else {
-		return send_err("Choose an account to send from.", &form, None);
+		return send_err("Choose an account to send from.", &form);
 	};
 	let Ok(recipient_id) = form.recipient_id.trim().parse::<u64>() else {
-		return send_err("Pick a recipient.", &form, None);
+		return send_err("Pick a recipient.", &form);
 	};
 	if form.idempotency_key.trim().is_empty() {
-		return send_err("Refresh the page and try again.", &form, None);
+		return send_err("Refresh the page and try again.", &form);
 	}
 
 	let conn = acquire_user_db(cx).await?;
 	let data = match fetch_accounts_page(conn.get()).await {
 		Ok(d) => d,
-		Err(e) => return send_err(&e, &form, None),
+		Err(e) => return send_err(&e, &form),
 	};
 	let sendable = sendable_accounts(&data.accounts);
 	let Some(from) = sendable.iter().find(|a| a.account_id == from_id) else {
-		return send_err("You can't send from that account.", &form, None);
+		return send_err("You can't send from that account.", &form);
 	};
 
 	let amount = match parse_qty(&form.amount, from.ledger_scale) {
-		Ok(0) => return send_err("Enter an amount greater than zero.", &form, None),
+		Ok(0) => return send_err("Enter an amount greater than zero.", &form),
 		Ok(n) => n,
-		Err(e) => return send_err(&e, &form, None),
+		Err(e) => return send_err(&e, &form),
 	};
 	if amount > from.balance {
-		return send_err("Not enough available balance.", &form, None);
+		return send_err("Not enough available balance.", &form);
 	}
 
-	let memo = {
-		let t = form.memo.trim();
-		if t.is_empty() {
-			None
-		} else {
-			Some(t.to_owned())
-		}
+	let Ok(memo) = normalize_memo(&form.memo) else {
+		return send_err("Memo is too long.", &form);
 	};
 
 	match create_user_transfer(
@@ -369,7 +373,7 @@ async fn create(cx: &Cx, Signals(form): Signals<SendSignals>) -> Result<PatchSig
 		Ok(()) => {
 			let sent_qty = format!(
 				"{} {}",
-				crate::stdb::format_qty(amount, from.ledger_scale),
+				crate::domain::format_qty(amount, from.ledger_scale),
 				from.ledger_name
 			);
 			let sent_to = if form.recipient_name.trim().is_empty() {
@@ -393,7 +397,7 @@ async fn create(cx: &Cx, Signals(form): Signals<SendSignals>) -> Result<PatchSig
 				recipient_search: String::new(),
 			})
 		}
-		Err(e) => send_err(&map_transfer_error(&e), &form, None),
+		Err(e) => send_err(&map_transfer_error(&e), &form),
 	}
 }
 
@@ -453,14 +457,14 @@ struct SendPatch {
 	recipient_search: String,
 }
 
-fn send_err(error: &str, form: &SendSignals, key: Option<String>) -> Result<PatchSignals> {
+fn send_err(error: &str, form: &SendSignals) -> Result<PatchSignals> {
 	PatchSignals::json(&SendPatch {
 		send_error: error.to_owned(),
 		sent: false,
 		sent_qty: String::new(),
 		sent_to: String::new(),
 		sent_addr: String::new(),
-		idempotency_key: key.unwrap_or_else(|| form.idempotency_key.clone()),
+		idempotency_key: form.idempotency_key.clone(),
 		amount: form.amount.clone(),
 		memo: form.memo.clone(),
 		recipient_id: form.recipient_id.clone(),

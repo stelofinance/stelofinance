@@ -1,26 +1,27 @@
-//! `GET/POST /app/accounts` — H1 portfolio + create. Live patches: `updates`.
+//! `GET/POST /app/accounts` — portfolio + create. Live patches: `updates`.
 
 mod account_id;
 mod list;
 mod updates;
 
 use crate::auth::require_user;
+use crate::domain::{has_primary_on_ledger, parse_kind};
 use crate::module_bindings::{AccountKind, Ledger};
-use crate::stdb::{
-	StdbError, acquire_user_db, create_user_account, fetch_accounts_page, has_primary_on_ledger,
-};
+use crate::stdb::{StdbError, acquire_user_db, create_user_account, fetch_accounts_page};
+use crate::ui::text::ledger_kind_label;
 use list::accounts_list;
 use serde::{Deserialize, Serialize};
 use topcoat::{
 	Result,
 	context::Cx,
 	datastar::{PatchSignals, Signals},
+	metadata::Metadata,
 	router::{error::internal_server_error, page, route},
 	view::{View, ViewExt, component, view},
 };
 
 /// `GET /app/accounts` — SSR current `my_accounts` + create sheet.
-#[page]
+#[page(with(Metadata::new().title("Accounts · Stelo Finance")))]
 async fn page(cx: &Cx) -> Result<impl View> {
 	let user = require_user(cx).await?;
 	let conn = acquire_user_db(cx).await?;
@@ -76,9 +77,9 @@ async fn create(cx: &Cx, Signals(form): Signals<CreateAccountSignals>) -> Result
 		return create_signals(true, "Choose an asset.", &form, None, None);
 	};
 
-	let kind = match form.account_kind.trim() {
-		"credit" if user.is_admin => AccountKind::Credit,
-		"credit" => {
+	let kind = match parse_kind(&form.account_kind) {
+		Some(AccountKind::Credit) if user.is_admin => AccountKind::Credit,
+		Some(AccountKind::Credit) => {
 			return create_signals(
 				true,
 				"Only platform admins can create credit accounts.",
@@ -228,7 +229,12 @@ async fn page_header(cx: &Cx, can_create: bool, initial_ledger_id: String) -> Re
 }
 
 #[component]
-async fn create_form(cx: &Cx, ledgers: Vec<Ledger>, username: String, is_admin: bool) -> Result<impl View> {
+async fn create_form(
+	cx: &Cx,
+	ledgers: Vec<Ledger>,
+	username: String,
+	is_admin: bool,
+) -> Result<impl View> {
 	if ledgers.is_empty() {
 		return Ok(view! {
     <p class="mt-2 text-sm text-neutral-400">"No assets are on the platform yet."</p>
@@ -300,7 +306,7 @@ async fn create_form(cx: &Cx, ledgers: Vec<Ledger>, username: String, is_admin: 
                 class="rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50"
                 data-on:click="@post('/app/accounts')"
                 data-indicator="creating"
-                data-attr-disabled="$creating || !$ledgerId"
+                data-attr:disabled="$creating || !$ledgerId"
             >
                 "Create"
             </button>
@@ -315,14 +321,17 @@ async fn ledger_choice(cx: &Cx, ledger: &Ledger) -> Result<impl View> {
 	let click = format!("$ledgerId = '{id}'; $createError = ''");
 	let is_on = format!("$ledgerId == '{id}'");
 	let is_off = format!("$ledgerId != '{id}'");
+	// Object form: `view!` rejects `data-class:bg-…` and the hyphen form is ignored.
+	let cls = format!(
+		"{{'border-anakiwa': {is_on}, 'bg-anakiwa-900': {is_on}, 'border-neutral-800': {is_off}, 'bg-neutral-900': {is_off}}}"
+	);
 	let kind = ledger_kind_label(ledger.kind);
 
 	Ok(view! {
     <button
         type="button"
         class="flex w-full cursor-pointer items-start justify-between gap-3 rounded-lg border border-neutral-800 bg-neutral-900 p-4 text-left transition-colors hover:border-neutral-600"
-        data-class-border-anakiwa=(is_on.clone())
-        data-class-bg-anakiwa-900=(is_on.clone())
+        data-class=(cls)
         data-on:click=(click)
     >
         <div class="min-w-0">
@@ -401,13 +410,4 @@ async fn admin_advanced(cx: &Cx) -> Result<impl View> {
         </div>
     </details>
 })
-}
-
-fn ledger_kind_label(kind: crate::module_bindings::LedgerKind) -> &'static str {
-	use crate::module_bindings::LedgerKind;
-	match kind {
-		LedgerKind::Physical => "In-game item",
-		LedgerKind::Digital => "Digital",
-		LedgerKind::Derivation => "Derivation",
-	}
 }

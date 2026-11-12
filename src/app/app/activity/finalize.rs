@@ -1,10 +1,8 @@
 //! `POST /app/activity/finalize` — Confirm (post held) or Void pending Issue/Redeem.
 
 use crate::auth::require_user;
-use crate::stdb::{
-	StdbError, acquire_user_db, can_finalize_transfer, fetch_activity_page, finalize_user_transfer,
-	map_transfer_error,
-};
+use crate::stdb::{StdbError, acquire_user_db, fetch_activity_page, finalize_user_transfer};
+use crate::domain::{can_finalize_transfer, map_transfer_error};
 use serde::{Deserialize, Serialize};
 use topcoat::{
 	Result,

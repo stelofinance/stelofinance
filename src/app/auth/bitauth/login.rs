@@ -1,8 +1,9 @@
 use crate::auth::{
 	bitauth::BitAuth,
+	redirect::is_safe_redirect,
 	cookies::{
 		COOKIE_OAUTH_NONCE, COOKIE_OAUTH_PKCE, COOKIE_OAUTH_REDIRECT, COOKIE_OAUTH_STATE,
-		OAUTH_ROUNDTRIP_MAX_AGE_SECS, cookies, is_valid_redirect,
+		OAUTH_ROUNDTRIP_MAX_AGE_SECS, cookies,
 	},
 };
 use topcoat::{
@@ -42,7 +43,7 @@ async fn login(cx: &Cx) -> Result<()> {
 
 	if let Ok(q) = query_params::<LoginStartQuery>(cx) {
 		if let Some(ref redir) = q.redirect {
-			if is_valid_redirect(redir) {
+			if is_safe_redirect(redir) {
 				jar.add(
 					Cookie::build((COOKIE_OAUTH_REDIRECT, redir.clone()))
 						.max_age(oauth_age)

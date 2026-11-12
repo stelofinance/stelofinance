@@ -2,15 +2,15 @@
 
 use std::time::Duration;
 
+use crate::domain::{SearchScope, parse_recipient_term};
 use crate::module_bindings::{
-	AccountKind, AccountSearchHit, AccountSearchScope, MyAccountRow, MyAccountsTableAccess, Role,
+	AccountKind, AccountSearchHit, AccountSearchScope, MyAccountsTableAccess,
 	account_lookup, account_search, create_transfer, finalize_transfer,
 	my_accountsQueryTableAccess,
 };
 use spacetimedb_sdk::{DbContext, Table};
 use tokio::task::spawn_blocking;
 
-use super::account::role_rank;
 use super::connector::StdbConn;
 use super::query::subscribe_once;
 
@@ -25,123 +25,6 @@ pub struct DirectoryHit {
 	/// Caller's nickname when this is one of their other accounts.
 	pub own_label: Option<String>,
 	pub kind: AccountKind,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SearchScope {
-	Username,
-	Address,
-	Both,
-}
-
-/// Debit accounts the caller can send from (Write+).
-pub fn sendable_accounts(accounts: &[MyAccountRow]) -> Vec<MyAccountRow> {
-	accounts
-		.iter()
-		.filter(|a| {
-			matches!(a.kind, AccountKind::Debit) && role_rank(a.role) >= role_rank(Role::Write)
-		})
-		.cloned()
-		.collect()
-}
-
-/// Writable debits on `ledger_id`, excluding `exclude_id` (the request recipient).
-pub fn pay_from_accounts(
-	accounts: &[MyAccountRow],
-	ledger_id: u64,
-	exclude_id: u64,
-) -> Vec<MyAccountRow> {
-	sendable_accounts(accounts)
-		.into_iter()
-		.filter(|a| a.ledger_id == ledger_id && a.account_id != exclude_id)
-		.collect()
-}
-
-/// Preferred from-account: explicit id, else primary, else first.
-pub fn pick_sendable(accounts: &[MyAccountRow], requested: Option<u64>) -> Option<&MyAccountRow> {
-	if let Some(id) = requested {
-		if let Some(a) = accounts.iter().find(|a| a.account_id == id) {
-			return Some(a);
-		}
-	}
-	accounts.iter().find(|a| a.is_primary).or(accounts.first())
-}
-
-/// Write+ debit or credit — deposit/withdraw "your account" picker.
-pub fn flow_accounts(accounts: &[MyAccountRow]) -> Vec<MyAccountRow> {
-	accounts
-		.iter()
-		.filter(|a| role_rank(a.role) >= role_rank(Role::Write))
-		.cloned()
-		.collect()
-}
-
-/// Requested id if eligible, else primary debit, else first debit, else first.
-pub fn pick_flow(accounts: &[MyAccountRow], requested: Option<u64>) -> Option<&MyAccountRow> {
-	if let Some(id) = requested {
-		if let Some(a) = accounts.iter().find(|a| a.account_id == id) {
-			return Some(a);
-		}
-	}
-	accounts
-		.iter()
-		.find(|a| a.is_primary && matches!(a.kind, AccountKind::Debit))
-		.or_else(|| {
-			accounts
-				.iter()
-				.find(|a| matches!(a.kind, AccountKind::Debit))
-		})
-		.or(accounts.first())
-}
-
-pub fn counterpart_kind(yours: AccountKind) -> AccountKind {
-	match yours {
-		AccountKind::Debit => AccountKind::Credit,
-		AccountKind::Credit => AccountKind::Debit,
-	}
-}
-
-/// Own Write+ credit on the same ledger as a debit, when there is exactly one.
-pub fn own_issuer<'a>(
-	accounts: &'a [MyAccountRow],
-	yours: &MyAccountRow,
-) -> Option<&'a MyAccountRow> {
-	if !matches!(yours.kind, AccountKind::Debit) {
-		return None;
-	}
-	let hits: Vec<&MyAccountRow> = accounts
-		.iter()
-		.filter(|a| {
-			a.account_id != yours.account_id
-				&& a.ledger_id == yours.ledger_id
-				&& matches!(a.kind, AccountKind::Credit)
-				&& role_rank(a.role) >= role_rank(Role::Write)
-		})
-		.collect();
-	if hits.len() == 1 { Some(hits[0]) } else { None }
-}
-
-/// Strip one leading `@` / `#` and decide which directory fields to match.
-pub fn parse_recipient_term(raw: &str) -> Option<(SearchScope, String)> {
-	let t = raw.trim();
-	if t.is_empty() {
-		return None;
-	}
-	if let Some(rest) = t.strip_prefix('@') {
-		let term = rest.trim();
-		if term.is_empty() {
-			return None;
-		}
-		Some((SearchScope::Username, term.to_ascii_uppercase()))
-	} else if let Some(rest) = t.strip_prefix('#') {
-		let term = rest.trim();
-		if term.is_empty() {
-			return None;
-		}
-		Some((SearchScope::Address, term.to_ascii_uppercase()))
-	} else {
-		Some((SearchScope::Both, t.to_ascii_uppercase()))
-	}
 }
 
 fn scope_arg(scope: SearchScope) -> Option<AccountSearchScope> {
@@ -255,39 +138,6 @@ fn attach_own_labels(
 		.collect()
 }
 
-pub fn new_idempotency_key() -> String {
-	use std::time::{SystemTime, UNIX_EPOCH};
-	let n = SystemTime::now()
-		.duration_since(UNIX_EPOCH)
-		.map(|d| d.as_nanos())
-		.unwrap_or(0);
-	format!("{n:032x}")
-}
-
-pub fn map_transfer_error(err: &str) -> String {
-	match err {
-		"invalid balance" => "Not enough available balance.".to_owned(),
-		"sender is receiver" => "Pick a different recipient.".to_owned(),
-		"incompatible account ledgers" => "That account is a different asset.".to_owned(),
-		"invalid quantity" => "Enter an amount greater than zero.".to_owned(),
-		"idempotency key conflict" => {
-			"This send was already submitted with different details. Refresh and try again."
-				.to_owned()
-		}
-		"insufficient account permission" => {
-			"You don't have permission to complete this transfer.".to_owned()
-		}
-		"write access required on sender or receiver" => {
-			"You need Write on the issuer or the wallet.".to_owned()
-		}
-		"transfer is not pending" => "That transfer is no longer pending.".to_owned(),
-		"only issue/redeem pending transfers can be finalized" => {
-			"Only deposits and withdrawals can be confirmed.".to_owned()
-		}
-		other => other.to_owned(),
-	}
-}
-
 pub async fn create_user_transfer(
 	conn: &StdbConn,
 	sending_account_id: u64,
@@ -368,23 +218,6 @@ mod tests {
 		}
 	}
 
-	#[test]
-	fn prefix_scope() {
-		assert_eq!(
-			parse_recipient_term("@Nin"),
-			Some((SearchScope::Username, "NIN".into()))
-		);
-		assert_eq!(
-			parse_recipient_term("#hex"),
-			Some((SearchScope::Address, "HEX".into()))
-		);
-		assert_eq!(
-			parse_recipient_term("  nin  "),
-			Some((SearchScope::Both, "NIN".into()))
-		);
-		assert!(parse_recipient_term("@").is_none());
-		assert!(parse_recipient_term("").is_none());
-	}
 
 	#[test]
 	fn own_label_attached_and_sender_excluded() {

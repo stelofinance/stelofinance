@@ -3,12 +3,16 @@
 
 use super::transfer::markup::{from_panel, recipient_results_html};
 use crate::auth::require_user;
+use crate::domain::{
+	MAX_MEMO_LEN, counterpart_kind, flow_accounts, format_qty, kind_token, map_transfer_error,
+	new_idempotency_key, normalize_memo, own_issuer, parse_kind, parse_qty, pick_flow,
+};
 use crate::module_bindings::{AccountKind, MyAccountRow};
 use crate::stdb::{
-	StdbError, acquire_user_db, counterpart_kind, create_user_transfer, fetch_accounts_page,
-	flow_accounts, format_qty, lookup_account, map_transfer_error, new_idempotency_key, own_issuer,
-	parse_qty, pick_flow, search_directory,
+	StdbError, acquire_user_db, create_user_transfer, fetch_accounts_page, lookup_account,
+	search_directory,
 };
+use crate::ui::text::js_str;
 use serde::{Deserialize, Serialize};
 use topcoat::{
 	Result,
@@ -46,24 +50,15 @@ impl Flow {
 		}
 	}
 
-	fn empty_blurb(self) -> &'static str {
-		match self {
-			Self::Deposit => "Create a debit account, or use an issuer credit you can write.",
-			Self::Withdraw => "Create a debit account, or use an issuer credit you can write.",
-		}
-	}
-
 	fn handling_note(self) -> &'static str {
 		match self {
-			Self::Deposit => {
-				"Any and all deposits are handled in Notsolis by either Nintron or Vasus."
-			}
-			Self::Withdraw => {
-				"Any and all withdrawals are handled in Notsolis by either Nintron or Vasus."
-			}
+			Self::Deposit => "Any and all deposits are handled in person in Notsolis.",
+			Self::Withdraw => "Any and all withdrawals are handled in person in Notsolis.",
 		}
 	}
 }
+
+const EMPTY_BLURB: &str = "Create a debit account, or use an issuer credit you can write.";
 
 #[query_params]
 struct FlowQuery {
@@ -105,6 +100,7 @@ pub async fn flow_page(cx: &Cx, flow: Flow) -> Result<impl View> {
 		if let Some(issuer) = own_issuer(&accounts, yours) {
 			recipient_id = issuer.account_id.to_string();
 			recipient_addr = format!("#{}", issuer.address);
+			recipient_name = recipient_addr.clone();
 			if let Some(label) = issuer
 				.label
 				.as_deref()
@@ -112,19 +108,16 @@ pub async fn flow_page(cx: &Cx, flow: Flow) -> Result<impl View> {
 				.filter(|s| !s.is_empty())
 			{
 				recipient_label = label.to_owned();
-				recipient_name = recipient_addr.clone();
-			} else {
-				recipient_name = recipient_addr.clone();
 			}
 		}
 	}
 
 	let signals = format!(
-		"{{fromId:'{from_id}',fromLedgerId:'{from_ledger}',fromKind:'{from_kind}',pickingFrom:false,recipientId:'{}',recipientName:'{}',recipientAddr:'{}',recipientLabel:'{}',recipientSearch:'',amount:'',memo:'',idempotencyKey:'{key}',sendError:'',sent:false,pending:false,sentQty:'',sentTo:'',sentAddr:''}}",
-		js_single(&recipient_id),
-		js_single(&recipient_name),
-		js_single(&recipient_addr),
-		js_single(&recipient_label),
+		"{{fromId:'{from_id}',fromLedgerId:'{from_ledger}',fromKind:'{from_kind}',pickingFrom:false,recipientId:{},recipientName:{},recipientAddr:{},recipientLabel:{},recipientSearch:'',amount:'',memo:'',idempotencyKey:'{key}',sendError:'',sent:false,pending:false,sentQty:'',sentTo:'',sentAddr:''}}",
+		js_str(&recipient_id),
+		js_str(&recipient_name),
+		js_str(&recipient_addr),
+		js_str(&recipient_label),
 	);
 
 	let title = flow.title();
@@ -142,7 +135,7 @@ pub async fn flow_page(cx: &Cx, flow: Flow) -> Result<impl View> {
             <p class="text-sm text-neutral-300">(handling_note)</p>
         </section>
         if accounts.is_empty() {
-            empty_state(flow: flow)
+            empty_state()
         } else {
             flow_form(
                 flow: flow,
@@ -156,8 +149,8 @@ pub async fn flow_page(cx: &Cx, flow: Flow) -> Result<impl View> {
 }
 
 #[component]
-async fn empty_state(cx: &Cx, flow: Flow) -> Result<impl View> {
-	let blurb = flow.empty_blurb();
+async fn empty_state(cx: &Cx) -> Result<impl View> {
+	let blurb = EMPTY_BLURB;
 	Ok(view! {
     <div
         class="rounded-lg border border-neutral-800 bg-neutral-950 px-5 py-10 text-center"
@@ -200,13 +193,13 @@ async fn flow_form(
         <div class="mt-5" data-show="$fromId != ''">
             <p
                 class="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-400"
-                data-show="$fromKind == 'Debit'"
+                data-show="$fromKind == 'debit'"
             >
                 "Issuer"
             </p>
             <p
                 class="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-400"
-                data-show="$fromKind == 'Credit'"
+                data-show="$fromKind == 'credit'"
                 style="display: none"
             >
                 (other_when_issuer)
@@ -216,7 +209,7 @@ async fn flow_form(
                     type="text"
                     class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-400"
                     data-bind="recipientSearch"
-                    data-attr-placeholder="$fromKind == 'Debit' ? 'Issuer #address' : '@username or #address'"
+                    data-attr:placeholder="$fromKind == 'debit' ? 'Issuer #address' : '@username or #address'"
                     autocomplete="off"
                     autocapitalize="off"
                     spellcheck="false"
@@ -224,13 +217,13 @@ async fn flow_form(
                 >
                 <p
                     class="mt-1 text-xs text-neutral-400"
-                    data-show="$fromKind == 'Debit'"
+                    data-show="$fromKind == 'debit'"
                 >
                     "Same asset. Search the issuer address, e.g. #STELOBANK."
                 </p>
                 <p
                     class="mt-1 text-xs text-neutral-400"
-                    data-show="$fromKind == 'Credit'"
+                    data-show="$fromKind == 'credit'"
                     style="display: none"
                 >
                     "Same asset as the issuer account. Prefix @ or # to search only that kind."
@@ -300,13 +293,16 @@ async fn flow_form(
                         "(optional)"
                     </span>
                 </p>
-                <p class="text-xs text-neutral-400" data-text="$memo.length + '/32'"></p>
+                <p
+                    class="text-xs text-neutral-400"
+                    data-text=(format!("$memo.length + '/{MAX_MEMO_LEN}'"))
+                ></p>
             </div>
             <input
                 type="text"
                 class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-400"
                 data-bind="memo"
-                maxlength="32"
+                maxlength=(MAX_MEMO_LEN)
                 placeholder="What's this for?"
                 autocomplete="off"
             >
@@ -319,7 +315,7 @@ async fn flow_form(
             class="mt-6 w-full cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50"
             data-on:click=(post)
             data-indicator="sending"
-            data-attr-disabled="$sending || !$fromId || !$recipientId || $amount == ''"
+            data-attr:disabled="$sending || !$fromId || !$recipientId || $amount == ''"
         >
             (cta)
         </button>
@@ -374,7 +370,11 @@ async fn flow_form(
 }
 
 #[component]
-async fn amount_suffixes(cx: &Cx, accounts: Vec<MyAccountRow>, selected_id: u64) -> Result<impl View> {
+async fn amount_suffixes(
+	cx: &Cx,
+	accounts: Vec<MyAccountRow>,
+	selected_id: u64,
+) -> Result<impl View> {
 	Ok(view! {
     for acc in &accounts {
         ledger_suffix(acc: acc, selected: acc.account_id == selected_id)
@@ -417,7 +417,7 @@ async fn amount_hints(cx: &Cx, accounts: Vec<MyAccountRow>, selected_id: u64) ->
 
 #[component]
 async fn avail_hint(cx: &Cx, acc: &MyAccountRow, selected: bool) -> Result<impl View> {
-	let show = format!("$fromId == '{}' && $fromKind == 'Debit'", acc.account_id);
+	let show = format!("$fromId == '{}' && $fromKind == 'debit'", acc.account_id);
 	let qty = format_qty(acc.balance, acc.ledger_scale);
 	if selected && matches!(acc.kind, AccountKind::Debit) {
 		Ok(view! {
@@ -487,31 +487,31 @@ struct FlowPatch {
 pub async fn flow_create(cx: &Cx, flow: Flow, form: FlowSignals) -> Result<PatchSignals> {
 	let _user = require_user(cx).await?;
 	let Ok(from_id) = form.from_id.trim().parse::<u64>() else {
-		return flow_err("Choose an account.", &form, None);
+		return flow_err("Choose an account.", &form);
 	};
 	let Ok(counterpart_id) = form.recipient_id.trim().parse::<u64>() else {
-		return flow_err("Pick the other account.", &form, None);
+		return flow_err("Pick the other account.", &form);
 	};
 	if form.idempotency_key.trim().is_empty() {
-		return flow_err("Refresh the page and try again.", &form, None);
+		return flow_err("Refresh the page and try again.", &form);
 	}
 
 	let conn = acquire_user_db(cx).await?;
 	let data = match fetch_accounts_page(conn.get()).await {
 		Ok(d) => d,
-		Err(e) => return flow_err(&e, &form, None),
+		Err(e) => return flow_err(&e, &form),
 	};
 	let accounts = flow_accounts(&data.accounts);
 	let Some(yours) = accounts.iter().find(|a| a.account_id == from_id) else {
-		return flow_err("You can't use that account.", &form, None);
+		return flow_err("You can't use that account.", &form);
 	};
 
 	let counterpart = match lookup_account(conn.get(), counterpart_id).await {
 		Ok(hit) => hit,
-		Err(_) => return flow_err("That account wasn't found.", &form, None),
+		Err(_) => return flow_err("That account wasn't found.", &form),
 	};
 	if counterpart.ledger_id != yours.ledger_id {
-		return flow_err("That account is a different asset.", &form, None);
+		return flow_err("That account is a different asset.", &form);
 	}
 	if counterpart.kind != counterpart_kind(yours.kind) {
 		return flow_err(
@@ -520,7 +520,6 @@ pub async fn flow_create(cx: &Cx, flow: Flow, form: FlowSignals) -> Result<Patch
 				AccountKind::Credit => "Pick a player (debit) account.",
 			},
 			&form,
-			None,
 		);
 	}
 
@@ -532,25 +531,20 @@ pub async fn flow_create(cx: &Cx, flow: Flow, form: FlowSignals) -> Result<Patch
 	};
 
 	let amount = match parse_qty(&form.amount, yours.ledger_scale) {
-		Ok(0) => return flow_err("Enter an amount greater than zero.", &form, None),
+		Ok(0) => return flow_err("Enter an amount greater than zero.", &form),
 		Ok(n) => n,
-		Err(e) => return flow_err(&e, &form, None),
+		Err(e) => return flow_err(&e, &form),
 	};
 
 	if matches!(yours.kind, AccountKind::Debit)
 		&& matches!(flow, Flow::Withdraw)
 		&& amount > yours.balance
 	{
-		return flow_err("Not enough available balance.", &form, None);
+		return flow_err("Not enough available balance.", &form);
 	}
 
-	let memo = {
-		let t = form.memo.trim();
-		if t.is_empty() {
-			None
-		} else {
-			Some(t.to_owned())
-		}
+	let Ok(memo) = normalize_memo(&form.memo) else {
+		return flow_err("Memo is too long.", &form);
 	};
 
 	// Debit as "your account" = player request → pending; issuer confirms on Activity.
@@ -597,11 +591,11 @@ pub async fn flow_create(cx: &Cx, flow: Flow, form: FlowSignals) -> Result<Patch
 				recipient_search: String::new(),
 			})
 		}
-		Err(e) => flow_err(&map_transfer_error(&e), &form, None),
+		Err(e) => flow_err(&map_transfer_error(&e), &form),
 	}
 }
 
-fn flow_err(error: &str, form: &FlowSignals, key: Option<String>) -> Result<PatchSignals> {
+fn flow_err(error: &str, form: &FlowSignals) -> Result<PatchSignals> {
 	PatchSignals::json(&FlowPatch {
 		send_error: error.to_owned(),
 		sent: false,
@@ -609,7 +603,7 @@ fn flow_err(error: &str, form: &FlowSignals, key: Option<String>) -> Result<Patc
 		sent_qty: String::new(),
 		sent_to: String::new(),
 		sent_addr: String::new(),
-		idempotency_key: key.unwrap_or_else(|| form.idempotency_key.clone()),
+		idempotency_key: form.idempotency_key.clone(),
 		amount: form.amount.clone(),
 		memo: form.memo.clone(),
 		recipient_id: form.recipient_id.clone(),
@@ -655,32 +649,4 @@ async fn counterparts(cx: &Cx, Signals(form): Signals<SearchSignals>) -> Result<
 		.map_err(|e| internal_server_error(StdbError(e)))?;
 	let hits: Vec<_> = hits.into_iter().filter(|h| h.kind == want).collect();
 	Ok(PatchElements::new(recipient_results_html(&hits, true)))
-}
-
-fn parse_kind(s: &str) -> Option<AccountKind> {
-	match s.trim() {
-		"Debit" => Some(AccountKind::Debit),
-		"Credit" => Some(AccountKind::Credit),
-		_ => None,
-	}
-}
-
-fn kind_token(kind: AccountKind) -> &'static str {
-	match kind {
-		AccountKind::Debit => "Debit",
-		AccountKind::Credit => "Credit",
-	}
-}
-
-fn js_single(s: &str) -> String {
-	let mut out = String::new();
-	for c in s.chars() {
-		match c {
-			'\\' => out.push_str("\\\\"),
-			'\'' => out.push_str("\\'"),
-			'\n' => out.push_str("\\n"),
-			c => out.push(c),
-		}
-	}
-	out
 }

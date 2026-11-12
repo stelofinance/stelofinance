@@ -1,9 +1,10 @@
-//! Live `#account-home` fragment for H2.
+//! Live `#account-home` fragment.
 
 use topcoat::context::Cx;
-use crate::module_bindings::{AccountKind, LedgerKind, MemberKind, Role};
-use crate::stdb::account::{AccountHomeData, AccountTokenView, role_rank};
-use crate::stdb::{format_qty, format_rel_time, unix_now_micros};
+use crate::ui::text::{escape_html, ledger_kind_label, role_label};
+use crate::module_bindings::{AccountKind, MemberKind, Role};
+use crate::stdb::{account::AccountHomeData, account::AccountTokenView};
+use crate::domain::{format_qty, format_rel_time, role_rank, unix_now_micros};
 use spacetimedb_sdk::Identity;
 use topcoat::{
 	Result,
@@ -410,34 +411,5 @@ fn push_role_select(
 	out.push_str("</select>");
 }
 
-fn ledger_kind_label(kind: LedgerKind) -> &'static str {
-	match kind {
-		LedgerKind::Physical => "In-game item",
-		LedgerKind::Digital => "Digital",
-		LedgerKind::Derivation => "Derivation",
-	}
-}
 
-fn role_label(role: Role) -> &'static str {
-	match role {
-		Role::Read => "Read",
-		Role::Write => "Write",
-		Role::Admin => "Admin",
-		Role::Owner => "Owner",
-	}
-}
 
-fn escape_html(s: &str) -> String {
-	let mut out = String::with_capacity(s.len());
-	for c in s.chars() {
-		match c {
-			'&' => out.push_str("&amp;"),
-			'<' => out.push_str("&lt;"),
-			'>' => out.push_str("&gt;"),
-			'"' => out.push_str("&quot;"),
-			'\'' => out.push_str("&#39;"),
-			c => out.push(c),
-		}
-	}
-	out
-}

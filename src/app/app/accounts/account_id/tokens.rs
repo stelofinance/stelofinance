@@ -2,7 +2,7 @@
 
 use super::account_id;
 use crate::auth::require_user;
-use crate::stdb::account::{create_account_api_token, revoke_account_api_tokens};
+use crate::stdb::{account::create_account_api_token, account::revoke_account_api_tokens};
 use crate::stdb::acquire_user_db;
 use serde::{Deserialize, Serialize};
 use topcoat::{
@@ -53,7 +53,7 @@ pub async fn token_forms(cx: &Cx, account_id: u64) -> Result<impl View> {
                 class="cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600"
                 data-on:click=(create_url)
                 data-indicator="creatingTokenBusy"
-                data-attr-disabled="$creatingTokenBusy"
+                data-attr:disabled="$creatingTokenBusy"
             >
                 "Create"
             </button>

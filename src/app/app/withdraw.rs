@@ -5,14 +5,14 @@ use topcoat::{
 	Result,
 	context::Cx,
 	datastar::{PatchSignals, Signals},
+	metadata::Metadata,
 	router::{page, route},
 	view::{View, view},
 };
 
 /// `GET /app/withdraw` — player debit → issuer credit.
-#[page]
+#[page(with(Metadata::new().title("Withdraw · Stelo Finance")))]
 async fn page(cx: &Cx) -> Result<impl View> {
-	let _ = cx;
 	Ok(view! { flow_page(flow: Flow::Withdraw) })
 }
 

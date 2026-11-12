@@ -1,4 +1,4 @@
-//! `GET /app/accounts/{account_id}` — H2 account home.
+//! `GET /app/accounts/{account_id}` — account home.
 
 mod apps;
 mod markup;
@@ -9,11 +9,14 @@ mod users;
 mod webhook;
 
 use crate::auth::require_user;
+use crate::domain::{parse_role, role_rank};
 use crate::module_bindings::{AccountKind, Role};
-use crate::stdb::account::{
-	fetch_account_home, grant_member, parse_role, revoke_member, role_rank, set_label, set_primary,
-};
 use crate::stdb::{StdbError, acquire_user_db};
+use crate::stdb::{
+	account::fetch_account_home, account::grant_member, account::revoke_member, account::set_label,
+	account::set_primary,
+};
+use crate::ui::text::js_str;
 use markup::{HomeChrome, account_home, account_people, account_tokens};
 use request::request_form;
 use serde::{Deserialize, Serialize};
@@ -23,6 +26,7 @@ use topcoat::{
 	Result,
 	context::Cx,
 	datastar::{PatchSignals, Signals},
+	metadata::Metadata,
 	router::{
 		error::{internal_server_error, not_found},
 		module_param, page, route,
@@ -35,7 +39,7 @@ use webhook::webhook_form;
 // the `account_id(cx)` accessor (also used by the absolute `{account_id}` routes).
 module_param!(pub account_id: u64 else not_found);
 
-#[page]
+#[page(with(Metadata::new().title("Account · Stelo Finance")))]
 async fn show(cx: &Cx) -> Result<impl View> {
 	let user = require_user(cx).await?;
 	let account_id = *account_id(cx)?;
@@ -52,8 +56,8 @@ async fn show(cx: &Cx) -> Result<impl View> {
 	let webhook_value = acc.webhook.clone().unwrap_or_default();
 	let signals = format!(
 		"{{copiedId:0,label:{},userSearch:'',appSearch:'',permKind:'user',addingPerm:false,memberId:'',memberName:'',addRole:'write',editMemberId:'',editRole:'',revokeId:'',accountError:'',leftAccount:false,requestAmount:'',requestMemo:'',requestLink:'',requestError:'',requestCopied:false,creatingToken:false,tokenLabel:'',newToken:'',tokenError:'',tokenCopied:false,revokeTokenId:0,revokeTokenLabel:'',webhookUrl:{},webhookError:'',webhookNotice:''}}",
-		js_single(&label_value),
-		js_single(&webhook_value),
+		js_str(&label_value),
+		js_str(&webhook_value),
 	);
 	let debit = matches!(acc.kind, AccountKind::Debit);
 	let ledger_name = acc.ledger_name.clone();
@@ -83,7 +87,6 @@ async fn show(cx: &Cx) -> Result<impl View> {
         account_people(data: data.clone(), chrome: chrome.clone())
         if admin_plus {
             add_permission_form(
-                account_id: account_id,
                 members_url: members_url,
                 users_url: users_url,
                 apps_url: apps_url
@@ -107,12 +110,10 @@ async fn show(cx: &Cx) -> Result<impl View> {
 #[component]
 async fn add_permission_form(
 	cx: &Cx,
-	account_id: u64,
 	members_url: String,
 	users_url: String,
 	apps_url: String,
 ) -> Result<impl View> {
-	let _ = account_id;
 	let user_search = format!("@get('{users_url}')");
 	let app_search = format!("@get('{apps_url}')");
 	let clear = format!(
@@ -139,7 +140,7 @@ async fn add_permission_form(
                 type="button"
                 class="cursor-pointer rounded-md px-3 py-1.5 text-sm"
                 data-class=(person_cls)
-                data-attr-aria-pressed="$permKind == 'user'"
+                data-attr:aria-pressed="$permKind == 'user' ? 'true' : 'false'"
                 data-on:click=(person_tab)
             >
                 "Person"
@@ -148,7 +149,7 @@ async fn add_permission_form(
                 type="button"
                 class="cursor-pointer rounded-md px-3 py-1.5 text-sm"
                 data-class=(app_cls)
-                data-attr-aria-pressed="$permKind == 'app'"
+                data-attr:aria-pressed="$permKind == 'app' ? 'true' : 'false'"
                 data-on:click=(app_tab)
             >
                 "App"
@@ -217,7 +218,7 @@ async fn add_permission_form(
                 class="cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600"
                 data-on:click=(format!("@post('{members_url}')"))
                 data-indicator="addingMember"
-                data-attr-disabled="$addingMember || !$memberId"
+                data-attr:disabled="$addingMember || !$memberId"
             >
                 "Add"
             </button>
@@ -441,18 +442,4 @@ fn err_signal(error: &str) -> Result<PatchSignals> {
 	PatchSignals::json(&ErrorPatch {
 		account_error: error.to_owned(),
 	})
-}
-
-fn js_single(s: &str) -> String {
-	let mut out = String::from("'");
-	for c in s.chars() {
-		match c {
-			'\\' => out.push_str("\\\\"),
-			'\'' => out.push_str("\\'"),
-			'\n' => out.push_str("\\n"),
-			c => out.push(c),
-		}
-	}
-	out.push('\'');
-	out
 }

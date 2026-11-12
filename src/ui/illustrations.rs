@@ -1,4 +1,4 @@
-//! Marketing illustrations ported from `web/templates/illustrations/`.
+//! Marketing illustrations.
 
 use topcoat::context::Cx;
 use topcoat::{

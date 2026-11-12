@@ -1,9 +1,11 @@
 //! Send-page fragments: from-account cards / picker + recipient results.
 
 use topcoat::context::Cx;
+use crate::domain::accounts::{group_by_ledger};
+use crate::ui::text::{escape_html, role_label};
 use crate::module_bindings::{MyAccountRow, Role};
 use crate::stdb::DirectoryHit;
-use crate::stdb::format_qty;
+use crate::domain::format_qty;
 use topcoat::{
 	Result,
 	view::{Unescaped, View, component, view},
@@ -87,7 +89,7 @@ fn push_picker(out: &mut String, accounts: &[MyAccountRow]) {
 	out.push_str(
 		r#"<div class="overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950" data-show="$pickingFrom" style="display: none">"#,
 	);
-	for group in groups(accounts) {
+	for group in group_by_ledger(accounts) {
 		out.push_str(&format!(
 			r#"<p class="px-3 pt-3 pb-1 text-xs font-medium uppercase tracking-wide text-neutral-400">{}</p>"#,
 			escape_html(group.ledger_name)
@@ -95,16 +97,16 @@ fn push_picker(out: &mut String, accounts: &[MyAccountRow]) {
 		for acc in group.accounts {
 			let id = acc.account_id;
 			let ledger = acc.ledger_id;
-			let kind = match acc.kind {
-				crate::module_bindings::AccountKind::Debit => "Debit",
-				crate::module_bindings::AccountKind::Credit => "Credit",
-			};
+			let kind = crate::domain::kind_token(acc.kind);
 			let click = format!(
 				"if ($fromLedgerId != '{ledger}') {{ $recipientId = ''; $recipientName = ''; $recipientAddr = ''; $recipientLabel = ''; $recipientSearch = ''; }} $fromId = '{id}'; $fromLedgerId = '{ledger}'; $fromKind = '{kind}'; $pickingFrom = false; $sendError = ''"
 			);
 			let on = format!("$fromId == '{id}'");
+			let cls = format!(
+				"{{'border-anakiwa': {on}, 'bg-neutral-900': {on}, 'border-transparent': !({on})}}"
+			);
 			out.push_str(&format!(
-				r#"<button type="button" class="flex w-full cursor-pointer items-start justify-between gap-3 border-l-2 border-transparent px-3 py-2.5 text-left hover:bg-neutral-900 sm:px-4" data-on:click="{click}" data-class-border-anakiwa="{on}" data-class-bg-neutral-900="{on}">"#
+				r#"<button type="button" class="flex w-full cursor-pointer items-start justify-between gap-3 border-l-2 border-transparent px-3 py-2.5 text-left hover:bg-neutral-900 sm:px-4" data-on:click="{click}" data-class="{cls}">"#
 			));
 			let title = from_title(acc);
 			out.push_str(r#"<div class="min-w-0">"#);
@@ -124,29 +126,6 @@ fn push_picker(out: &mut String, accounts: &[MyAccountRow]) {
 		}
 	}
 	out.push_str("</div>");
-}
-
-struct LedgerGroup<'a> {
-	ledger_name: &'a str,
-	accounts: Vec<&'a MyAccountRow>,
-}
-
-fn groups<'a>(rows: &'a [MyAccountRow]) -> Vec<LedgerGroup<'a>> {
-	let mut groups: Vec<LedgerGroup<'a>> = Vec::new();
-	for acc in rows {
-		if let Some(g) = groups
-			.iter_mut()
-			.find(|g| g.accounts[0].ledger_id == acc.ledger_id)
-		{
-			g.accounts.push(acc);
-		} else {
-			groups.push(LedgerGroup {
-				ledger_name: acc.ledger_name.as_str(),
-				accounts: vec![acc],
-			});
-		}
-	}
-	groups
 }
 
 fn from_title(acc: &MyAccountRow) -> String {
@@ -196,14 +175,6 @@ fn push_pills(out: &mut String, acc: &MyAccountRow) {
 	}
 }
 
-fn role_label(role: Role) -> &'static str {
-	match role {
-		Role::Read => "Read",
-		Role::Write => "Write",
-		Role::Admin => "Admin",
-		Role::Owner => "Owner",
-	}
-}
 
 pub fn recipient_results_html(hits: &[DirectoryHit], searched: bool) -> String {
 	if !searched {
@@ -226,15 +197,14 @@ pub fn recipient_results_html(hits: &[DirectoryHit], searched: bool) -> String {
 fn push_hit(out: &mut String, hit: &DirectoryHit) {
 	let (name, addr) = hit_identity(hit);
 	let label = hit.own_label.as_deref().unwrap_or("");
-	let click = format!(
-		"$recipientId = '{}'; $recipientName = '{}'; $recipientAddr = '{}'; $recipientLabel = '{}'; $recipientSearch = ''; $sendError = ''",
-		hit.account_id,
-		js_single(&name),
-		js_single(&addr),
-		js_single(label),
-	);
+	// Untrusted name/label go through HTML-escaped data attributes, never into
+	// the expression source.
 	out.push_str(&format!(
-		r#"<button type="button" class="block w-full cursor-pointer px-3 py-2 text-left hover:bg-neutral-800" data-on:click="{click}">"#
+		r#"<button type="button" class="block w-full cursor-pointer px-3 py-2 text-left hover:bg-neutral-800" data-name="{}" data-addr="{}" data-label="{}" data-on:click="$recipientId = '{}'; $recipientName = el.dataset.name; $recipientAddr = el.dataset.addr; $recipientLabel = el.dataset.label; $recipientSearch = ''; $sendError = ''">"#,
+		escape_html(&name),
+		escape_html(&addr),
+		escape_html(label),
+		hit.account_id,
 	));
 	if !label.is_empty() {
 		out.push_str(&format!(
@@ -268,30 +238,3 @@ pub fn hit_identity(hit: &DirectoryHit) -> (String, String) {
 	}
 }
 
-fn js_single(s: &str) -> String {
-	let mut out = String::new();
-	for c in s.chars() {
-		match c {
-			'\\' => out.push_str("\\\\"),
-			'\'' => out.push_str("\\'"),
-			'\n' => out.push_str("\\n"),
-			c => out.push(c),
-		}
-	}
-	out
-}
-
-fn escape_html(s: &str) -> String {
-	let mut out = String::with_capacity(s.len());
-	for c in s.chars() {
-		match c {
-			'&' => out.push_str("&amp;"),
-			'<' => out.push_str("&lt;"),
-			'>' => out.push_str("&gt;"),
-			'"' => out.push_str("&quot;"),
-			'\'' => out.push_str("&#39;"),
-			c => out.push(c),
-		}
-	}
-	out
-}

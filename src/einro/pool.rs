@@ -47,12 +47,8 @@ impl<C: Connection> PooledConn<C> {
 		&self.conn
 	}
 
-	/// How many Arc handles share this connection (including the pool’s).
-	pub fn strong_count(&self) -> usize {
-		Arc::strong_count(&self.conn)
-	}
-
 	/// Token this slot is keyed by (same string passed to [`IdentityPool::acquire`]).
+	#[cfg(test)]
 	pub fn token(&self) -> &str {
 		&self.token
 	}
@@ -107,24 +103,9 @@ impl<C: Connector> IdentityPool<C> {
 		}
 	}
 
-	pub fn uri(&self) -> &str {
-		&self.uri
-	}
-
-	pub fn database(&self) -> &str {
-		&self.database
-	}
-
-	pub fn config(&self) -> &PoolConfig {
-		&self.config
-	}
-
+	#[cfg(test)]
 	pub fn len(&self) -> usize {
 		self.inner.lock().unwrap().slots.len()
-	}
-
-	pub fn is_empty(&self) -> bool {
-		self.len() == 0
 	}
 
 	/// Drop the slot for this token (if any).

@@ -11,6 +11,11 @@ pub fn unix_now_micros() -> i64 {
 		.unwrap_or(0)
 }
 
+/// Largest ledger scale the formatters handle exactly. `10^scale` must fit in
+/// a `u64` with room for a whole part, and above this `format_qty`/`parse_qty`
+/// would saturate.
+pub const MAX_LEDGER_SCALE: u8 = 18;
+
 /// Format a raw integer amount using the ledger's decimal `scale`.
 ///
 /// This is the only display formatter for balances and transfer amounts.
@@ -187,7 +192,9 @@ fn group_thousands(n: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-	use super::{civil_from_unix_days, day_heading, format_qty, format_rel_time, parse_qty};
+	use super::{
+		MAX_LEDGER_SCALE, civil_from_unix_days, day_heading, format_qty, format_rel_time, parse_qty,
+	};
 
 	#[test]
 	fn scale_zero_is_integer() {
@@ -234,6 +241,16 @@ mod tests {
 		assert_eq!(parse_qty(".5", 2).unwrap(), 50);
 		assert!(parse_qty("1.234", 2).is_err());
 		assert!(parse_qty("-1", 2).is_err());
+	}
+
+	#[test]
+	fn max_ledger_scale_round_trips() {
+		let s = MAX_LEDGER_SCALE;
+		assert_eq!(parse_qty("1", s).unwrap(), 10u64.pow(u32::from(s)));
+		assert_eq!(
+			format_qty(parse_qty("12.000000000000000005", s).unwrap(), s),
+			"12.000000000000000005"
+		);
 	}
 
 	#[test]

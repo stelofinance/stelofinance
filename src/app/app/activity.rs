@@ -1,4 +1,4 @@
-//! `GET /app/activity` — H3b live transfer history. Live patches: `updates`.
+//! `GET /app/activity` — live transfer history. Live patches: `updates`.
 
 mod finalize;
 mod list;
@@ -6,13 +6,13 @@ mod present;
 mod updates;
 
 use crate::auth::require_user;
-use crate::stdb::{
-	StdbError, acquire_user_db, fetch_activity_page, selected_account_id, unix_now_micros,
-};
+use crate::domain::{selected_account_id, unix_now_micros};
+use crate::stdb::{StdbError, acquire_user_db, fetch_activity_page};
 use list::activity_body;
 use topcoat::{
 	Result,
 	context::Cx,
+	metadata::Metadata,
 	router::{error::internal_server_error, page, query_params},
 	view::{View, view},
 };
@@ -23,7 +23,7 @@ struct ActivityQuery {
 }
 
 /// `GET /app/activity` — chips + day-grouped `my_transfers`. Optional `?account=`.
-#[page]
+#[page(with(Metadata::new().title("Activity · Stelo Finance")))]
 async fn page(cx: &Cx) -> Result<impl View> {
 	let _user = require_user(cx).await?;
 	let requested = query_params::<ActivityQuery>(cx)

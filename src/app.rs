@@ -4,6 +4,7 @@ use topcoat::{
 	context::Cx,
 	cookie::CookieLayer,
 	font::{Font, font},
+	metadata::Metadata,
 	router::{Router, RouterBuilderDiscoverExt, Slot, layout, module_router, page},
 	tailwind,
 	view::{View, view},
@@ -73,19 +74,17 @@ pub async fn router() -> Router {
 		.build()
 }
 
-#[layout]
+#[layout(with(
+	Metadata::new()
+		.title("Stelo Finance")
+		.description("A finance platform for the game BitCraft. Free for any to use or even build apps on through our API.")
+))]
 async fn root_layout(cx: &Cx, slot: Slot<'_>) -> Result<impl View> {
 	Ok(view! {
     <!DOCTYPE html>
     <html lang="en">
         <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>"Stelo Finance"</title>
-            <meta
-                name="description"
-                content="A finance platform for the game BitCraft. Free for any to use or even build apps on through our API."
-            >
+            topcoat::metadata::tags()
             <link rel="icon" href=(asset!("assets/favicon.png"))>
             topcoat::font::link(font: SOURCE_CODE_PRO)
             <link rel="stylesheet" href=(tailwind::stylesheet!())>
@@ -107,7 +106,7 @@ async fn root_layout(cx: &Cx, slot: Slot<'_>) -> Result<impl View> {
 })
 }
 
-/// Marketing homepage — port of Go `handlers.Index` + `pages/index.html.tmpl`.
+/// Marketing homepage.
 ///
 /// Auth only toggles Log In vs Dashboard; no STDB calls on this page.
 #[page]

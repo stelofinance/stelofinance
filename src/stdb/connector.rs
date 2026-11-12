@@ -14,18 +14,12 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 /// Live STDB session: connection + background message pump.
 pub struct StdbConn {
 	conn: DbConnection,
-	identity: Identity,
 	_runner: std::thread::JoinHandle<()>,
 }
 
 impl StdbConn {
 	pub fn db(&self) -> &DbConnection {
 		&self.conn
-	}
-
-	/// Host-assigned Identity after connect (for logging / UI; not the pool key).
-	pub fn identity(&self) -> Identity {
-		self.identity
 	}
 }
 
@@ -110,14 +104,12 @@ fn connect_blocking(uri: &str, database: &str, token: &str) -> Result<StdbConn, 
 
 	let runner = conn.run_threaded();
 
-	let identity = rx
-		.recv_timeout(CONNECT_TIMEOUT)
+	rx.recv_timeout(CONNECT_TIMEOUT)
 		.map_err(|_| StdbConnectError("connect timed out".into()))?
 		.map_err(StdbConnectError)?;
 
 	Ok(StdbConn {
 		conn,
-		identity,
 		_runner: runner,
 	})
 }

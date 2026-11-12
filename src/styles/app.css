@@ -4,7 +4,6 @@
 	--animate-spin-slow: spin 3s linear infinite;
 
 	--height-screen-available: calc(100dvh - var(--header-offset, 0px));
-	--height-header: var(--header-offset, 0px);
 
 	--font-source-code-pro: "Source Code Pro", monospace;
 
@@ -31,18 +30,4 @@
 	--color-anakiwa-800: #036889;
 	--color-anakiwa-900: #095671;
 	--color-anakiwa: #a2e9ff;
-}
-
-/*
-  Tailwind v4 default border color is currentColor; keep gray-200-like
-  defaults for elements that rely on bare `border` utilities.
-*/
-@layer base {
-	*,
-	::after,
-	::before,
-	::backdrop,
-	::file-selector-button {
-		border-color: var(--color-gray-200, currentColor);
-	}
 }

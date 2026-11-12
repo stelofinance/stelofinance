@@ -1,6 +1,7 @@
 //! `GET /app/accounts/{account_id}/apps` — app name search for add-permission.
 
 use super::account_id;
+use crate::ui::text::escape_html;
 use crate::auth::require_user;
 use crate::module_bindings::AppSearchHit;
 use crate::stdb::{StdbError, acquire_user_db, search_apps};
@@ -49,7 +50,6 @@ fn results_html(rows: &[AppSearchHit], searched: bool) -> String {
 		for row in rows {
 			let name = escape_html(&row.name);
 			let hex = row.id.to_hex();
-			let name_js = js_single(&row.name);
 			let owner = row
 				.owner_username
 				.as_deref()
@@ -64,7 +64,7 @@ fn results_html(rows: &[AppSearchHit], searched: bool) -> String {
 				})
 				.unwrap_or_default();
 			out.push_str(&format!(
-				r#"<button type="button" class="cursor-pointer px-3 py-2 text-left text-sm text-neutral-200 hover:bg-neutral-800" data-on:click="$memberId = '{hex}'; $memberName = '{name_js}'; $appSearch = ''">{name}{owner_html}</button>"#
+				r#"<button type="button" class="cursor-pointer px-3 py-2 text-left text-sm text-neutral-200 hover:bg-neutral-800" data-name="{name}" data-on:click="$memberId = '{hex}'; $memberName = el.dataset.name; $appSearch = ''">{name}{owner_html}</button>"#
 			));
 		}
 	}
@@ -72,30 +72,3 @@ fn results_html(rows: &[AppSearchHit], searched: bool) -> String {
 	out
 }
 
-fn js_single(s: &str) -> String {
-	let mut out = String::new();
-	for c in s.chars() {
-		match c {
-			'\\' => out.push_str("\\\\"),
-			'\'' => out.push_str("\\'"),
-			'\n' => out.push_str("\\n"),
-			c => out.push(c),
-		}
-	}
-	out
-}
-
-fn escape_html(s: &str) -> String {
-	let mut out = String::with_capacity(s.len());
-	for c in s.chars() {
-		match c {
-			'&' => out.push_str("&amp;"),
-			'<' => out.push_str("&lt;"),
-			'>' => out.push_str("&gt;"),
-			'"' => out.push_str("&quot;"),
-			'\'' => out.push_str("&#39;"),
-			c => out.push(c),
-		}
-	}
-	out
-}

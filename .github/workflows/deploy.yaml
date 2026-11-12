@@ -41,6 +41,10 @@ jobs:
         # 1G = 1073741824
         gc-max-store-size-linux: 3G
 
+    # Before anything is published: the edge build runs `cargo test` (doCheck).
+    - name: Build and test edge
+      run: nix build .#edge -L
+
     - name: Build module WASM
       run: nix build .#module -o module-out
 

@@ -398,7 +398,8 @@
           ];
         };
         cargoLock.lockFile = ./Cargo.lock;
-        doCheck = false;
+        # Run the edge unit tests; CI builds this before publishing the module.
+        doCheck = true;
 
         nativeBuildInputs = [
           pkgs.pkg-config

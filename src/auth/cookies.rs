@@ -27,7 +27,15 @@ pub fn cookies(cx: &Cx) -> impl Cookies {
 		.default_http_only(true)
 		.default_same_site(SameSite::Lax)
 		.default_path("/")
-		.default_secure(std::env::var("ENV").is_ok_and(|v| v == "prod"))
+		.default_secure(secure_cookies())
+}
+
+/// `Secure` on every cookie unless `ENV=dev` (plain-HTTP local dev). Fails
+/// closed: a deploy that forgets to set `ENV` still gets secure cookies.
+fn secure_cookies() -> bool {
+	static SECURE: std::sync::LazyLock<bool> =
+		std::sync::LazyLock::new(|| std::env::var("ENV").map_or(true, |v| v != "dev"));
+	*SECURE
 }
 
 pub fn get_cookie(cx: &Cx, name: &str) -> Option<String> {
@@ -65,9 +73,4 @@ pub fn clear_oauth_cookies(cx: &Cx) {
 	clear_cookie(cx, COOKIE_OAUTH_NONCE);
 	clear_cookie(cx, COOKIE_OAUTH_PKCE);
 	clear_cookie(cx, COOKIE_OAUTH_REDIRECT);
-}
-
-/// Relative path only: starts with `/`, no `//`, no `:`.
-pub fn is_valid_redirect(url: &str) -> bool {
-	url.starts_with('/') && !url.contains("//") && !url.contains(':')
 }

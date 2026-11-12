@@ -3,17 +3,18 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::domain::sort_accounts;
 use crate::einro::PooledConn;
 use crate::module_bindings::{
-	AccountKind, Ledger, LedgerTableAccess, MyAccountRow, MyAccountsTableAccess, Reducer, Role,
+	AccountKind, Ledger, LedgerTableAccess, MyAccountRow, MyAccountsTableAccess,
 	SubscriptionHandle as ModuleSubHandle, create_account, ledgerQueryTableAccess,
 	my_accountsQueryTableAccess,
 };
-use spacetimedb_sdk::{DbContext, Event, SubscriptionHandle, Table, TableWithPrimaryKey};
+use spacetimedb_sdk::{DbContext, SubscriptionHandle, Table, TableWithPrimaryKey};
 use tokio::task::spawn_blocking;
 
 use super::connector::StdbConn;
-use super::query::subscribe_once;
+use super::query::{is_live_row_change, subscribe_once};
 
 const REDUCER_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -41,37 +42,6 @@ pub async fn fetch_accounts_page(conn: &StdbConn) -> Result<AccountsPageData, St
 		},
 	)
 	.await
-}
-
-pub fn sort_accounts(accounts: &mut [MyAccountRow]) {
-	accounts.sort_by(|a, b| {
-		a.ledger_name
-			.cmp(&b.ledger_name)
-			.then(a.ledger_id.cmp(&b.ledger_id))
-			.then(b.is_primary.cmp(&a.is_primary))
-			.then(is_owner(b).cmp(&is_owner(a)))
-			.then(display_name(a).cmp(display_name(b)))
-			.then(a.account_id.cmp(&b.account_id))
-	});
-}
-
-fn is_owner(a: &MyAccountRow) -> bool {
-	matches!(a.role, Role::Owner)
-}
-
-fn display_name(a: &MyAccountRow) -> &str {
-	a.label
-		.as_deref()
-		.map(str::trim)
-		.filter(|s| !s.is_empty())
-		.unwrap_or(a.address.as_str())
-}
-
-/// True when the caller already has a primary debit on `ledger_id`.
-pub fn has_primary_on_ledger(accounts: &[MyAccountRow], ledger_id: u64) -> bool {
-	accounts
-		.iter()
-		.any(|a| a.ledger_id == ledger_id && a.is_primary)
 }
 
 /// Call `create_account`. First debit on a ledger should pass `is_primary`.
@@ -126,11 +96,6 @@ pub struct LiveAccounts {
 	insert_id: Option<crate::module_bindings::MyAccountsInsertCallbackId>,
 	update_id: Option<crate::module_bindings::MyAccountsUpdateCallbackId>,
 	delete_id: Option<crate::module_bindings::MyAccountsDeleteCallbackId>,
-}
-
-/// Row callbacks also fire for subscribe/unsubscribe apply. Those are not live updates.
-fn is_live_row_change(event: &Event<Reducer>) -> bool {
-	matches!(event, Event::Reducer(_) | Event::Transaction)
 }
 
 impl LiveAccounts {

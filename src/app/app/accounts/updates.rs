@@ -39,10 +39,10 @@ async fn updates(cx: &Cx) -> Result<Sse<impl Stream<Item = Result<Event>> + use<
 	let seed = if reconnect { None } else { Some(seed_event()) };
 
 	let events = stream::unfold(
-		(rx, live, seed, None::<Event>),
+		(rx, live, seed, None::<Result<Event>>),
 		|(mut rx, live, seed, pending)| async move {
 			if let Some(pending) = pending {
-				return Some((Ok(pending), (rx, live, None, None)));
+				return Some((pending, (rx, live, None, None)));
 			}
 			let event = if let Some(seed) = seed {
 				seed
@@ -82,9 +82,7 @@ struct PrimaryIdsPatch {
 	primary_ids: String,
 }
 
-fn primary_ids_patch(rows: &[MyAccountRow]) -> Event {
+fn primary_ids_patch(rows: &[MyAccountRow]) -> Result<Event> {
 	let ids = encode_primary_ids(rows.iter().filter(|a| a.is_primary).map(|a| a.ledger_id));
-	PatchSignals::json(&PrimaryIdsPatch { primary_ids: ids })
-		.expect("primaryIds signal json")
-		.into()
+	PatchSignals::json(&PrimaryIdsPatch { primary_ids: ids }).map(Into::into)
 }

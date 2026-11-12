@@ -2,6 +2,7 @@
 
 use crate::auth::require_user;
 use crate::auth::user::AppUser;
+use crate::domain::MAX_LEDGER_SCALE;
 use crate::module_bindings::LedgerKind;
 use crate::stdb::{acquire_user_db, create_user_ledger};
 use serde::{Deserialize, Serialize};
@@ -9,6 +10,7 @@ use topcoat::{
 	Result,
 	context::Cx,
 	datastar::{PatchSignals, Signals},
+	metadata::Metadata,
 	router::{error::not_found, page, route},
 	view::{View, view},
 };
@@ -22,7 +24,7 @@ async fn require_admin(cx: &Cx) -> Result<&AppUser> {
 }
 
 /// `GET /app/admin` — 404 unless `User.is_admin`.
-#[page]
+#[page(with(Metadata::new().title("Admin · Stelo Finance")))]
 async fn page(cx: &Cx) -> Result<impl View> {
 	let _user = require_admin(cx).await?;
 	Ok(view! {
@@ -136,8 +138,9 @@ async fn ledgers(cx: &Cx, Signals(form): Signals<LedgerSignals>) -> Result<Patch
 	if name.is_empty() {
 		return ledger_patch(&form, "Ledger name required.", "");
 	}
-	let Ok(scale) = form.scale.trim().parse::<u8>() else {
-		return ledger_patch(&form, "Scale must be 0–255.", "");
+	let scale = match form.scale.trim().parse::<u8>() {
+		Ok(scale) if scale <= MAX_LEDGER_SCALE => scale,
+		_ => return ledger_patch(&form, &format!("Scale must be 0–{MAX_LEDGER_SCALE}."), ""),
 	};
 	let kind = match form.kind.trim() {
 		"Digital" => LedgerKind::Digital,

@@ -3,9 +3,7 @@
 use crate::module_bindings::{
 	AccountKind, MyAccountRow, MyTransferRow, TransferKind, TransferState,
 };
-use crate::stdb::{
-	can_finalize_transfer, display_amount, format_qty, sender_receiver, timestamp_micros,
-};
+use crate::domain::{can_finalize_transfer, display_amount, format_qty, sender_receiver, timestamp_micros};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Verb {

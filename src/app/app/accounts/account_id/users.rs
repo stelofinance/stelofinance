@@ -1,6 +1,7 @@
 //! `GET /app/accounts/{account_id}/users` — username search for add-person.
 
 use super::account_id;
+use crate::ui::text::escape_html;
 use crate::auth::require_user;
 use crate::stdb::account::search_users;
 use crate::stdb::{StdbError, acquire_user_db};
@@ -49,9 +50,10 @@ fn results_html(rows: &[crate::module_bindings::User], searched: bool) -> String
 		for row in rows {
 			let name = escape_html(&row.bitcraft_username);
 			let hex = row.id.to_hex();
-			let name_js = js_single(&row.bitcraft_username);
+			// Untrusted name goes through an HTML-escaped data attribute, never
+			// into the expression source.
 			out.push_str(&format!(
-				r#"<button type="button" class="cursor-pointer px-3 py-2 text-left text-sm text-neutral-200 hover:bg-neutral-800" data-on:click="$memberId = '{hex}'; $memberName = '{name_js}'; $userSearch = ''">@{name}</button>"#
+				r#"<button type="button" class="cursor-pointer px-3 py-2 text-left text-sm text-neutral-200 hover:bg-neutral-800" data-name="{name}" data-on:click="$memberId = '{hex}'; $memberName = el.dataset.name; $userSearch = ''">@{name}</button>"#
 			));
 		}
 	}
@@ -59,30 +61,3 @@ fn results_html(rows: &[crate::module_bindings::User], searched: bool) -> String
 	out
 }
 
-fn js_single(s: &str) -> String {
-	let mut out = String::new();
-	for c in s.chars() {
-		match c {
-			'\\' => out.push_str("\\\\"),
-			'\'' => out.push_str("\\'"),
-			'\n' => out.push_str("\\n"),
-			c => out.push(c),
-		}
-	}
-	out
-}
-
-fn escape_html(s: &str) -> String {
-	let mut out = String::with_capacity(s.len());
-	for c in s.chars() {
-		match c {
-			'&' => out.push_str("&amp;"),
-			'<' => out.push_str("&lt;"),
-			'>' => out.push_str("&gt;"),
-			'"' => out.push_str("&quot;"),
-			'\'' => out.push_str("&#39;"),
-			c => out.push(c),
-		}
-	}
-	out
-}

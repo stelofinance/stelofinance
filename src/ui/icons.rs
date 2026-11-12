@@ -1,4 +1,4 @@
-//! Brand and social icons ported from `web/templates/icons/`.
+//! Brand and social icons.
 //!
 //! SVG path bodies live in `svg/` so page code stays free of path markup.
 

@@ -5,17 +5,17 @@ use std::time::Duration;
 
 use crate::einro::PooledConn;
 use crate::module_bindings::{
-	AppSearchHit, MyAppRow, MyAppTicketRow, MyAppTicketsTableAccess, MyAppsTableAccess, Reducer,
+	AppSearchHit, MyAppRow, MyAppTicketRow, MyAppTicketsTableAccess, MyAppsTableAccess,
 	SubscriptionHandle as ModuleSubHandle, app_search, create_app_ticket,
 	my_app_ticketsQueryTableAccess, my_appsQueryTableAccess, replace_app_ticket,
 };
 use serde::Deserialize;
-use spacetimedb_sdk::{DbContext, Event, SubscriptionHandle, Table, TableWithPrimaryKey};
+use spacetimedb_sdk::{DbContext, SubscriptionHandle, Table, TableWithPrimaryKey};
 use tokio::task::spawn_blocking;
 
 use super::StdbState;
 use super::connector::StdbConn;
-use super::query::subscribe_once;
+use super::query::{is_live_row_change, subscribe_once};
 
 const REDUCER_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -160,10 +160,6 @@ pub async fn search_apps(conn: &StdbConn, term: &str) -> Result<Vec<AppSearchHit
 	.await
 	.map_err(|e| format!("app_search wait task: {e}"))?;
 	wait?
-}
-
-fn is_live_row_change(event: &Event<Reducer>) -> bool {
-	matches!(event, Event::Reducer(_) | Event::Transaction)
 }
 
 /// Live `my_apps` + `my_app_tickets`.

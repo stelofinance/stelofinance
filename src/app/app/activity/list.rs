@@ -2,8 +2,10 @@
 
 use topcoat::context::Cx;
 use super::present::{AmountSign, TransferCard, account_title, transfer_card};
+use crate::ui::text::escape_html;
 use crate::module_bindings::MyAccountRow;
-use crate::stdb::{ActivitySnapshot, day_heading, format_rel_time};
+use crate::stdb::ActivitySnapshot;
+use crate::domain::{day_heading, format_rel_time};
 use std::collections::HashSet;
 use topcoat::{
 	Result,
@@ -81,10 +83,13 @@ fn push_chips(out: &mut String, accounts: &[MyAccountRow], selected: Option<u64>
 
 fn push_chip(out: &mut String, account_id: &str, label: &str, on: bool, href: &str) {
 	let eq = format!("$accountId == '{account_id}'");
+	let cls = format!(
+		"{{'bg-anakiwa-700': {eq}, 'text-white': {eq}, 'text-neutral-300': !({eq})}}"
+	);
 	let click =
 		format!("$accountId = '{account_id}'; window.history.replaceState(null, '', '{href}')");
 	out.push_str(&format!(
-		r#"<button type="button" role="tab" class="cursor-pointer rounded-full px-3 py-1.5 text-sm text-neutral-300 hover:bg-neutral-800 hover:text-white" data-class-bg-anakiwa-700="{eq}" data-class-text-white="{eq}" data-attr:aria-pressed="{eq}" data-on:click="{click}" aria-pressed="{}">{}</button>"#,
+		r#"<button type="button" role="tab" class="cursor-pointer rounded-full px-3 py-1.5 text-sm text-neutral-300 hover:bg-neutral-800 hover:text-white" data-class="{cls}" data-attr:aria-pressed="{eq} ? 'true' : 'false'" data-on:click="{click}" aria-pressed="{}">{}</button>"#,
 		if on { "true" } else { "false" },
 		escape_html(label),
 	));
@@ -250,10 +255,10 @@ fn push_finalize(out: &mut String, card: &TransferCard) {
 	let id = card.id;
 	out.push_str(r#"<div class="mt-3 flex flex-wrap gap-2">"#);
 	out.push_str(&format!(
-		r#"<button type="button" class="cursor-pointer rounded-md bg-anakiwa-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50" data-on:click="$finalizeId = '{id}'; $finalizeAction = 'confirm'; $finalizeError = ''; @post('/app/activity/finalize')" data-indicator="finalizing" data-attr-disabled="$finalizing">Confirm</button>"#
+		r#"<button type="button" class="cursor-pointer rounded-md bg-anakiwa-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50" data-on:click="$finalizeId = '{id}'; $finalizeAction = 'confirm'; $finalizeError = ''; @post('/app/activity/finalize')" data-indicator="finalizing" data-attr:disabled="$finalizing">Confirm</button>"#
 	));
 	out.push_str(&format!(
-		r#"<button type="button" class="cursor-pointer rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 hover:border-neutral-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50" data-on:click="$finalizeId = '{id}'; $finalizeAction = 'void'; $finalizeError = ''; @post('/app/activity/finalize')" data-indicator="finalizing" data-attr-disabled="$finalizing">Void</button>"#
+		r#"<button type="button" class="cursor-pointer rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 hover:border-neutral-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50" data-on:click="$finalizeId = '{id}'; $finalizeAction = 'void'; $finalizeError = ''; @post('/app/activity/finalize')" data-indicator="finalizing" data-attr:disabled="$finalizing">Void</button>"#
 	));
 	out.push_str("</div>");
 }
@@ -299,20 +304,6 @@ fn empty_html(title: &str, blurb: &str, show_send: bool) -> String {
 	out
 }
 
-fn escape_html(s: &str) -> String {
-	let mut out = String::with_capacity(s.len());
-	for c in s.chars() {
-		match c {
-			'&' => out.push_str("&amp;"),
-			'<' => out.push_str("&lt;"),
-			'>' => out.push_str("&gt;"),
-			'"' => out.push_str("&quot;"),
-			'\'' => out.push_str("&#39;"),
-			c => out.push(c),
-		}
-	}
-	out
-}
 
 #[cfg(test)]
 mod tests {

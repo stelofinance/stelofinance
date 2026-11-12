@@ -1,9 +1,10 @@
-//! Build a shareable H4 payment-request link (Read+).
+//! Build a shareable payment-request link (Read+).
 
+use crate::domain::{MAX_MEMO_LEN, normalize_memo, parse_qty};
 use super::account_id;
 use crate::auth::require_user;
 use crate::stdb::account::fetch_account_home;
-use crate::stdb::{acquire_user_db, parse_qty};
+use crate::stdb::acquire_user_db;
 use serde::{Deserialize, Serialize};
 use topcoat::{
 	Result,
@@ -12,8 +13,6 @@ use topcoat::{
 	router::{route},
 	view::{View, component, view},
 };
-
-const MAX_MEMO_LEN: usize = 32;
 
 /// Amount + memo form. Lives outside remorph targets so typing survives `/updates`.
 #[component]
@@ -63,14 +62,14 @@ pub async fn request_form(cx: &Cx, account_id: u64, ledger_name: String, debit: 
                     </p>
                     <p
                         class="text-xs text-neutral-400"
-                        data-text="$requestMemo.length + '/32'"
+                        data-text=(format!("$requestMemo.length + '/{MAX_MEMO_LEN}'"))
                     ></p>
                 </div>
                 <input
                     type="text"
                     class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-400"
                     data-bind="requestMemo"
-                    maxlength="32"
+                    maxlength=(MAX_MEMO_LEN)
                     placeholder="What's this for?"
                     autocomplete="off"
                 >
@@ -80,7 +79,7 @@ pub async fn request_form(cx: &Cx, account_id: u64, ledger_name: String, debit: 
                 class="mt-4 cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50"
                 data-on:click=(create)
                 data-indicator="creatingRequest"
-                data-attr-disabled="$creatingRequest || $requestAmount == ''"
+                data-attr:disabled="$creatingRequest || $requestAmount == ''"
             >
                 "Create link"
             </button>
@@ -159,18 +158,11 @@ async fn create_request_link(
 		Err(e) => return request_err(&e),
 	};
 
-	let memo = {
-		let t = form.request_memo.trim();
-		if t.is_empty() {
-			None
-		} else if t.len() > MAX_MEMO_LEN {
-			return request_err("Memo is too long.");
-		} else {
-			Some(t)
-		}
+	let Ok(memo) = normalize_memo(&form.request_memo) else {
+		return request_err("Memo is too long.");
 	};
 
-	let path = request_link_path(acc.ledger_id, acc.account_id, amount, memo);
+	let path = request_link_path(acc.ledger_id, acc.account_id, amount, memo.as_deref());
 	PatchSignals::json(&RequestOkPatch {
 		request_link: path,
 		request_error: String::new(),
@@ -211,7 +203,7 @@ fn request_err(error: &str) -> Result<PatchSignals> {
 	})
 }
 
-/// Path + query for H4. Amount is ledger base units. Memo is omitted when empty.
+/// Path + query for `/app/request`. Amount is ledger base units. Memo is omitted when empty.
 pub fn request_link_path(
 	ledger_id: u64,
 	recipient_id: u64,

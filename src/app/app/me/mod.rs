@@ -10,31 +10,19 @@ use apps::{app_forms, my_apps_list};
 use topcoat::{
 	Result,
 	context::Cx,
-	router::{error::internal_server_error, page, query_params},
+	metadata::Metadata,
+	router::{error::internal_server_error, page},
 	view::{View, view},
 };
 
-#[allow(non_snake_case)]
-#[query_params]
-struct MeQuery {
-	appError: Option<String>,
-}
-
-#[page]
+#[page(with(Metadata::new().title("You · Stelo Finance")))]
 async fn me(cx: &Cx) -> Result<impl View> {
 	let user = require_user(cx).await?;
 	let conn = acquire_user_db(cx).await?;
 	let data = fetch_my_apps(conn.get())
 		.await
 		.map_err(|e| internal_server_error(StdbError(e)))?;
-	let app_error = query_params::<MeQuery>(cx)
-		.ok()
-		.and_then(|q| q.appError.clone())
-		.unwrap_or_default();
-	let signals = format!(
-		"{{appName:'',appError:{},appToken:'',appMintName:'',appMintId:'',appCopied:false,mintingApp:false,creatingApp:false,replacingApp:false}}",
-		js_single(&app_error)
-	);
+	let signals = "{appName:'',appError:'',appToken:'',appMintName:'',appMintId:'',appCopied:false,mintingApp:false,creatingApp:false,replacingApp:false}";
 
 	Ok(view! {
     <main
@@ -83,18 +71,4 @@ async fn me(cx: &Cx) -> Result<impl View> {
         </section>
     </main>
 })
-}
-
-fn js_single(s: &str) -> String {
-	let mut out = String::from("'");
-	for c in s.chars() {
-		match c {
-			'\\' => out.push_str("\\\\"),
-			'\'' => out.push_str("\\'"),
-			'\n' => out.push_str("\\n"),
-			c => out.push(c),
-		}
-	}
-	out.push('\'');
-	out
 }

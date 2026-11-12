@@ -3,7 +3,6 @@ mod error;
 mod pool;
 
 pub use credentials::ConnectParams;
-#[allow(unused_imports)]
 pub use error::PoolError;
 pub use pool::{IdentityPool, PoolConfig, PooledConn};
 
