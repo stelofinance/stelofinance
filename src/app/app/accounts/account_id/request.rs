@@ -25,111 +25,115 @@ pub async fn request_form(cx: &Cx, account_id: u64, ledger_name: String, debit: 
 		"Share a link so someone can pay this issuer account."
 	};
 	Ok(view! {
-		<section class="mt-10">
-			<div data-show="!$requestLink">
-				<h2 class="text-sm font-medium uppercase tracking-wide text-neutral-400">
-					"Request"
-				</h2>
-				<p class="mt-2 text-sm text-neutral-400">
-					(helper)
-				</p>
-				<p class="mb-2 mt-4 text-xs font-medium uppercase tracking-wide text-neutral-400">
-					"Amount"
-				</p>
-				<div class="flex items-center gap-2">
-					<input
-						type="text"
-						inputmode="decimal"
-						class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-400"
-						data-bind="requestAmount"
-						placeholder="0"
-						autocomplete="off"
-					>
-					<span class="shrink-0 text-sm text-neutral-300">
-						(ledger_name.clone())
-					</span>
-				</div>
-				<div class="mt-4">
-					<div class="mb-2 flex items-baseline justify-between">
-						<p class="text-xs font-medium uppercase tracking-wide text-neutral-400">
-							"Memo "
-							<span class="font-normal normal-case tracking-normal text-neutral-400">
-								"(optional)"
-							</span>
-						</p>
-						<p
-							class="text-xs text-neutral-400"
-							data-text="$requestMemo.length + '/32'"
-						></p>
-					</div>
-					<input
-						type="text"
-						class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-400"
-						data-bind="requestMemo"
-						maxlength="32"
-						placeholder="What's this for?"
-						autocomplete="off"
-					>
-				</div>
-				<button
-					type="button"
-					class="mt-4 cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50"
-					data-on:click=(create)
-					data-indicator="creatingRequest"
-					data-attr-disabled="$creatingRequest || $requestAmount == ''"
-				>
-					"Create link"
-				</button>
-				<p
-					class="mt-3 text-sm text-red-400"
-					data-show="$requestError"
-					data-text="$requestError"
-				></p>
-			</div>
-			<div
-				class="rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5"
-				data-show="$requestLink"
-				style="display: none"
-			>
-				<h2 class="text-lg font-medium">
-					"Payment link"
-				</h2>
-				<p class="mt-1 text-sm text-neutral-300">
-					"Send this to whoever should pay."
-				</p>
-				<div class="mt-4 flex items-stretch overflow-hidden rounded-lg border border-neutral-800">
-					<code
-						class="min-w-0 flex-1 truncate bg-neutral-900 px-3 py-2 text-sm text-anakiwa"
-						data-text="window.location.origin + $requestLink"
-					></code>
-					<button
-						type="button"
-						class="shrink-0 cursor-pointer border-l border-neutral-800 px-3 text-xs text-neutral-300 hover:bg-neutral-900 hover:text-white"
-						data-on:click="window.navigator.clipboard.writeText(window.location.origin + $requestLink); $requestCopied = true"
-						data-on:click__delay.2000ms="$requestCopied = false"
-						data-text="$requestCopied ? 'Copied' : 'Copy'"
-					>
-						"Copy"
-					</button>
-				</div>
-				<div class="mt-4 flex flex-wrap gap-2">
-					<a
-						class="cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600"
-						data-attr:href="$requestLink"
-					>
-						"Preview"
-					</a>
-					<button
-						type="button"
-						class="cursor-pointer rounded-md bg-neutral-800 px-4 py-2 text-sm hover:bg-neutral-700"
-						data-on:click="$requestLink = ''; $requestAmount = ''; $requestMemo = ''; $requestError = ''; $requestCopied = false"
-					>
-						"New"
-					</button>
-				</div>
-			</div>
-		</section>
-	})
+    <section class="mt-10">
+        <div data-show="!$requestLink">
+            <h2 class="text-sm font-medium uppercase tracking-wide text-neutral-400">
+                "Request"
+            </h2>
+            <p class="mt-2 text-sm text-neutral-400">(helper)</p>
+            <p
+                class="mb-2 mt-4 text-xs font-medium uppercase tracking-wide text-neutral-400"
+            >
+                "Amount"
+            </p>
+            <div class="flex items-center gap-2">
+                <input
+                    type="text"
+                    inputmode="decimal"
+                    class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-400"
+                    data-bind="requestAmount"
+                    placeholder="0"
+                    autocomplete="off"
+                >
+                <span class="shrink-0 text-sm text-neutral-300">
+                    (ledger_name.clone())
+                </span>
+            </div>
+            <div class="mt-4">
+                <div class="mb-2 flex items-baseline justify-between">
+                    <p
+                        class="text-xs font-medium uppercase tracking-wide text-neutral-400"
+                    >
+                        "Memo "
+                        <span
+                            class="font-normal normal-case tracking-normal text-neutral-400"
+                        >
+                            "(optional)"
+                        </span>
+                    </p>
+                    <p
+                        class="text-xs text-neutral-400"
+                        data-text="$requestMemo.length + '/32'"
+                    ></p>
+                </div>
+                <input
+                    type="text"
+                    class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-400"
+                    data-bind="requestMemo"
+                    maxlength="32"
+                    placeholder="What's this for?"
+                    autocomplete="off"
+                >
+            </div>
+            <button
+                type="button"
+                class="mt-4 cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50"
+                data-on:click=(create)
+                data-indicator="creatingRequest"
+                data-attr-disabled="$creatingRequest || $requestAmount == ''"
+            >
+                "Create link"
+            </button>
+            <p
+                class="mt-3 text-sm text-red-400"
+                data-show="$requestError"
+                data-text="$requestError"
+            ></p>
+        </div>
+        <div
+            class="rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5"
+            data-show="$requestLink"
+            style="display: none"
+        >
+            <h2 class="text-lg font-medium">"Payment link"</h2>
+            <p class="mt-1 text-sm text-neutral-300">
+                "Send this to whoever should pay."
+            </p>
+            <div
+                class="mt-4 flex items-stretch overflow-hidden rounded-lg border border-neutral-800"
+            >
+                <code
+                    class="min-w-0 flex-1 truncate bg-neutral-900 px-3 py-2 text-sm text-anakiwa"
+                    data-text="window.location.origin + $requestLink"
+                ></code>
+                <button
+                    type="button"
+                    class="shrink-0 cursor-pointer border-l border-neutral-800 px-3 text-xs text-neutral-300 hover:bg-neutral-900 hover:text-white"
+                    data-on:click="window.navigator.clipboard.writeText(window.location.origin + $requestLink); $requestCopied = true"
+                    data-on:click__delay.2000ms="$requestCopied = false"
+                    data-text="$requestCopied ? 'Copied' : 'Copy'"
+                >
+                    "Copy"
+                </button>
+            </div>
+            <div class="mt-4 flex flex-wrap gap-2">
+                <a
+                    class="cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600"
+                    data-attr:href="$requestLink"
+                >
+                    "Preview"
+                </a>
+                <button
+                    type="button"
+                    class="cursor-pointer rounded-md bg-neutral-800 px-4 py-2 text-sm hover:bg-neutral-700"
+                    data-on:click="$requestLink = ''; $requestAmount = ''; $requestMemo = ''; $requestError = ''; $requestCopied = false"
+                >
+                    "New"
+                </button>
+            </div>
+        </div>
+    </section>
+})
 }
 
 /// `POST /app/accounts/{account_id}/request` — path+query in `$requestLink`.

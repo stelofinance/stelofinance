@@ -11,9 +11,7 @@ use topcoat::{
 /// SSR wrapper so the live stream can reuse the same fragment.
 #[component]
 pub async fn accounts_list(cx: &Cx, rows: Vec<MyAccountRow>) -> Result<impl View> {
-	Ok(view! {
-		(Unescaped::new_unchecked(accounts_list_html(&rows)))
-	})
+	Ok(view! { (Unescaped::new_unchecked(accounts_list_html(&rows))) })
 }
 
 /// Full `#accounts-list` fragment (empty state + grouped cards).

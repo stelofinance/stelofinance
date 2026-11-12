@@ -68,35 +68,40 @@ async fn show(cx: &Cx) -> Result<impl View> {
 	};
 
 	Ok(view! {
-		<main
-			id="page-content"
-			class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10"
-			data-signals=(signals)
-			data-init=(updates)
-			data-effect="$leftAccount && (window.location.href = '/app/accounts')"
-		>
-			<a href="/app/accounts" class="text-sm text-neutral-300 hover:text-white">
-				"← Accounts"
-			</a>
-			account_home(data: data.clone(), chrome: chrome.clone())
-			request_form(account_id: account_id, ledger_name: ledger_name, debit: debit)
-			account_people(data: data.clone(), chrome: chrome.clone())
-			if admin_plus {
-				add_permission_form(account_id: account_id, members_url: members_url, users_url: users_url, apps_url: apps_url)
-				admin_forms(label_url: label_url)
-			}
-			account_tokens(data: data, chrome: chrome)
-			if admin_plus {
-				token_forms(account_id: account_id)
-				webhook_form(account_id: account_id)
-			}
-			<p
-				class="mt-4 text-sm text-red-400"
-				data-show="$accountError"
-				data-text="$accountError"
-			></p>
-		</main>
-	})
+    <main
+        id="page-content"
+        class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10"
+        data-signals=(signals)
+        data-init=(updates)
+        data-effect="$leftAccount && (window.location.href = '/app/accounts')"
+    >
+        <a href="/app/accounts" class="text-sm text-neutral-300 hover:text-white">
+            "← Accounts"
+        </a>
+        account_home(data: data.clone(), chrome: chrome.clone())
+        request_form(account_id: account_id, ledger_name: ledger_name, debit: debit)
+        account_people(data: data.clone(), chrome: chrome.clone())
+        if admin_plus {
+            add_permission_form(
+                account_id: account_id,
+                members_url: members_url,
+                users_url: users_url,
+                apps_url: apps_url
+            )
+            admin_forms(label_url: label_url)
+        }
+        account_tokens(data: data, chrome: chrome)
+        if admin_plus {
+            token_forms(account_id: account_id)
+            webhook_form(account_id: account_id)
+        }
+        <p
+            class="mt-4 text-sm text-red-400"
+            data-show="$accountError"
+            data-text="$accountError"
+        ></p>
+    </main>
+})
 }
 
 #[component]
@@ -120,137 +125,139 @@ async fn add_permission_form(
 	let person_cls = "{'bg-anakiwa-700': $permKind == 'user', 'text-white': $permKind == 'user', 'bg-neutral-800': $permKind != 'user', 'text-neutral-300': $permKind != 'user'}";
 	let app_cls = "{'bg-anakiwa-700': $permKind == 'app', 'text-white': $permKind == 'app', 'bg-neutral-800': $permKind != 'app', 'text-neutral-300': $permKind != 'app'}";
 	Ok(view! {
-		<section
-			class="mt-4 rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5"
-			data-show="$addingPerm"
-			style="display: none"
-		>
-			<h2 class="text-lg font-medium">"Add permission"</h2>
-			<p class="mt-1 text-sm text-neutral-300">
-				"Grant a person or an app a role on this account. Create apps on your profile."
-			</p>
-			<div class="mt-4 flex gap-2">
-				<button
-					type="button"
-					class="cursor-pointer rounded-md px-3 py-1.5 text-sm"
-					data-class=(person_cls)
-					data-attr-aria-pressed="$permKind == 'user'"
-					data-on:click=(person_tab)
-				>
-					"Person"
-				</button>
-				<button
-					type="button"
-					class="cursor-pointer rounded-md px-3 py-1.5 text-sm"
-					data-class=(app_cls)
-					data-attr-aria-pressed="$permKind == 'app'"
-					data-on:click=(app_tab)
-				>
-					"App"
-				</button>
-			</div>
-			<input type="hidden" data-bind="memberId">
-			<div data-show="!$memberId">
-				<div data-show="$permKind != 'app'">
-					<input
-						type="text"
-						class="mt-3 w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-400"
-						data-bind="userSearch"
-						placeholder="Search username…"
-						autocomplete="off"
-						data-on:input__debounce.300ms=(user_search)
-					>
-					<div id="user-search-results"></div>
-				</div>
-				<div data-show="$permKind == 'app'" style="display: none">
-					<input
-						type="text"
-						class="mt-3 w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-400"
-						data-bind="appSearch"
-						placeholder="Search app name…"
-						autocomplete="off"
-						data-on:input__debounce.300ms=(app_search)
-					>
-					<div id="app-search-results"></div>
-				</div>
-			</div>
-			<div
-				class="mt-3 flex items-center justify-between rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2"
-				data-show="$memberId"
-				style="display: none"
-			>
-				<p class="truncate text-sm">
-					<span data-show="$permKind != 'app'">"@"</span>
-					<span data-text="$memberName"></span>
-				</p>
-				<button
-					type="button"
-					class="cursor-pointer text-sm text-neutral-300 hover:text-white"
-					data-on:click=(clear)
-				>
-					"Clear"
-				</button>
-			</div>
-			<div class="mt-4 flex flex-wrap gap-2">
-				<select
-					class="cursor-pointer rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm"
-					data-bind="addRole"
-				>
-					<option value="read">"Read"</option>
-					<option value="write">"Write"</option>
-					<option value="admin">"Admin"</option>
-				</select>
-				<button
-					type="button"
-					class="cursor-pointer rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 hover:border-neutral-500 hover:text-white"
-					data-on:click="$addingPerm = false; $memberId = ''; $memberName = ''; $userSearch = ''; $appSearch = ''; $accountError = ''"
-				>
-					"Cancel"
-				</button>
-				<button
-					type="button"
-					class="cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600"
-					data-on:click=(format!("@post('{members_url}')"))
-					data-indicator="addingMember"
-					data-attr-disabled="$addingMember || !$memberId"
-				>
-					"Add"
-				</button>
-			</div>
-		</section>
-	})
+    <section
+        class="mt-4 rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5"
+        data-show="$addingPerm"
+        style="display: none"
+    >
+        <h2 class="text-lg font-medium">"Add permission"</h2>
+        <p class="mt-1 text-sm text-neutral-300">
+            "Grant a person or an app a role on this account. Create apps on your profile."
+        </p>
+        <div class="mt-4 flex gap-2">
+            <button
+                type="button"
+                class="cursor-pointer rounded-md px-3 py-1.5 text-sm"
+                data-class=(person_cls)
+                data-attr-aria-pressed="$permKind == 'user'"
+                data-on:click=(person_tab)
+            >
+                "Person"
+            </button>
+            <button
+                type="button"
+                class="cursor-pointer rounded-md px-3 py-1.5 text-sm"
+                data-class=(app_cls)
+                data-attr-aria-pressed="$permKind == 'app'"
+                data-on:click=(app_tab)
+            >
+                "App"
+            </button>
+        </div>
+        <input type="hidden" data-bind="memberId">
+        <div data-show="!$memberId">
+            <div data-show="$permKind != 'app'">
+                <input
+                    type="text"
+                    class="mt-3 w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-400"
+                    data-bind="userSearch"
+                    placeholder="Search username…"
+                    autocomplete="off"
+                    data-on:input__debounce.300ms=(user_search)
+                >
+                <div id="user-search-results"></div>
+            </div>
+            <div data-show="$permKind == 'app'" style="display: none">
+                <input
+                    type="text"
+                    class="mt-3 w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-400"
+                    data-bind="appSearch"
+                    placeholder="Search app name…"
+                    autocomplete="off"
+                    data-on:input__debounce.300ms=(app_search)
+                >
+                <div id="app-search-results"></div>
+            </div>
+        </div>
+        <div
+            class="mt-3 flex items-center justify-between rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2"
+            data-show="$memberId"
+            style="display: none"
+        >
+            <p class="truncate text-sm">
+                <span data-show="$permKind != 'app'">"@"</span>
+                <span data-text="$memberName"></span>
+            </p>
+            <button
+                type="button"
+                class="cursor-pointer text-sm text-neutral-300 hover:text-white"
+                data-on:click=(clear)
+            >
+                "Clear"
+            </button>
+        </div>
+        <div class="mt-4 flex flex-wrap gap-2">
+            <select
+                class="cursor-pointer rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm"
+                data-bind="addRole"
+            >
+                <option value="read">"Read"</option>
+                <option value="write">"Write"</option>
+                <option value="admin">"Admin"</option>
+            </select>
+            <button
+                type="button"
+                class="cursor-pointer rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 hover:border-neutral-500 hover:text-white"
+                data-on:click="$addingPerm = false; $memberId = ''; $memberName = ''; $userSearch = ''; $appSearch = ''; $accountError = ''"
+            >
+                "Cancel"
+            </button>
+            <button
+                type="button"
+                class="cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600"
+                data-on:click=(format!("@post('{members_url}')"))
+                data-indicator="addingMember"
+                data-attr-disabled="$addingMember || !$memberId"
+            >
+                "Add"
+            </button>
+        </div>
+    </section>
+})
 }
 
 #[component]
 async fn admin_forms(cx: &Cx, label_url: String) -> Result<impl View> {
 	Ok(view! {
-		<section class="mt-8 rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5">
-			<h2 class="text-sm font-medium uppercase tracking-wide text-neutral-400">
-				"Label"
-			</h2>
-			<p class="mt-1 text-sm text-neutral-400">
-				"A nickname only people on this account can see."
-			</p>
-			<div class="mt-3 flex flex-col gap-2 sm:flex-row">
-				<input
-					type="text"
-					class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-400"
-					data-bind="label"
-					maxlength="32"
-					placeholder="e.g. Guild treasury"
-					autocomplete="off"
-				>
-				<button
-					type="button"
-					class="cursor-pointer rounded-md bg-neutral-800 px-4 py-2 text-sm hover:bg-neutral-700"
-					data-on:click=(format!("@post('{label_url}')"))
-					data-indicator="savingLabel"
-				>
-					"Save"
-				</button>
-			</div>
-		</section>
-	})
+    <section
+        class="mt-8 rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5"
+    >
+        <h2 class="text-sm font-medium uppercase tracking-wide text-neutral-400">
+            "Label"
+        </h2>
+        <p class="mt-1 text-sm text-neutral-400">
+            "A nickname only people on this account can see."
+        </p>
+        <div class="mt-3 flex flex-col gap-2 sm:flex-row">
+            <input
+                type="text"
+                class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-400"
+                data-bind="label"
+                maxlength="32"
+                placeholder="e.g. Guild treasury"
+                autocomplete="off"
+            >
+            <button
+                type="button"
+                class="cursor-pointer rounded-md bg-neutral-800 px-4 py-2 text-sm hover:bg-neutral-700"
+                data-on:click=(format!("@post('{label_url}')"))
+                data-indicator="savingLabel"
+            >
+                "Save"
+            </button>
+        </div>
+    </section>
+})
 }
 
 #[route(POST "/app/accounts/{account_id}/primary")]

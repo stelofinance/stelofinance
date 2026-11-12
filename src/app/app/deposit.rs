@@ -13,9 +13,7 @@ use topcoat::{
 #[page]
 async fn page(cx: &Cx) -> Result<impl View> {
 	let _ = cx;
-	Ok(view! {
-		flow_page(flow: Flow::Deposit)
-	})
+	Ok(view! { flow_page(flow: Flow::Deposit) })
 }
 
 #[route(POST)]

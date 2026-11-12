@@ -26,80 +26,82 @@ async fn require_admin(cx: &Cx) -> Result<&AppUser> {
 async fn page(cx: &Cx) -> Result<impl View> {
 	let _user = require_admin(cx).await?;
 	Ok(view! {
-		<main
-			id="page-content"
-			class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10"
-			data-signals="{ledgerName:'',ledgerScale:'0',ledgerKind:'Physical',ledgerError:'',ledgerOk:''}"
-		>
-			<h1 class="mb-2 text-2xl font-medium md:text-3xl">"Admin"</h1>
-			<p class="mb-6 text-sm text-neutral-400">"Forms that call admin-only reducers."</p>
+    <main
+        id="page-content"
+        class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10"
+        data-signals="{ledgerName:'',ledgerScale:'0',ledgerKind:'Physical',ledgerError:'',ledgerOk:''}"
+    >
+        <h1 class="mb-2 text-2xl font-medium md:text-3xl">"Admin"</h1>
+        <p class="mb-6 text-sm text-neutral-400">
+            "Forms that call admin-only reducers."
+        </p>
 
-			<section class="rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5">
-				<h2 class="text-lg font-medium">"Create ledger"</h2>
-				<p class="mt-1 text-sm text-neutral-300">
-					"Adds a public asset to the catalog ("
-					<code class="text-neutral-200">"create_ledger"</code>
-					")."
-				</p>
+        <section class="rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5">
+            <h2 class="text-lg font-medium">"Create ledger"</h2>
+            <p class="mt-1 text-sm text-neutral-300">
+                "Adds a public asset to the catalog ("
+                <code class="text-neutral-200">"create_ledger"</code>
+                ")."
+            </p>
 
-				<label class="mt-4 block">
-					<span class="text-sm text-neutral-300">"Name"</span>
-					<input
-						type="text"
-						class="mt-1 w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-400"
-						data-bind="ledgerName"
-						placeholder="Hexcoin"
-						autocomplete="off"
-					>
-				</label>
+            <label class="mt-4 block">
+                <span class="text-sm text-neutral-300">"Name"</span>
+                <input
+                    type="text"
+                    class="mt-1 w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-400"
+                    data-bind="ledgerName"
+                    placeholder="Hexcoin"
+                    autocomplete="off"
+                >
+            </label>
 
-				<label class="mt-4 block">
-					<span class="text-sm text-neutral-300">"Scale "</span>
-					<span class="text-sm text-neutral-400">"(decimal places)"</span>
-					<input
-						type="text"
-						inputmode="numeric"
-						class="mt-1 w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-400"
-						data-bind="ledgerScale"
-						placeholder="0"
-						autocomplete="off"
-					>
-				</label>
+            <label class="mt-4 block">
+                <span class="text-sm text-neutral-300">"Scale "</span>
+                <span class="text-sm text-neutral-400">"(decimal places)"</span>
+                <input
+                    type="text"
+                    inputmode="numeric"
+                    class="mt-1 w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-400"
+                    data-bind="ledgerScale"
+                    placeholder="0"
+                    autocomplete="off"
+                >
+            </label>
 
-				<label class="mt-4 block">
-					<span class="text-sm text-neutral-300">"Kind"</span>
-					<select
-						class="mt-1 w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm"
-						data-bind="ledgerKind"
-					>
-						<option value="Physical">"In-game item"</option>
-						<option value="Digital">"Digital"</option>
-						<option value="Derivation">"Derivation"</option>
-					</select>
-				</label>
+            <label class="mt-4 block">
+                <span class="text-sm text-neutral-300">"Kind"</span>
+                <select
+                    class="mt-1 w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm"
+                    data-bind="ledgerKind"
+                >
+                    <option value="Physical">"In-game item"</option>
+                    <option value="Digital">"Digital"</option>
+                    <option value="Derivation">"Derivation"</option>
+                </select>
+            </label>
 
-				<button
-					type="button"
-					class="mt-5 w-full cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50"
-					data-on:click="@post('/app/admin/ledgers')"
-					data-indicator="creatingLedger"
-					data-attr:disabled="$creatingLedger || $ledgerName.trim() == ''"
-				>
-					"Create ledger"
-				</button>
-				<p
-					class="mt-3 text-sm text-red-400"
-					data-show="$ledgerError"
-					data-text="$ledgerError"
-				></p>
-				<p
-					class="mt-3 text-sm text-anakiwa"
-					data-show="$ledgerOk"
-					data-text="$ledgerOk"
-				></p>
-			</section>
-		</main>
-	})
+            <button
+                type="button"
+                class="mt-5 w-full cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50"
+                data-on:click="@post('/app/admin/ledgers')"
+                data-indicator="creatingLedger"
+                data-attr:disabled="$creatingLedger || $ledgerName.trim() == ''"
+            >
+                "Create ledger"
+            </button>
+            <p
+                class="mt-3 text-sm text-red-400"
+                data-show="$ledgerError"
+                data-text="$ledgerError"
+            ></p>
+            <p
+                class="mt-3 text-sm text-anakiwa"
+                data-show="$ledgerOk"
+                data-text="$ledgerOk"
+            ></p>
+        </section>
+    </main>
+})
 }
 
 #[derive(Debug, Deserialize)]

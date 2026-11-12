@@ -13,20 +13,20 @@ const NINTRON_HEX_BODY: &str = include_str!("svg/nintron-hex.svg");
 #[component]
 pub async fn nintron(cx: &Cx, #[into] class: String) -> Result<impl View> {
 	Ok(view! {
-		<div class=(format!("relative {class}"))>
-			(Unescaped::new_unchecked(NINTRON_PROFILE))
-			<svg
-				class="absolute animate-spin-slow"
-				aria-label="Interconnected spinning hexagon"
-				style="right: 0; top: 27%;"
-				width="40"
-				height="46"
-				viewBox="0 0 40 46"
-				fill="none"
-				xmlns="http://www.w3.org/2000/svg"
-			>
-				(Unescaped::new_unchecked(NINTRON_HEX_BODY))
-			</svg>
-		</div>
-	})
+    <div class=(format!("relative {class}"))>
+        (Unescaped::new_unchecked(NINTRON_PROFILE))
+        <svg
+            class="absolute animate-spin-slow"
+            aria-label="Interconnected spinning hexagon"
+            style="right: 0; top: 27%;"
+            width="40"
+            height="46"
+            viewBox="0 0 40 46"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+        >
+            (Unescaped::new_unchecked(NINTRON_HEX_BODY))
+        </svg>
+    </div>
+})
 }

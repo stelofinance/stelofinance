@@ -18,9 +18,7 @@ pub struct HomeChrome {
 
 #[component]
 pub async fn account_home(cx: &Cx, data: AccountHomeData, chrome: HomeChrome) -> Result<impl View> {
-	Ok(view! {
-		(Unescaped::new_unchecked(account_home_html(&data, &chrome)))
-	})
+	Ok(view! { (Unescaped::new_unchecked(account_home_html(&data, &chrome))) })
 }
 
 pub fn account_home_html(data: &AccountHomeData, chrome: &HomeChrome) -> String {
@@ -150,9 +148,7 @@ pub fn account_home_html(data: &AccountHomeData, chrome: &HomeChrome) -> String 
 /// Live `#account-people` — sits below the request-link form so remorphs skip it.
 #[component]
 pub async fn account_people(cx: &Cx, data: AccountHomeData, chrome: HomeChrome) -> Result<impl View> {
-	Ok(view! {
-		(Unescaped::new_unchecked(account_people_html(&data, &chrome)))
-	})
+	Ok(view! { (Unescaped::new_unchecked(account_people_html(&data, &chrome))) })
 }
 
 pub fn account_people_html(data: &AccountHomeData, chrome: &HomeChrome) -> String {
@@ -180,9 +176,7 @@ pub fn account_people_html(data: &AccountHomeData, chrome: &HomeChrome) -> Strin
 /// Create sheet lives outside this fragment so remorphs don't wipe it.
 #[component]
 pub async fn account_tokens(cx: &Cx, data: AccountHomeData, chrome: HomeChrome) -> Result<impl View> {
-	Ok(view! {
-		(Unescaped::new_unchecked(account_tokens_html(&data, &chrome)))
-	})
+	Ok(view! { (Unescaped::new_unchecked(account_tokens_html(&data, &chrome))) })
 }
 
 pub fn account_tokens_html(data: &AccountHomeData, chrome: &HomeChrome) -> String {

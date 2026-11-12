@@ -41,27 +41,27 @@ async fn page(cx: &Cx) -> Result<impl View> {
 	let now = unix_now_micros();
 
 	Ok(view! {
-		<main
-			id="page-content"
-			class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10"
-			data-signals=(signals)
-			data-init="@get('/app/activity/updates')"
-		>
-			<div class="mb-6 flex items-center justify-between gap-3">
-				<h1 class="text-2xl font-medium md:text-3xl">"Activity"</h1>
-				<a
-					href="/app/transfer"
-					class="rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600"
-				>
-					"Send"
-				</a>
-			</div>
-			activity_body(data: data, selected: selected, now_micros: now)
-			<p
-				class="mt-4 text-sm text-red-400"
-				data-show="$finalizeError"
-				data-text="$finalizeError"
-			></p>
-		</main>
-	})
+    <main
+        id="page-content"
+        class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10"
+        data-signals=(signals)
+        data-init="@get('/app/activity/updates')"
+    >
+        <div class="mb-6 flex items-center justify-between gap-3">
+            <h1 class="text-2xl font-medium md:text-3xl">"Activity"</h1>
+            <a
+                href="/app/transfer"
+                class="rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600"
+            >
+                "Send"
+            </a>
+        </div>
+        activity_body(data: data, selected: selected, now_micros: now)
+        <p
+            class="mt-4 text-sm text-red-400"
+            data-show="$finalizeError"
+            data-text="$finalizeError"
+        ></p>
+    </main>
+})
 }

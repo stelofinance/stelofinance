@@ -17,8 +17,8 @@ pub async fn from_panel(
 	selected_id: u64,
 ) -> Result<impl View> {
 	Ok(view! {
-		(Unescaped::new_unchecked(from_panel_html(&accounts, can_pick, selected_id)))
-	})
+    (Unescaped::new_unchecked(from_panel_html(&accounts, can_pick, selected_id)))
+})
 }
 
 pub fn from_panel_html(accounts: &[MyAccountRow], can_pick: bool, selected_id: u64) -> String {

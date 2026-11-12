@@ -23,53 +23,53 @@ pub async fn webhook_form(cx: &Cx, account_id: u64) -> Result<impl View> {
 		"$webhookUrl = ''; $webhookNotice = ''; $webhookError = ''; @post('/app/accounts/{account_id}/webhook')"
 	);
 	Ok(view! {
-		<section class="mt-10">
-			<h2 class="text-sm font-medium uppercase tracking-wide text-neutral-400">
-				"Webhook"
-			</h2>
-			<p class="mt-2 text-sm text-neutral-400">
-				"Stelo POSTs JSON here when this account sends or receives a transfer. Absolute http(s) URL."
-			</p>
-			<div class="mt-3 flex flex-col gap-2 sm:flex-row">
-				<input
-					type="url"
-					class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-400"
-					data-bind="webhookUrl"
-					placeholder="https://example.com/hooks/stelo"
-					autocomplete="off"
-					data-on:input="$webhookNotice = ''"
-				>
-				<button
-					type="button"
-					class="cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600"
-					data-on:click=(save)
-					data-indicator="savingWebhook"
-				>
-					"Save"
-				</button>
-				<button
-					type="button"
-					class="cursor-pointer rounded-md border border-neutral-700 px-4 py-2 text-sm text-neutral-300 hover:border-neutral-500 hover:text-white"
-					data-on:click=(clear)
-					data-show="$webhookUrl"
-					data-indicator="savingWebhook"
-					style="display: none"
-				>
-					"Clear"
-				</button>
-			</div>
-			<p
-				class="mt-3 text-sm text-anakiwa"
-				data-show="$webhookNotice"
-				data-text="$webhookNotice"
-			></p>
-			<p
-				class="mt-3 text-sm text-red-400"
-				data-show="$webhookError"
-				data-text="$webhookError"
-			></p>
-		</section>
-	})
+    <section class="mt-10">
+        <h2 class="text-sm font-medium uppercase tracking-wide text-neutral-400">
+            "Webhook"
+        </h2>
+        <p class="mt-2 text-sm text-neutral-400">
+            "Stelo POSTs JSON here when this account sends or receives a transfer. Absolute http(s) URL."
+        </p>
+        <div class="mt-3 flex flex-col gap-2 sm:flex-row">
+            <input
+                type="url"
+                class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-400"
+                data-bind="webhookUrl"
+                placeholder="https://example.com/hooks/stelo"
+                autocomplete="off"
+                data-on:input="$webhookNotice = ''"
+            >
+            <button
+                type="button"
+                class="cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600"
+                data-on:click=(save)
+                data-indicator="savingWebhook"
+            >
+                "Save"
+            </button>
+            <button
+                type="button"
+                class="cursor-pointer rounded-md border border-neutral-700 px-4 py-2 text-sm text-neutral-300 hover:border-neutral-500 hover:text-white"
+                data-on:click=(clear)
+                data-show="$webhookUrl"
+                data-indicator="savingWebhook"
+                style="display: none"
+            >
+                "Clear"
+            </button>
+        </div>
+        <p
+            class="mt-3 text-sm text-anakiwa"
+            data-show="$webhookNotice"
+            data-text="$webhookNotice"
+        ></p>
+        <p
+            class="mt-3 text-sm text-red-400"
+            data-show="$webhookError"
+            data-text="$webhookError"
+        ></p>
+    </section>
+})
 }
 
 /// `POST /app/accounts/{account_id}/webhook` — set or clear (`None` if blank).

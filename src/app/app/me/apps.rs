@@ -18,9 +18,7 @@ use topcoat::{
 
 #[component]
 pub async fn my_apps_list(cx: &Cx, data: MyAppsData) -> Result<impl View> {
-	Ok(view! {
-		(Unescaped::new_unchecked(my_apps_html(&data)))
-	})
+	Ok(view! { (Unescaped::new_unchecked(my_apps_html(&data))) })
 }
 
 pub fn my_apps_html(data: &MyAppsData) -> String {
@@ -85,115 +83,122 @@ pub fn my_apps_html(data: &MyAppsData) -> String {
 #[component]
 pub async fn app_forms(cx: &Cx) -> Result<impl View> {
 	Ok(view! {
-		<section
-			class="mt-4 rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5"
-			data-show="$creatingApp && !$appToken"
-			style="display: none"
-		>
-			<h2 class="text-lg font-medium">"New app"</h2>
-			<p class="mt-1 text-sm text-neutral-300">
-				"Generates a SpacetimeDB identity and token for your bot. Copy the token once. Then grant the app a role on an account."
-			</p>
-			<input
-				type="text"
-				class="mt-4 w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-400"
-				data-bind="appName"
-				maxlength="64"
-				placeholder="App name"
-				autocomplete="off"
-			>
-			<div class="mt-4 flex flex-wrap gap-2">
-				<button
-					type="button"
-					class="cursor-pointer rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 hover:border-neutral-500 hover:text-white"
-					data-on:click="$creatingApp = false; $appName = ''; $appError = ''"
-				>
-					"Cancel"
-				</button>
-				<button
-					type="button"
-					class="cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50"
-					data-on:click="$appError = ''; @post('/app/me/apps/token')"
-					data-indicator="mintingApp"
-					data-attr-disabled="$mintingApp || $appName.trim() == ''"
-				>
-					"Generate Token"
-				</button>
-			</div>
-		</section>
-		<section
-			class="mt-4 rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5"
-			data-show="$replacingApp && !$appToken"
-			style="display: none"
-		>
-			<h2 class="text-lg font-medium">"Replace app identity"</h2>
-			<p class="mt-1 text-sm text-neutral-300">
-				"Generates a new SpacetimeDB identity and token for this app. The name stays the same; existing account grants move to the new identity. Copy the new token once."
-			</p>
-			<p class="mt-4 truncate text-sm text-neutral-100">
-				<span class="text-neutral-500">"Name "</span>
-				<span data-text="$appName"></span>
-			</p>
-			<div class="mt-4 flex flex-wrap gap-2">
-				<button
-					type="button"
-					class="cursor-pointer rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 hover:border-neutral-500 hover:text-white"
-					data-on:click="$replacingApp = false; $appName = ''; $appError = ''"
-				>
-					"Cancel"
-				</button>
-				<button
-					type="button"
-					class="cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50"
-					data-on:click="$appError = ''; @post('/app/me/apps/token')"
-					data-indicator="mintingApp"
-					data-attr-disabled="$mintingApp"
-				>
-					"Generate Token"
-				</button>
-			</div>
-		</section>
-		<section
-			class="mt-4 rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5"
-			data-show="$appToken"
-			style="display: none"
-		>
-			<h2 class="text-lg font-medium">"App token"</h2>
-			<p class="mt-1 text-sm text-neutral-300">
-				"Copy this now. The bot uses it to connect. We won't show it again."
-			</p>
-			<p class="mt-2 truncate text-sm text-neutral-400" data-show="$appMintName">
-				<span class="text-neutral-500">"Name "</span>
-				<span data-text="$appMintName"></span>
-			</p>
-			<p class="mt-1 truncate font-mono text-xs text-neutral-500" data-show="$appMintId">
-				<span data-text="$appMintId"></span>
-			</p>
-			<p class="mt-4 text-xs font-medium uppercase tracking-wide text-neutral-500">"Token"</p>
-			<div class="mt-1 flex items-stretch overflow-hidden rounded-lg border border-neutral-800">
-				<code
-					class="min-w-0 flex-1 truncate bg-neutral-900 px-3 py-2 text-sm text-anakiwa"
-					data-text="$appToken"
-				></code>
-				<button
-					type="button"
-					class="shrink-0 cursor-pointer border-l border-neutral-800 px-3 text-xs text-neutral-300 hover:bg-neutral-900 hover:text-white"
-					data-on:click="window.navigator.clipboard.writeText($appToken); $appCopied = true"
-					data-on:click__delay.2000ms="$appCopied = false"
-					data-text="$appCopied ? 'Copied' : 'Copy'"
-				>
-					"Copy"
-				</button>
-			</div>
-			<button
-				type="button"
-				class="mt-4 cursor-pointer rounded-md bg-neutral-800 px-4 py-2 text-sm hover:bg-neutral-700"
-				data-on:click="$appToken = ''; $appMintName = ''; $appMintId = ''; $appCopied = false; $appName = ''; $creatingApp = false; $replacingApp = false"
-			>
-				"Done"
-			</button>
-		</section>
-	})
+    <section
+        class="mt-4 rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5"
+        data-show="$creatingApp && !$appToken"
+        style="display: none"
+    >
+        <h2 class="text-lg font-medium">"New app"</h2>
+        <p class="mt-1 text-sm text-neutral-300">
+            "Generates a SpacetimeDB identity and token for your bot. Copy the token once. Then grant the app a role on an account."
+        </p>
+        <input
+            type="text"
+            class="mt-4 w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-400"
+            data-bind="appName"
+            maxlength="64"
+            placeholder="App name"
+            autocomplete="off"
+        >
+        <div class="mt-4 flex flex-wrap gap-2">
+            <button
+                type="button"
+                class="cursor-pointer rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 hover:border-neutral-500 hover:text-white"
+                data-on:click="$creatingApp = false; $appName = ''; $appError = ''"
+            >
+                "Cancel"
+            </button>
+            <button
+                type="button"
+                class="cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50"
+                data-on:click="$appError = ''; @post('/app/me/apps/token')"
+                data-indicator="mintingApp"
+                data-attr-disabled="$mintingApp || $appName.trim() == ''"
+            >
+                "Generate Token"
+            </button>
+        </div>
+    </section>
+    <section
+        class="mt-4 rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5"
+        data-show="$replacingApp && !$appToken"
+        style="display: none"
+    >
+        <h2 class="text-lg font-medium">"Replace app identity"</h2>
+        <p class="mt-1 text-sm text-neutral-300">
+            "Generates a new SpacetimeDB identity and token for this app. The name stays the same; existing account grants move to the new identity. Copy the new token once."
+        </p>
+        <p class="mt-4 truncate text-sm text-neutral-100">
+            <span class="text-neutral-500">"Name "</span>
+            <span data-text="$appName"></span>
+        </p>
+        <div class="mt-4 flex flex-wrap gap-2">
+            <button
+                type="button"
+                class="cursor-pointer rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 hover:border-neutral-500 hover:text-white"
+                data-on:click="$replacingApp = false; $appName = ''; $appError = ''"
+            >
+                "Cancel"
+            </button>
+            <button
+                type="button"
+                class="cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50"
+                data-on:click="$appError = ''; @post('/app/me/apps/token')"
+                data-indicator="mintingApp"
+                data-attr-disabled="$mintingApp"
+            >
+                "Generate Token"
+            </button>
+        </div>
+    </section>
+    <section
+        class="mt-4 rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5"
+        data-show="$appToken"
+        style="display: none"
+    >
+        <h2 class="text-lg font-medium">"App token"</h2>
+        <p class="mt-1 text-sm text-neutral-300">
+            "Copy this now. The bot uses it to connect. We won't show it again."
+        </p>
+        <p class="mt-2 truncate text-sm text-neutral-400" data-show="$appMintName">
+            <span class="text-neutral-500">"Name "</span>
+            <span data-text="$appMintName"></span>
+        </p>
+        <p
+            class="mt-1 truncate font-mono text-xs text-neutral-500"
+            data-show="$appMintId"
+        >
+            <span data-text="$appMintId"></span>
+        </p>
+        <p class="mt-4 text-xs font-medium uppercase tracking-wide text-neutral-500">
+            "Token"
+        </p>
+        <div
+            class="mt-1 flex items-stretch overflow-hidden rounded-lg border border-neutral-800"
+        >
+            <code
+                class="min-w-0 flex-1 truncate bg-neutral-900 px-3 py-2 text-sm text-anakiwa"
+                data-text="$appToken"
+            ></code>
+            <button
+                type="button"
+                class="shrink-0 cursor-pointer border-l border-neutral-800 px-3 text-xs text-neutral-300 hover:bg-neutral-900 hover:text-white"
+                data-on:click="window.navigator.clipboard.writeText($appToken); $appCopied = true"
+                data-on:click__delay.2000ms="$appCopied = false"
+                data-text="$appCopied ? 'Copied' : 'Copy'"
+            >
+                "Copy"
+            </button>
+        </div>
+        <button
+            type="button"
+            class="mt-4 cursor-pointer rounded-md bg-neutral-800 px-4 py-2 text-sm hover:bg-neutral-700"
+            data-on:click="$appToken = ''; $appMintName = ''; $appMintId = ''; $appCopied = false; $appName = ''; $creatingApp = false; $replacingApp = false"
+        >
+            "Done"
+        </button>
+    </section>
+})
 }
 
 /// `POST /app/me/apps/token` — mint a host-signed identity, reserve it with a ticket, and

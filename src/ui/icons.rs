@@ -46,100 +46,74 @@ const ACTIVITY: IconData = IconData::unescaped_unchecked(
 #[component]
 pub async fn logo_colored(cx: &Cx, #[into] class: String) -> Result<impl View> {
 	Ok(view! {
-		<svg
-			class=(class)
-			aria-label="Stelo icon, a hexagonal star"
-			width="1000"
-			height="1156"
-			viewBox="0 0 1000 1156"
-			fill="none"
-			xmlns="http://www.w3.org/2000/svg"
-		>
-			(Unescaped::new_unchecked(LOGO_COLORED_BODY))
-		</svg>
-	})
+    <svg
+        class=(class)
+        aria-label="Stelo icon, a hexagonal star"
+        width="1000"
+        height="1156"
+        viewBox="0 0 1000 1156"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+    >
+        (Unescaped::new_unchecked(LOGO_COLORED_BODY))
+    </svg>
+})
 }
 
 /// Wordmark + mark (nav/footer). Non-square; size via `class`.
 #[component]
 pub async fn logo_full(cx: &Cx, #[into] class: String) -> Result<impl View> {
 	Ok(view! {
-		<svg
-			class=(class)
-			aria-label="Stelo icon, a hexagonal star with the word Stelo on the right"
-			width="2858"
-			height="1156"
-			viewBox="0 0 2858 1156"
-			fill="none"
-			xmlns="http://www.w3.org/2000/svg"
-		>
-			(Unescaped::new_unchecked(LOGO_FULL_BODY))
-		</svg>
-	})
+    <svg
+        class=(class)
+        aria-label="Stelo icon, a hexagonal star with the word Stelo on the right"
+        width="2858"
+        height="1156"
+        viewBox="0 0 2858 1156"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+    >
+        (Unescaped::new_unchecked(LOGO_FULL_BODY))
+    </svg>
+})
 }
 
 #[component]
 pub async fn right_arrow(cx: &Cx, #[into] class: String) -> Result<impl View> {
 	Ok(view! {
-		icon(
-			data: RIGHT_ARROW,
-			label: "right arrow",
-			attrs: attributes! { class=(class) },
-		)
-	})
+    icon(data: RIGHT_ARROW, label: "right arrow", attrs: attributes! { class=(class) })
+})
 }
 
 #[component]
 pub async fn github(cx: &Cx, #[into] class: String) -> Result<impl View> {
 	Ok(view! {
-		icon(
-			data: GITHUB,
-			label: "GitHub Icon",
-			attrs: attributes! { class=(class) },
-		)
-	})
+    icon(data: GITHUB, label: "GitHub Icon", attrs: attributes! { class=(class) })
+})
 }
 
 #[component]
 pub async fn discord(cx: &Cx, #[into] class: String) -> Result<impl View> {
 	Ok(view! {
-		icon(
-			data: DISCORD,
-			label: "Discord Icon",
-			attrs: attributes! { class=(class) },
-		)
-	})
+    icon(data: DISCORD, label: "Discord Icon", attrs: attributes! { class=(class) })
+})
 }
 
 #[component]
 pub async fn wallet(cx: &Cx, #[into] class: String) -> Result<impl View> {
-	Ok(view! {
-		icon(
-			data: WALLET,
-			label: "Accounts",
-			attrs: attributes! { class=(class) },
-		)
-	})
+	Ok(view! { icon(data: WALLET, label: "Accounts", attrs: attributes! { class=(class) }) })
 }
 
 #[component]
 pub async fn transfer(cx: &Cx, #[into] class: String) -> Result<impl View> {
 	Ok(view! {
-		icon(
-			data: TRANSFER,
-			label: "Transfer",
-			attrs: attributes! { class=(class) },
-		)
-	})
+    icon(data: TRANSFER, label: "Transfer", attrs: attributes! { class=(class) })
+})
 }
 
 #[component]
 pub async fn activity(cx: &Cx, #[into] class: String) -> Result<impl View> {
 	Ok(view! {
-		icon(
-			data: ACTIVITY,
-			label: "Activity",
-			attrs: attributes! { class=(class) },
-		)
-	})
+    icon(data: ACTIVITY, label: "Activity", attrs: attributes! { class=(class) })
+})
 }

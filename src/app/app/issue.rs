@@ -130,44 +130,48 @@ pub async fn flow_page(cx: &Cx, flow: Flow) -> Result<impl View> {
 	let title = flow.title();
 	let handling_note = flow.handling_note();
 	Ok(view! {
-		<main
-			id="page-content"
-			class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10"
-			data-signals=(signals)
-		>
-			<h1 class="mb-3 text-2xl font-medium md:text-3xl">(title)</h1>
-			<section class="mb-6 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-3 sm:px-4">
-				<p class="text-sm text-neutral-300">(handling_note)</p>
-			</section>
-			if accounts.is_empty() {
-				empty_state(flow: flow)
-			} else {
-				flow_form(
-					flow: flow,
-					accounts: accounts,
-					can_pick: can_pick,
-					selected_id: selected_id,
-				)
-			}
-		</main>
-	})
+    <main
+        id="page-content"
+        class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10"
+        data-signals=(signals)
+    >
+        <h1 class="mb-3 text-2xl font-medium md:text-3xl">(title)</h1>
+        <section
+            class="mb-6 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-3 sm:px-4"
+        >
+            <p class="text-sm text-neutral-300">(handling_note)</p>
+        </section>
+        if accounts.is_empty() {
+            empty_state(flow: flow)
+        } else {
+            flow_form(
+                flow: flow,
+                accounts: accounts,
+                can_pick: can_pick,
+                selected_id: selected_id
+            )
+        }
+    </main>
+})
 }
 
 #[component]
 async fn empty_state(cx: &Cx, flow: Flow) -> Result<impl View> {
 	let blurb = flow.empty_blurb();
 	Ok(view! {
-		<div class="rounded-lg border border-neutral-800 bg-neutral-950 px-5 py-10 text-center">
-			<p class="text-neutral-300">"You need a writable account."</p>
-			<p class="mt-2 text-sm text-neutral-400">(blurb)</p>
-			<a
-				href="/app/accounts"
-				class="mt-6 inline-flex rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600"
-			>
-				"Accounts"
-			</a>
-		</div>
-	})
+    <div
+        class="rounded-lg border border-neutral-800 bg-neutral-950 px-5 py-10 text-center"
+    >
+        <p class="text-neutral-300">"You need a writable account."</p>
+        <p class="mt-2 text-sm text-neutral-400">(blurb)</p>
+        <a
+            href="/app/accounts"
+            class="mt-6 inline-flex rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600"
+        >
+            "Accounts"
+        </a>
+    </div>
+})
 }
 
 #[component]
@@ -186,176 +190,196 @@ async fn flow_form(
 		Flow::Withdraw => "From wallet",
 	};
 	Ok(view! {
-		<div data-show="!$sent">
-			from_panel(accounts: accounts.clone(), can_pick: can_pick, selected_id: selected_id)
+    <div data-show="!$sent">
+        from_panel(
+            accounts: accounts.clone(),
+            can_pick: can_pick,
+            selected_id: selected_id
+        )
 
-			<div class="mt-5" data-show="$fromId != ''">
-				<p
-					class="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-400"
-					data-show="$fromKind == 'Debit'"
-				>
-					"Issuer"
-				</p>
-				<p
-					class="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-400"
-					data-show="$fromKind == 'Credit'"
-					style="display: none"
-				>
-					(other_when_issuer)
-				</p>
-				<div data-show="!$recipientId">
-					<input
-						type="text"
-						class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-400"
-						data-bind="recipientSearch"
-						data-attr-placeholder="$fromKind == 'Debit' ? 'Issuer #address' : '@username or #address'"
-						autocomplete="off"
-						autocapitalize="off"
-						spellcheck="false"
-						data-on:input__debounce.300ms="@get('/app/issue/counterparts')"
-					>
-					<p class="mt-1 text-xs text-neutral-400" data-show="$fromKind == 'Debit'">
-						"Same asset. Search the issuer address, e.g. #STELOBANK."
-					</p>
-					<p
-						class="mt-1 text-xs text-neutral-400"
-						data-show="$fromKind == 'Credit'"
-						style="display: none"
-					>
-						"Same asset as the issuer account. Prefix @ or # to search only that kind."
-					</p>
-					<div id="recipient-results"></div>
-				</div>
-				<div
-					class="flex items-center justify-between rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2.5"
-					data-show="$recipientId"
-					style="display: none"
-				>
-					<div class="min-w-0">
-						<p
-							class="truncate text-sm text-neutral-100"
-							data-show="$recipientLabel"
-							data-text="$recipientLabel"
-							style="display: none"
-						></p>
-						<p class="truncate text-sm text-neutral-100" data-text="$recipientName"></p>
-						<p
-							class="truncate text-xs text-neutral-400"
-							data-show="$recipientAddr"
-							data-text="$recipientAddr"
-							style="display: none"
-						></p>
-					</div>
-					<button
-						type="button"
-						class="ml-3 shrink-0 cursor-pointer text-sm text-neutral-300 hover:text-white"
-						data-on:click="$recipientId = ''; $recipientName = ''; $recipientAddr = ''; $recipientLabel = ''; $recipientSearch = ''; $sendError = ''"
-					>
-						"Clear"
-					</button>
-				</div>
-			</div>
+        <div class="mt-5" data-show="$fromId != ''">
+            <p
+                class="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-400"
+                data-show="$fromKind == 'Debit'"
+            >
+                "Issuer"
+            </p>
+            <p
+                class="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-400"
+                data-show="$fromKind == 'Credit'"
+                style="display: none"
+            >
+                (other_when_issuer)
+            </p>
+            <div data-show="!$recipientId">
+                <input
+                    type="text"
+                    class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-400"
+                    data-bind="recipientSearch"
+                    data-attr-placeholder="$fromKind == 'Debit' ? 'Issuer #address' : '@username or #address'"
+                    autocomplete="off"
+                    autocapitalize="off"
+                    spellcheck="false"
+                    data-on:input__debounce.300ms="@get('/app/issue/counterparts')"
+                >
+                <p
+                    class="mt-1 text-xs text-neutral-400"
+                    data-show="$fromKind == 'Debit'"
+                >
+                    "Same asset. Search the issuer address, e.g. #STELOBANK."
+                </p>
+                <p
+                    class="mt-1 text-xs text-neutral-400"
+                    data-show="$fromKind == 'Credit'"
+                    style="display: none"
+                >
+                    "Same asset as the issuer account. Prefix @ or # to search only that kind."
+                </p>
+                <div id="recipient-results"></div>
+            </div>
+            <div
+                class="flex items-center justify-between rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2.5"
+                data-show="$recipientId"
+                style="display: none"
+            >
+                <div class="min-w-0">
+                    <p
+                        class="truncate text-sm text-neutral-100"
+                        data-show="$recipientLabel"
+                        data-text="$recipientLabel"
+                        style="display: none"
+                    ></p>
+                    <p
+                        class="truncate text-sm text-neutral-100"
+                        data-text="$recipientName"
+                    ></p>
+                    <p
+                        class="truncate text-xs text-neutral-400"
+                        data-show="$recipientAddr"
+                        data-text="$recipientAddr"
+                        style="display: none"
+                    ></p>
+                </div>
+                <button
+                    type="button"
+                    class="ml-3 shrink-0 cursor-pointer text-sm text-neutral-300 hover:text-white"
+                    data-on:click="$recipientId = ''; $recipientName = ''; $recipientAddr = ''; $recipientLabel = ''; $recipientSearch = ''; $sendError = ''"
+                >
+                    "Clear"
+                </button>
+            </div>
+        </div>
 
-			<div class="mt-5" data-show="$fromId != ''">
-				<p class="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-400">
-					"Amount"
-				</p>
-				<div class="flex items-center gap-2">
-					<input
-						type="text"
-						inputmode="decimal"
-						class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-400"
-						data-bind="amount"
-						placeholder="0"
-						autocomplete="off"
-					>
-					amount_suffixes(accounts: accounts.clone(), selected_id: selected_id)
-				</div>
-				amount_hints(accounts: accounts, selected_id: selected_id)
-			</div>
+        <div class="mt-5" data-show="$fromId != ''">
+            <p
+                class="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-400"
+            >
+                "Amount"
+            </p>
+            <div class="flex items-center gap-2">
+                <input
+                    type="text"
+                    inputmode="decimal"
+                    class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-400"
+                    data-bind="amount"
+                    placeholder="0"
+                    autocomplete="off"
+                >
+                amount_suffixes(accounts: accounts.clone(), selected_id: selected_id)
+            </div>
+            amount_hints(accounts: accounts, selected_id: selected_id)
+        </div>
 
-			<div class="mt-5" data-show="$fromId != ''">
-				<div class="mb-2 flex items-baseline justify-between">
-					<p class="text-xs font-medium uppercase tracking-wide text-neutral-400">
-						"Memo "
-						<span class="font-normal normal-case tracking-normal text-neutral-400">
-							"(optional)"
-						</span>
-					</p>
-					<p class="text-xs text-neutral-400" data-text="$memo.length + '/32'"></p>
-				</div>
-				<input
-					type="text"
-					class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-400"
-					data-bind="memo"
-					maxlength="32"
-					placeholder="What's this for?"
-					autocomplete="off"
-				>
-			</div>
+        <div class="mt-5" data-show="$fromId != ''">
+            <div class="mb-2 flex items-baseline justify-between">
+                <p class="text-xs font-medium uppercase tracking-wide text-neutral-400">
+                    "Memo "
+                    <span
+                        class="font-normal normal-case tracking-normal text-neutral-400"
+                    >
+                        "(optional)"
+                    </span>
+                </p>
+                <p class="text-xs text-neutral-400" data-text="$memo.length + '/32'"></p>
+            </div>
+            <input
+                type="text"
+                class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-400"
+                data-bind="memo"
+                maxlength="32"
+                placeholder="What's this for?"
+                autocomplete="off"
+            >
+        </div>
 
-			<input type="hidden" data-bind="idempotencyKey">
+        <input type="hidden" data-bind="idempotencyKey">
 
-			<button
-				type="button"
-				class="mt-6 w-full cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50"
-				data-on:click=(post)
-				data-indicator="sending"
-				data-attr-disabled="$sending || !$fromId || !$recipientId || $amount == ''"
-			>
-				(cta)
-			</button>
-			<p
-				class="mt-3 text-sm text-red-400"
-				data-show="$sendError"
-				data-text="$sendError"
-			></p>
-		</div>
+        <button
+            type="button"
+            class="mt-6 w-full cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50"
+            data-on:click=(post)
+            data-indicator="sending"
+            data-attr-disabled="$sending || !$fromId || !$recipientId || $amount == ''"
+        >
+            (cta)
+        </button>
+        <p
+            class="mt-3 text-sm text-red-400"
+            data-show="$sendError"
+            data-text="$sendError"
+        ></p>
+    </div>
 
-		<div data-show="$sent" style="display: none">
-			<div class="rounded-lg border border-neutral-800 bg-neutral-950 px-4 py-6 sm:px-5">
-				<h2 class="text-xl font-medium" data-show="!$pending">
-					(posted)
-					" "
-					<span data-text="$sentQty"></span>
-				</h2>
-				<h2 class="text-xl font-medium" data-show="$pending" style="display: none">
-					"Requested "
-					<span data-text="$sentQty"></span>
-				</h2>
-				<p class="mt-1 text-sm text-neutral-300" data-show="!$pending">
-					<span data-text="$sentTo"></span>
-					<span data-show="$sentAddr">
-						" · "
-						<span data-text="$sentAddr"></span>
-					</span>
-				</p>
-				<p class="mt-1 text-sm text-neutral-300" data-show="$pending" style="display: none">
-					"Waiting on the issuer to confirm. "
-					<span data-text="$sentTo"></span>
-					<span data-show="$sentAddr">
-						" · "
-						<span data-text="$sentAddr"></span>
-					</span>
-				</p>
-				<a
-					href="/app/activity"
-					class="mt-5 inline-flex w-full cursor-pointer items-center justify-center rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600"
-				>
-					"View activity"
-				</a>
-			</div>
-		</div>
-	})
+    <div data-show="$sent" style="display: none">
+        <div
+            class="rounded-lg border border-neutral-800 bg-neutral-950 px-4 py-6 sm:px-5"
+        >
+            <h2 class="text-xl font-medium" data-show="!$pending">
+                (posted)
+                " "
+                <span data-text="$sentQty"></span>
+            </h2>
+            <h2 class="text-xl font-medium" data-show="$pending" style="display: none">
+                "Requested "
+                <span data-text="$sentQty"></span>
+            </h2>
+            <p class="mt-1 text-sm text-neutral-300" data-show="!$pending">
+                <span data-text="$sentTo"></span>
+                <span data-show="$sentAddr">
+                    " · "
+                    <span data-text="$sentAddr"></span>
+                </span>
+            </p>
+            <p
+                class="mt-1 text-sm text-neutral-300"
+                data-show="$pending"
+                style="display: none"
+            >
+                "Waiting on the issuer to confirm. "
+                <span data-text="$sentTo"></span>
+                <span data-show="$sentAddr">
+                    " · "
+                    <span data-text="$sentAddr"></span>
+                </span>
+            </p>
+            <a
+                href="/app/activity"
+                class="mt-5 inline-flex w-full cursor-pointer items-center justify-center rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600"
+            >
+                "View activity"
+            </a>
+        </div>
+    </div>
+})
 }
 
 #[component]
 async fn amount_suffixes(cx: &Cx, accounts: Vec<MyAccountRow>, selected_id: u64) -> Result<impl View> {
 	Ok(view! {
-		for acc in &accounts {
-			ledger_suffix(acc: acc, selected: acc.account_id == selected_id)
-		}
-	})
+    for acc in &accounts {
+        ledger_suffix(acc: acc, selected: acc.account_id == selected_id)
+    }
+})
 }
 
 #[component]
@@ -363,21 +387,21 @@ async fn ledger_suffix(cx: &Cx, acc: &MyAccountRow, selected: bool) -> Result<im
 	let show = format!("$fromId == '{}'", acc.account_id);
 	if selected {
 		Ok(view! {
-			<span class="shrink-0 text-sm text-neutral-300" data-show=(show)>
-				(acc.ledger_name.clone())
-			</span>
-		}
+    <span class="shrink-0 text-sm text-neutral-300" data-show=(show)>
+        (acc.ledger_name.clone())
+    </span>
+}
 		.boxed())
 	} else {
 		Ok(view! {
-			<span
-				class="shrink-0 text-sm text-neutral-300"
-				data-show=(show)
-				style="display: none"
-			>
-				(acc.ledger_name.clone())
-			</span>
-		}
+    <span
+        class="shrink-0 text-sm text-neutral-300"
+        data-show=(show)
+        style="display: none"
+    >
+        (acc.ledger_name.clone())
+    </span>
+}
 		.boxed())
 	}
 }
@@ -385,10 +409,10 @@ async fn ledger_suffix(cx: &Cx, acc: &MyAccountRow, selected: bool) -> Result<im
 #[component]
 async fn amount_hints(cx: &Cx, accounts: Vec<MyAccountRow>, selected_id: u64) -> Result<impl View> {
 	Ok(view! {
-		for acc in &accounts {
-			avail_hint(acc: acc, selected: acc.account_id == selected_id)
-		}
-	})
+    for acc in &accounts {
+        avail_hint(acc: acc, selected: acc.account_id == selected_id)
+    }
+})
 }
 
 #[component]
@@ -397,23 +421,19 @@ async fn avail_hint(cx: &Cx, acc: &MyAccountRow, selected: bool) -> Result<impl 
 	let qty = format_qty(acc.balance, acc.ledger_scale);
 	if selected && matches!(acc.kind, AccountKind::Debit) {
 		Ok(view! {
-			<p class="mt-1 text-xs text-neutral-400" data-show=(show)>
-				"Available "
-				<span class="text-anakiwa">(qty)</span>
-			</p>
-		}
+    <p class="mt-1 text-xs text-neutral-400" data-show=(show)>
+        "Available "
+        <span class="text-anakiwa">(qty)</span>
+    </p>
+}
 		.boxed())
 	} else {
 		Ok(view! {
-			<p
-				class="mt-1 text-xs text-neutral-400"
-				data-show=(show)
-				style="display: none"
-			>
-				"Available "
-				<span class="text-anakiwa">(qty)</span>
-			</p>
-		}
+    <p class="mt-1 text-xs text-neutral-400" data-show=(show) style="display: none">
+        "Available "
+        <span class="text-anakiwa">(qty)</span>
+    </p>
+}
 		.boxed())
 	}
 }

@@ -100,89 +100,91 @@ pub async fn app_header(cx: &Cx, #[into] username: String) -> Result<impl View> 
 	};
 
 	Ok(view! {
-		<header
-			class="sticky top-0 z-30 border-b border-neutral-800 bg-neutral-900"
-			aria-label="App header"
-		>
-			// Full viewport width; progressive horizontal padding (no max-width).
-			<nav class="flex w-full items-center gap-1 px-3 py-2 sm:px-5 md:gap-3 md:px-8 md:py-3 lg:px-12 xl:px-16 2xl:px-24">
-				<a href="/app" class="shrink-0 mr-4" aria-label="Stelo app home">
-					logo_full(class: "h-auto w-24 md:w-28")
-				</a>
+    <header
+        class="sticky top-0 z-30 border-b border-neutral-800 bg-neutral-900"
+        aria-label="App header"
+    >
+        // Full viewport width; progressive horizontal padding (no max-width).
+        <nav
+            class="flex w-full items-center gap-1 px-3 py-2 sm:px-5 md:gap-3 md:px-8 md:py-3 lg:px-12 xl:px-16 2xl:px-24"
+        >
+            <a href="/app" class="shrink-0 mr-4" aria-label="Stelo app home">
+                logo_full(class: "h-auto w-24 md:w-28")
+            </a>
 
-				// Primary destinations — desktop / tablet only
-				<div class="hidden items-center gap-1 md:flex md:gap-2">
-					<a href="/app/accounts" class=(desktop_link_class(accounts_on))>
-						"Accounts"
-					</a>
-					<a href="/app/activity" class=(desktop_link_class(activity_on))>
-						"Activity"
-					</a>
+            // Primary destinations — desktop / tablet only
+            <div class="hidden items-center gap-1 md:flex md:gap-2">
+                <a href="/app/accounts" class=(desktop_link_class(accounts_on))>
+                    "Accounts"
+                </a>
+                <a href="/app/activity" class=(desktop_link_class(activity_on))>
+                    "Activity"
+                </a>
 
-					// Transfer split control: border on wrapper (seamless underline).
-					// Hover opens via Datastar (set open attribute — CSS alone cannot show closed details content).
-					<div
-						class=(transfer_control_class(transfer_on))
-						data-on:mouseenter="el.querySelector('details').open = true"
-						data-on:mouseleave="el.querySelector('details').open = false"
-					>
-						<a href="/app/transfer" class=(transfer_label_class)>
-							"Transfer"
-						</a>
-						<details class="group/dd relative">
-							<summary
-								class=(transfer_summary_class)
-								aria-label="Transfer menu"
-							>
-								icon(
-									data: CHEVRON_DOWN,
-									label: "",
-									attrs: attributes! {
-										class="size-5 shrink-0 opacity-90 transition-transform group-open/dd:rotate-180"
-										aria-hidden="true"
-									},
-								)
-							</summary>
-							// pt-1 bridge so the pointer stays inside the control when moving to the menu.
-							<div
-								// Center under the Transfer control: 50% from left, then pull back half of menu width.
-								class="absolute left-1/2 top-full z-40 min-w-40 -translate-x-1/2 pt-1"
-								role="menu"
-							>
-								<div class="rounded-md border border-neutral-700 bg-neutral-900 py-1 shadow-lg">
-									<a
-										href="/app/transfer"
-										class="block px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-800 hover:text-white"
-										role="menuitem"
-									>
-										"Send"
-									</a>
-									<a
-										href="/app/deposit"
-										class="block px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-800 hover:text-white"
-										role="menuitem"
-									>
-										"Deposit"
-									</a>
-									<a
-										href="/app/withdraw"
-										class="block px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-800 hover:text-white"
-										role="menuitem"
-									>
-										"Withdraw"
-									</a>
-								</div>
-							</div>
-						</details>
-					</div>
-				</div>
+                // Transfer split control: border on wrapper (seamless underline).
+                // Hover opens via Datastar (set open attribute — CSS alone cannot show closed details content).
+                <div
+                    class=(transfer_control_class(transfer_on))
+                    data-on:mouseenter="el.querySelector('details').open = true"
+                    data-on:mouseleave="el.querySelector('details').open = false"
+                >
+                    <a href="/app/transfer" class=(transfer_label_class)>"Transfer"</a>
+                    <details class="group/dd relative">
+                        <summary
+                            class=(transfer_summary_class)
+                            aria-label="Transfer menu"
+                        >
+                            icon(
+                                data: CHEVRON_DOWN,
+                                label: "",
+                                attrs: attributes! {
+                                    class="size-5 shrink-0 opacity-90 transition-transform group-open/dd:rotate-180"
+                                    aria-hidden="true"
+                                }
+                            )
+                        </summary>
+                        // pt-1 bridge so the pointer stays inside the control when moving to the menu.
+                        <div
+                            class="absolute left-1/2 top-full z-40 min-w-40 -translate-x-1/2 pt-1"
+                            role="menu"
+                        >
+                            // Center under the Transfer control: 50% from left, then pull back half of menu width.
+                            <div
+                                class="rounded-md border border-neutral-700 bg-neutral-900 py-1 shadow-lg"
+                            >
+                                <a
+                                    href="/app/transfer"
+                                    class="block px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-800 hover:text-white"
+                                    role="menuitem"
+                                >
+                                    "Send"
+                                </a>
+                                <a
+                                    href="/app/deposit"
+                                    class="block px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-800 hover:text-white"
+                                    role="menuitem"
+                                >
+                                    "Deposit"
+                                </a>
+                                <a
+                                    href="/app/withdraw"
+                                    class="block px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-800 hover:text-white"
+                                    role="menuitem"
+                                >
+                                    "Withdraw"
+                                </a>
+                            </div>
+                        </div>
+                    </details>
+                </div>
+            </div>
 
-				<a href="/app/me" class=(username_class) title=(username.clone())>
-					(username)
-				</a>
-			</nav>
-		</header>
-	})
+            <a href="/app/me" class=(username_class) title=(username.clone())>
+                (username)
+            </a>
+        </nav>
+    </header>
+})
 }
 
 /// Compact bottom destinations — mobile only (`md:hidden`).
@@ -194,37 +196,37 @@ pub async fn app_bottom_nav(cx: &Cx) -> Result<impl View> {
 	let transfer_on = section == NavSection::Transfer;
 
 	Ok(view! {
-		<nav
-			class="fixed inset-x-0 bottom-0 z-30 border-t border-neutral-800 bg-neutral-900/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
-			aria-label="App destinations"
-		>
-			<div class="flex w-full items-stretch gap-1 px-2 py-1.5 sm:px-4">
-				<a href="/app/accounts" class=(bottom_link_class(accounts_on))>
-					wallet(class: "size-6")
-					<span>"Accounts"</span>
-				</a>
-				<a href="/app/activity" class=(bottom_link_class(activity_on))>
-					activity(class: "size-6")
-					<span>"Activity"</span>
-				</a>
-				<a href="/app/transfer" class=(bottom_link_class(transfer_on))>
-					transfer(class: "size-6")
-					<span>"Transfer"</span>
-				</a>
-			</div>
-		</nav>
-	})
+    <nav
+        class="fixed inset-x-0 bottom-0 z-30 border-t border-neutral-800 bg-neutral-900/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
+        aria-label="App destinations"
+    >
+        <div class="flex w-full items-stretch gap-1 px-2 py-1.5 sm:px-4">
+            <a href="/app/accounts" class=(bottom_link_class(accounts_on))>
+                wallet(class: "size-6")
+                <span>"Accounts"</span>
+            </a>
+            <a href="/app/activity" class=(bottom_link_class(activity_on))>
+                activity(class: "size-6")
+                <span>"Activity"</span>
+            </a>
+            <a href="/app/transfer" class=(bottom_link_class(transfer_on))>
+                transfer(class: "size-6")
+                <span>"Transfer"</span>
+            </a>
+        </div>
+    </nav>
+})
 }
 
 /// Shared stub body for unfinished app pages.
 #[component]
 pub async fn stub_page(cx: &Cx, #[into] title: String, #[into] blurb: String) -> Result<impl View> {
 	Ok(view! {
-		<main class="mx-auto max-w-5xl px-4 py-10 text-center text-white">
-			<h1 class="text-2xl font-medium md:text-3xl">(title)</h1>
-			<p class="mx-auto mt-3 max-w-md text-sm text-neutral-300 md:text-base">
-				(blurb)
-			</p>
-		</main>
-	})
+    <main class="mx-auto max-w-5xl px-4 py-10 text-center text-white">
+        <h1 class="text-2xl font-medium md:text-3xl">(title)</h1>
+        <p class="mx-auto mt-3 max-w-md text-sm text-neutral-300 md:text-base">
+            (blurb)
+        </p>
+    </main>
+})
 }

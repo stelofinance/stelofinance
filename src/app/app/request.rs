@@ -57,9 +57,7 @@ async fn page(cx: &Cx) -> Result<impl View> {
 	) {
 		Ok(s) => s,
 		Err(_) => {
-			return Ok(view! {
-				invalid_link()
-			}
+			return Ok(view! { invalid_link() }
 			.boxed());
 		}
 	};
@@ -74,18 +72,14 @@ async fn page(cx: &Cx) -> Result<impl View> {
 		.find(|l| l.id == spec.ledger_id)
 		.cloned()
 	else {
-		return Ok(view! {
-			invalid_link()
-		}
+		return Ok(view! { invalid_link() }
 		.boxed());
 	};
 
 	let recipient = match lookup_account(conn.get(), spec.recipient_id).await {
 		Ok(hit) if hit.ledger_id == spec.ledger_id => hit,
 		Ok(_) | Err(_) => {
-			return Ok(view! {
-				invalid_link()
-			}
+			return Ok(view! { invalid_link() }
 			.boxed());
 		}
 	};
@@ -118,26 +112,26 @@ async fn page(cx: &Cx) -> Result<impl View> {
 	};
 
 	Ok(view! {
-		<main
-			id="page-content"
-			class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10"
-			data-signals=(signals)
-		>
-			<h1 class="mb-6 text-2xl font-medium md:text-3xl">"Pay"</h1>
-			invoice_card(invoice: invoice.clone())
-			if accounts.is_empty() {
-				no_account(ledger_name: ledger.name)
-			} else {
-				pay_form(
-					accounts: accounts,
-					can_pick: can_pick,
-					selected_id: selected_id,
-					invoice: invoice,
-					amount: spec.amount,
-				)
-			}
-		</main>
-	}
+    <main
+        id="page-content"
+        class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10"
+        data-signals=(signals)
+    >
+        <h1 class="mb-6 text-2xl font-medium md:text-3xl">"Pay"</h1>
+        invoice_card(invoice: invoice.clone())
+        if accounts.is_empty() {
+            no_account(ledger_name: ledger.name)
+        } else {
+            pay_form(
+                accounts: accounts,
+                can_pick: can_pick,
+                selected_id: selected_id,
+                invoice: invoice,
+                amount: spec.amount
+            )
+        }
+    </main>
+}
 	.boxed())
 }
 
@@ -153,49 +147,53 @@ struct Invoice {
 #[component]
 async fn invalid_link(cx: &Cx) -> Result<impl View> {
 	Ok(view! {
-		<main class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10">
-			<h1 class="mb-6 text-2xl font-medium md:text-3xl">"Pay"</h1>
-			<div class="rounded-lg border border-neutral-800 bg-neutral-950 px-5 py-10 text-center">
-				<p class="text-neutral-300">"This payment link isn't valid."</p>
-				<p class="mt-2 text-sm text-neutral-400">"Ask the sender for a new one."</p>
-				<a
-					href="/app/accounts"
-					class="mt-6 inline-flex rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600"
-				>
-					"Accounts"
-				</a>
-			</div>
-		</main>
-	})
+    <main
+        class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10"
+    >
+        <h1 class="mb-6 text-2xl font-medium md:text-3xl">"Pay"</h1>
+        <div
+            class="rounded-lg border border-neutral-800 bg-neutral-950 px-5 py-10 text-center"
+        >
+            <p class="text-neutral-300">"This payment link isn't valid."</p>
+            <p class="mt-2 text-sm text-neutral-400">"Ask the sender for a new one."</p>
+            <a
+                href="/app/accounts"
+                class="mt-6 inline-flex rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600"
+            >
+                "Accounts"
+            </a>
+        </div>
+    </main>
+})
 }
 
 #[component]
 async fn no_account(cx: &Cx, #[into] ledger_name: String) -> Result<impl View> {
 	Ok(view! {
-		<div class="mt-6 rounded-lg border border-neutral-800 bg-neutral-950 px-5 py-10 text-center">
-			<p class="text-neutral-300">
-				"You need a writable "
-				(ledger_name)
-				" account to pay this."
-			</p>
-			<p class="mt-2 text-sm text-neutral-400">
-				"Create a debit account, or ask an owner to grant you Write."
-			</p>
-			<a
-				href="/app/accounts"
-				class="mt-6 inline-flex rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600"
-			>
-				"Accounts"
-			</a>
-		</div>
-	})
+    <div
+        class="mt-6 rounded-lg border border-neutral-800 bg-neutral-950 px-5 py-10 text-center"
+    >
+        <p class="text-neutral-300">
+            "You need a writable "
+            (ledger_name)
+            " account to pay this."
+        </p>
+        <p class="mt-2 text-sm text-neutral-400">
+            "Create a debit account, or ask an owner to grant you Write."
+        </p>
+        <a
+            href="/app/accounts"
+            class="mt-6 inline-flex rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600"
+        >
+            "Accounts"
+        </a>
+    </div>
+})
 }
 
 #[component]
 async fn invoice_card(cx: &Cx, invoice: Invoice) -> Result<impl View> {
-	Ok(view! {
-		(Unescaped::new_unchecked(invoice_html(&invoice)))
-	})
+	Ok(view! { (Unescaped::new_unchecked(invoice_html(&invoice))) })
 }
 
 fn invoice_html(invoice: &Invoice) -> String {
@@ -250,55 +248,61 @@ async fn pay_form(
 	let sent_qty = format!("{} {}", invoice.qty, invoice.ledger_name);
 
 	Ok(view! {
-		<div class="mt-6" data-show="!$sent">
-			from_panel(accounts: accounts.clone(), can_pick: can_pick, selected_id: selected_id)
-			short_hints(accounts: accounts, amount: amount, selected_id: selected_id)
-			<button
-				type="button"
-				class="mt-6 w-full cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50"
-				data-on:click="@post('/app/request')"
-				data-indicator="sending"
-				data-attr-disabled=(disabled)
-			>
-				(cta)
-			</button>
-			<p
-				class="mt-3 text-sm text-red-400"
-				data-show="$sendError"
-				data-text="$sendError"
-			></p>
-		</div>
-		<div data-show="$sent" style="display: none">
-			<div class="mt-6 rounded-lg border border-neutral-800 bg-neutral-950 px-4 py-6 sm:px-5">
-				<h2 class="text-xl font-medium">
-					"Sent "
-					(sent_qty)
-				</h2>
-				<p class="mt-1 text-sm text-neutral-300">
-					"to "
-					(sent_to)
-					if !sent_addr.is_empty() {
-						" · "
-						(sent_addr)
-					}
-				</p>
-				<div class="mt-5 flex flex-wrap gap-3">
-					<a
-						href="/app/activity"
-						class="inline-flex rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600"
-					>
-						"View activity"
-					</a>
-					<a
-						href="/app/accounts"
-						class="inline-flex rounded-md border border-neutral-600 px-4 py-2 text-sm text-neutral-200 hover:border-neutral-400"
-					>
-						"Accounts"
-					</a>
-				</div>
-			</div>
-		</div>
-	})
+    <div class="mt-6" data-show="!$sent">
+        from_panel(
+            accounts: accounts.clone(),
+            can_pick: can_pick,
+            selected_id: selected_id
+        )
+        short_hints(accounts: accounts, amount: amount, selected_id: selected_id)
+        <button
+            type="button"
+            class="mt-6 w-full cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50"
+            data-on:click="@post('/app/request')"
+            data-indicator="sending"
+            data-attr-disabled=(disabled)
+        >
+            (cta)
+        </button>
+        <p
+            class="mt-3 text-sm text-red-400"
+            data-show="$sendError"
+            data-text="$sendError"
+        ></p>
+    </div>
+    <div data-show="$sent" style="display: none">
+        <div
+            class="mt-6 rounded-lg border border-neutral-800 bg-neutral-950 px-4 py-6 sm:px-5"
+        >
+            <h2 class="text-xl font-medium">
+                "Sent "
+                (sent_qty)
+            </h2>
+            <p class="mt-1 text-sm text-neutral-300">
+                "to "
+                (sent_to)
+                if !sent_addr.is_empty() {
+                    " · "
+                    (sent_addr)
+                }
+            </p>
+            <div class="mt-5 flex flex-wrap gap-3">
+                <a
+                    href="/app/activity"
+                    class="inline-flex rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600"
+                >
+                    "View activity"
+                </a>
+                <a
+                    href="/app/accounts"
+                    class="inline-flex rounded-md border border-neutral-600 px-4 py-2 text-sm text-neutral-200 hover:border-neutral-400"
+                >
+                    "Accounts"
+                </a>
+            </div>
+        </div>
+    </div>
+})
 }
 
 #[component]
@@ -309,10 +313,10 @@ async fn short_hints(
 	selected_id: u64,
 ) -> Result<impl View> {
 	Ok(view! {
-		for acc in accounts.iter().filter(|a| a.balance < amount) {
-			short_hint(acc: acc, amount: amount, selected: acc.account_id == selected_id)
-		}
-	})
+    for acc in accounts.iter().filter(|a| a.balance < amount) {
+        short_hint(acc: acc, amount: amount, selected: acc.account_id == selected_id)
+    }
+})
 }
 
 #[component]
@@ -321,21 +325,17 @@ async fn short_hint(cx: &Cx, acc: &MyAccountRow, amount: u64, selected: bool) ->
 	let show = format!("$fromId == '{}'", acc.account_id);
 	if selected {
 		Ok(view! {
-			<p class="mt-2 text-sm text-red-400" data-show=(show)>
-				"Not enough available on this account."
-			</p>
-		}
+    <p class="mt-2 text-sm text-red-400" data-show=(show)>
+        "Not enough available on this account."
+    </p>
+}
 		.boxed())
 	} else {
 		Ok(view! {
-			<p
-				class="mt-2 text-sm text-red-400"
-				data-show=(show)
-				style="display: none"
-			>
-				"Not enough available on this account."
-			</p>
-		}
+    <p class="mt-2 text-sm text-red-400" data-show=(show) style="display: none">
+        "Not enough available on this account."
+    </p>
+}
 		.boxed())
 	}
 }

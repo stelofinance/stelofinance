@@ -17,9 +17,7 @@ pub async fn activity_body(
 	selected: Option<u64>,
 	now_micros: i64,
 ) -> Result<impl View> {
-	Ok(view! {
-		(Unescaped::new_unchecked(activity_body_html(&data, selected, now_micros)))
-	})
+	Ok(view! { (Unescaped::new_unchecked(activity_body_html(&data, selected, now_micros))) })
 }
 
 pub fn activity_body_html(
