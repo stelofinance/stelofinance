@@ -1,20 +1,15 @@
 //! Transfer send: `account_search` procedure + `create_transfer`.
 
-use std::time::Duration;
-
 use crate::domain::{SearchScope, parse_recipient_term};
 use crate::module_bindings::{
-	AccountKind, AccountSearchHit, AccountSearchScope, MyAccountsTableAccess,
-	account_lookup, account_search, create_transfer, finalize_transfer,
-	my_accountsQueryTableAccess,
+	AccountKind, AccountSearchHit, AccountSearchScope, MyAccountsTableAccess, account_lookup,
+	account_search, create_transfer, finalize_transfer, my_accountsQueryTableAccess,
 };
 use spacetimedb_sdk::{DbContext, Table};
-use tokio::task::spawn_blocking;
 
+use super::call::{StdbError, call};
 use super::connector::StdbConn;
 use super::query::subscribe_once;
-
-const REDUCER_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// One recipient hit after procedure search + own-label attach.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -41,7 +36,7 @@ pub async fn search_directory(
 	ledger_id: u64,
 	exclude_id: u64,
 	term: &str,
-) -> Result<Vec<DirectoryHit>, String> {
+) -> Result<Vec<DirectoryHit>, StdbError> {
 	let Some((scope, needle)) = parse_recipient_term(term) else {
 		return Ok(Vec::new());
 	};
@@ -51,25 +46,15 @@ pub async fn search_directory(
 }
 
 /// Public directory row for one account (invoice chrome).
-pub async fn lookup_account(conn: &StdbConn, account_id: u64) -> Result<AccountSearchHit, String> {
-	let (tx, rx) = std::sync::mpsc::sync_channel(1);
+pub async fn lookup_account(
+	conn: &StdbConn,
+	account_id: u64,
+) -> Result<AccountSearchHit, StdbError> {
+	let (reply, pending) = call("account_lookup");
 	conn.db()
 		.procedures
-		.account_lookup_then(account_id, move |_ctx, result| {
-			let outcome = match result {
-				Ok(Ok(hit)) => Ok(hit),
-				Ok(Err(e)) => Err(e),
-				Err(e) => Err(e.to_string()),
-			};
-			let _ = tx.send(outcome);
-		});
-	let wait = spawn_blocking(move || {
-		rx.recv_timeout(REDUCER_TIMEOUT)
-			.map_err(|_| "account_lookup timed out".to_owned())
-	})
-	.await
-	.map_err(|e| format!("account_lookup wait task: {e}"))?;
-	wait?
+		.account_lookup_then(account_id, move |_, r| reply.send(r));
+	pending.wait().await
 }
 
 async fn call_account_search(
@@ -77,28 +62,15 @@ async fn call_account_search(
 	term: String,
 	ledger_id: u64,
 	scope: Option<AccountSearchScope>,
-) -> Result<Vec<AccountSearchHit>, String> {
-	let (tx, rx) = std::sync::mpsc::sync_channel(1);
+) -> Result<Vec<AccountSearchHit>, StdbError> {
+	let (reply, pending) = call("account_search");
 	conn.db()
 		.procedures
-		.account_search_then(term, ledger_id, scope, move |_ctx, result| {
-			let outcome = match result {
-				Ok(Ok(hits)) => Ok(hits),
-				Ok(Err(e)) => Err(e),
-				Err(e) => Err(e.to_string()),
-			};
-			let _ = tx.send(outcome);
-		});
-	let wait = spawn_blocking(move || {
-		rx.recv_timeout(REDUCER_TIMEOUT)
-			.map_err(|_| "account_search timed out".to_owned())
-	})
-	.await
-	.map_err(|e| format!("account_search wait task: {e}"))?;
-	wait?
+		.account_search_then(term, ledger_id, scope, move |_, r| reply.send(r));
+	pending.wait().await
 }
 
-async fn fetch_own_labels(conn: &StdbConn) -> Result<Vec<(u64, Option<String>)>, String> {
+async fn fetch_own_labels(conn: &StdbConn) -> Result<Vec<(u64, Option<String>)>, StdbError> {
 	subscribe_once(
 		conn,
 		|b| b.add_query(|q| q.from.my_accounts()).subscribe(),
@@ -146,62 +118,31 @@ pub async fn create_user_transfer(
 	memo: Option<String>,
 	idempotency_key: String,
 	pending: bool,
-) -> Result<(), String> {
-	let (tx, rx) = std::sync::mpsc::sync_channel(1);
-	conn.db()
-		.reducers
-		.create_transfer_then(
-			sending_account_id,
-			receiving_account_id,
-			amount,
-			memo,
-			idempotency_key,
-			pending,
-			move |_ctx, result| {
-				let outcome = match result {
-					Ok(Ok(())) => Ok(()),
-					Ok(Err(e)) => Err(e),
-					Err(e) => Err(e.to_string()),
-				};
-				let _ = tx.send(outcome);
-			},
-		)
-		.map_err(|e| format!("create_transfer send: {e}"))?;
-
-	let wait = spawn_blocking(move || {
-		rx.recv_timeout(REDUCER_TIMEOUT)
-			.map_err(|_| "create_transfer timed out".to_owned())
-	})
-	.await
-	.map_err(|e| format!("create_transfer wait task: {e}"))?;
-	wait?
+) -> Result<(), StdbError> {
+	let (reply, response) = call("create_transfer");
+	let sent = conn.db().reducers.create_transfer_then(
+		sending_account_id,
+		receiving_account_id,
+		amount,
+		memo,
+		idempotency_key,
+		pending,
+		move |_, r| reply.send(r),
+	);
+	response.after_send(sent).await
 }
 
 pub async fn finalize_user_transfer(
 	conn: &StdbConn,
 	transfer_id: u64,
 	amount: u64,
-) -> Result<(), String> {
-	let (tx, rx) = std::sync::mpsc::sync_channel(1);
-	conn.db()
+) -> Result<(), StdbError> {
+	let (reply, pending) = call("finalize_transfer");
+	let sent = conn
+		.db()
 		.reducers
-		.finalize_transfer_then(transfer_id, amount, move |_ctx, result| {
-			let outcome = match result {
-				Ok(Ok(())) => Ok(()),
-				Ok(Err(e)) => Err(e),
-				Err(e) => Err(e.to_string()),
-			};
-			let _ = tx.send(outcome);
-		})
-		.map_err(|e| format!("finalize_transfer send: {e}"))?;
-
-	let wait = spawn_blocking(move || {
-		rx.recv_timeout(REDUCER_TIMEOUT)
-			.map_err(|_| "finalize_transfer timed out".to_owned())
-	})
-	.await
-	.map_err(|e| format!("finalize_transfer wait task: {e}"))?;
-	wait?
+		.finalize_transfer_then(transfer_id, amount, move |_, r| reply.send(r));
+	pending.after_send(sent).await
 }
 
 #[cfg(test)]
@@ -217,7 +158,6 @@ mod tests {
 			primary_username: user.map(str::to_owned),
 		}
 	}
-
 
 	#[test]
 	fn own_label_attached_and_sender_excluded() {

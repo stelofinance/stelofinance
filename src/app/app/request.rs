@@ -7,9 +7,7 @@ use crate::domain::{
 	pick_sendable,
 };
 use crate::module_bindings::{AccountSearchHit, MyAccountRow};
-use crate::stdb::{
-	StdbError, acquire_user_db, create_user_transfer, fetch_accounts_page, lookup_account,
-};
+use crate::stdb::{acquire_user_db, create_user_transfer, fetch_accounts_page, lookup_account};
 use crate::ui::text::{escape_html, js_str};
 use serde::{Deserialize, Serialize};
 use topcoat::{
@@ -61,7 +59,7 @@ async fn page(cx: &Cx) -> Result<impl View> {
 	let conn = acquire_user_db(cx).await?;
 	let data = fetch_accounts_page(conn.get())
 		.await
-		.map_err(|e| internal_server_error(StdbError(e)))?;
+		.map_err(internal_server_error)?;
 	let Some(ledger) = data
 		.ledgers
 		.iter()
@@ -356,7 +354,7 @@ async fn create(cx: &Cx, Signals(form): Signals<PaySignals>) -> Result<PatchSign
 	let conn = acquire_user_db(cx).await?;
 	let data = match fetch_accounts_page(conn.get()).await {
 		Ok(d) => d,
-		Err(e) => return pay_err(&e),
+		Err(e) => return pay_err(e.user_message()),
 	};
 	let recipient = match lookup_account(conn.get(), recipient_id).await {
 		Ok(hit) => hit,
@@ -392,7 +390,7 @@ async fn create(cx: &Cx, Signals(form): Signals<PaySignals>) -> Result<PatchSign
 			send_error: String::new(),
 			sent: true,
 		}),
-		Err(e) => pay_err(&map_transfer_error(&e)),
+		Err(e) => pay_err(&map_transfer_error(e.user_message())),
 	}
 }
 

@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::encode_primary_ids;
 use super::list::accounts_list_html;
 use crate::module_bindings::MyAccountRow;
-use crate::stdb::{LiveAccounts, StdbError, acquire_user_db};
+use crate::stdb::{LiveAccounts, acquire_user_db, next_change};
 use futures_core::Stream;
 use futures_util::stream;
 use serde::Serialize;
@@ -31,8 +31,7 @@ async fn updates(cx: &Cx) -> Result<Sse<impl Stream<Item = Result<Event>> + use<
 	// Latest-wins: two on_update callbacks from one transfer overwrite the
 	// slot before this task reads, so the browser gets one fat morph.
 	let (tx, rx) = tokio::sync::watch::channel(None);
-	let live = LiveAccounts::start(pooled, tx, reconnect)
-		.map_err(|e| internal_server_error(StdbError(e)))?;
+	let live = LiveAccounts::start(pooled, tx, reconnect).map_err(internal_server_error)?;
 
 	// First-connect: emit a seed event so the browser has a Last-Event-Id.
 	// Reconnect: first payload is the applied snapshot from LiveAccounts.
@@ -47,7 +46,7 @@ async fn updates(cx: &Cx) -> Result<Sse<impl Stream<Item = Result<Event>> + use<
 			let event = if let Some(seed) = seed {
 				seed
 			} else {
-				rx.changed().await.ok()?;
+				next_change(&mut rx, live.conn()).await?;
 				let rows = rx.borrow().clone()?;
 				let signals = primary_ids_patch(&rows);
 				return Some((Ok(list_patch(&rows)), (rx, live, None, Some(signals))));

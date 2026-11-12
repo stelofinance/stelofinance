@@ -1,11 +1,14 @@
 use openidconnect::{
-	AuthorizationCode, ClientId, ClientSecret, CsrfToken, EndpointMaybeSet, EndpointNotSet,
-	EndpointSet, IssuerUrl, Nonce, OAuth2TokenResponse, PkceCodeChallenge, PkceCodeVerifier,
-	RedirectUrl, RefreshToken, Scope, TokenResponse,
-	core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetadata, CoreTokenResponse},
+	AuthorizationCode, ClaimsVerificationError, ClientId, ClientSecret, CsrfToken,
+	EndpointMaybeSet, EndpointNotSet, EndpointSet, IssuerUrl, Nonce, OAuth2TokenResponse,
+	PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, RefreshToken, Scope, TokenResponse,
+	core::{
+		CoreAuthenticationFlow, CoreClient, CoreIdToken, CoreProviderMetadata, CoreTokenResponse,
+	},
 	reqwest,
 	url::Url,
 };
+use std::str::FromStr;
 use std::sync::Arc;
 
 type OidcClient = CoreClient<
@@ -33,6 +36,15 @@ pub struct AuthStart {
 	pub state: String,
 	pub nonce: String,
 	pub pkce_verifier: String,
+}
+
+/// Why a stored ID token was not accepted by [`BitAuth::verify_id_token`].
+#[derive(Debug)]
+pub enum TokenRejected {
+	/// Signature and claims were fine but `exp` has passed. Routine; refresh.
+	Expired,
+	/// Malformed, bad signature, wrong issuer / audience, etc.
+	Invalid(String),
 }
 
 pub struct AuthTokens {
@@ -133,6 +145,26 @@ impl BitAuth {
 			id_token: id_token.to_string(),
 			refresh_token: token_response.refresh_token().map(|t| t.secret().clone()),
 		})
+	}
+
+	/// Verify a stored ID token (signature against the provider's JWKS, iss,
+	/// aud, exp) and return its `exp` as Unix seconds. No nonce check: cookie
+	/// tokens are not tied to one authorize request.
+	///
+	/// The JWKS is the one fetched at startup discovery.
+	pub fn verify_id_token(&self, token: &str) -> Result<u64, TokenRejected> {
+		let id_token =
+			CoreIdToken::from_str(token).map_err(|e| TokenRejected::Invalid(e.to_string()))?;
+		let claims = id_token
+			.claims(
+				&self.inner.client.id_token_verifier(),
+				|_: Option<&Nonce>| Ok(()),
+			)
+			.map_err(|e| match e {
+				ClaimsVerificationError::Expired(_) => TokenRejected::Expired,
+				e => TokenRejected::Invalid(e.to_string()),
+			})?;
+		Ok(u64::try_from(claims.expiration().timestamp()).unwrap_or(0))
 	}
 
 	/// Exchange a refresh token for a new ID token (and possibly a rotated refresh token).

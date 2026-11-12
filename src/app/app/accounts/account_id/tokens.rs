@@ -2,14 +2,14 @@
 
 use super::account_id;
 use crate::auth::require_user;
-use crate::stdb::{account::create_account_api_token, account::revoke_account_api_tokens};
 use crate::stdb::acquire_user_db;
+use crate::stdb::{account::create_account_api_token, account::revoke_account_api_tokens};
 use serde::{Deserialize, Serialize};
 use topcoat::{
 	Result,
 	context::Cx,
 	datastar::{PatchSignals, Signals},
-	router::{route},
+	router::route,
 	view::{View, component, view},
 };
 
@@ -111,7 +111,7 @@ async fn create_token(cx: &Cx, Signals(form): Signals<CreateTokenSignals>) -> Re
 			creating_token: false,
 			token_label: String::new(),
 		}),
-		Err(e) => token_err(&e),
+		Err(e) => token_err(e.user_message()),
 	}
 }
 
@@ -129,7 +129,7 @@ async fn revoke(cx: &Cx, Signals(form): Signals<RevokeTokenSignals>) -> Result<P
 			token_error: String::new(),
 			revoke_token_id: 0,
 		}),
-		Err(e) => token_err(&e),
+		Err(e) => token_err(e.user_message()),
 	}
 }
 

@@ -1,7 +1,6 @@
 //! Accounts page data: `my_accounts` + public `ledger`, create, live subscribe.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use crate::domain::sort_accounts;
 use crate::einro::PooledConn;
@@ -11,12 +10,10 @@ use crate::module_bindings::{
 	my_accountsQueryTableAccess,
 };
 use spacetimedb_sdk::{DbContext, SubscriptionHandle, Table, TableWithPrimaryKey};
-use tokio::task::spawn_blocking;
 
+use super::call::{StdbError, call};
 use super::connector::StdbConn;
 use super::query::{is_live_row_change, subscribe_once};
-
-const REDUCER_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Snapshot for GET `/app/accounts` (list + create-form catalog).
 pub struct AccountsPageData {
@@ -25,7 +22,7 @@ pub struct AccountsPageData {
 }
 
 /// One-shot subscribe of `my_accounts` and the public `ledger` table.
-pub async fn fetch_accounts_page(conn: &StdbConn) -> Result<AccountsPageData, String> {
+pub async fn fetch_accounts_page(conn: &StdbConn) -> Result<AccountsPageData, StdbError> {
 	subscribe_once(
 		conn,
 		|b| {
@@ -52,36 +49,18 @@ pub async fn create_user_account(
 	address: Option<String>,
 	label: Option<String>,
 	is_primary: bool,
-) -> Result<(), String> {
-	let (tx, rx) = std::sync::mpsc::sync_channel(1);
-
-	conn.db()
-		.reducers
-		.create_account_then(
-			ledger_id,
-			kind,
-			address,
-			None,
-			label,
-			is_primary,
-			move |_ctx, result| {
-				let outcome = match result {
-					Ok(Ok(())) => Ok(()),
-					Ok(Err(e)) => Err(e),
-					Err(e) => Err(e.to_string()),
-				};
-				let _ = tx.send(outcome);
-			},
-		)
-		.map_err(|e| format!("create_account send: {e}"))?;
-
-	let wait = spawn_blocking(move || {
-		rx.recv_timeout(REDUCER_TIMEOUT)
-			.map_err(|_| "create_account timed out".to_owned())
-	})
-	.await
-	.map_err(|e| format!("create_account wait task: {e}"))?;
-	wait?
+) -> Result<(), StdbError> {
+	let (reply, pending) = call("create_account");
+	let sent = conn.db().reducers.create_account_then(
+		ledger_id,
+		kind,
+		address,
+		None,
+		label,
+		is_primary,
+		move |_, r| reply.send(r),
+	);
+	pending.after_send(sent).await
 }
 
 /// Live `my_accounts` subscription. Publishes a full snapshot on a watch slot
@@ -99,6 +78,11 @@ pub struct LiveAccounts {
 }
 
 impl LiveAccounts {
+	/// The connection this subscription lives on.
+	pub fn conn(&self) -> &StdbConn {
+		self.pooled.get()
+	}
+
 	/// Subscribe and publish snapshots on `tx` (latest-wins).
 	///
 	/// Several row callbacks from one reducer/transaction overwrite the same
@@ -111,7 +95,7 @@ impl LiveAccounts {
 		pooled: PooledConn<StdbConn>,
 		tx: tokio::sync::watch::Sender<Option<Vec<MyAccountRow>>>,
 		snapshot_on_applied: bool,
-	) -> Result<Self, String> {
+	) -> Result<Self, StdbError> {
 		let send_snapshot: Arc<dyn Fn(Vec<MyAccountRow>) + Send + Sync> = {
 			let tx = tx.clone();
 			Arc::new(move |mut rows: Vec<MyAccountRow>| {

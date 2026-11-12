@@ -6,7 +6,7 @@ use super::account_id;
 use super::markup::{HomeChrome, account_home_html, account_people_html, account_tokens_html};
 use crate::auth::require_user;
 use crate::stdb::account::LiveAccountHome;
-use crate::stdb::{StdbError, acquire_user_db};
+use crate::stdb::{acquire_user_db, next_change};
 use futures_core::Stream;
 use futures_util::stream;
 use topcoat::{
@@ -27,8 +27,8 @@ async fn updates(cx: &Cx) -> Result<Sse<impl Stream<Item = Result<Event>> + use<
 	let reconnect = last_event_id(cx).is_some();
 	let pooled = acquire_user_db(cx).await?;
 	let (tx, rx) = tokio::sync::watch::channel(None);
-	let live = LiveAccountHome::start(pooled, tx, account_id, reconnect)
-		.map_err(|e| internal_server_error(StdbError(e)))?;
+	let live =
+		LiveAccountHome::start(pooled, tx, account_id, reconnect).map_err(internal_server_error)?;
 
 	let chrome = HomeChrome {
 		caller_id: user.identity,
@@ -43,7 +43,7 @@ async fn updates(cx: &Cx) -> Result<Sse<impl Stream<Item = Result<Event>> + use<
 			let event = if let Some(seed) = seed {
 				seed
 			} else {
-				rx.changed().await.ok()?;
+				next_change(&mut rx, live.conn()).await?;
 				let data = rx.borrow().clone()?;
 				list_patch(&data, &chrome)
 			};

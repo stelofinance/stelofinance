@@ -160,7 +160,7 @@ async fn ledgers(cx: &Cx, Signals(form): Signals<LedgerSignals>) -> Result<Patch
 			"",
 			&format!("Created {name}."),
 		),
-		Err(e) => ledger_patch(&form, &e, ""),
+		Err(e) => ledger_patch(&form, e.user_message(), ""),
 	}
 }
 

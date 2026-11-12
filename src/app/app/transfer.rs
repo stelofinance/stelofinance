@@ -9,7 +9,7 @@ use crate::domain::{
 	sendable_accounts,
 };
 use crate::module_bindings::MyAccountRow;
-use crate::stdb::{StdbError, acquire_user_db, create_user_transfer, fetch_accounts_page};
+use crate::stdb::{acquire_user_db, create_user_transfer, fetch_accounts_page};
 use markup::from_panel;
 use serde::{Deserialize, Serialize};
 use topcoat::{
@@ -38,7 +38,7 @@ async fn page(cx: &Cx) -> Result<impl View> {
 	let conn = acquire_user_db(cx).await?;
 	let data = fetch_accounts_page(conn.get())
 		.await
-		.map_err(|e| internal_server_error(StdbError(e)))?;
+		.map_err(internal_server_error)?;
 	let accounts = sendable_accounts(&data.accounts);
 	let selected = pick_from(&accounts, requested);
 	let can_pick = accounts.len() > 1;
@@ -339,7 +339,7 @@ async fn create(cx: &Cx, Signals(form): Signals<SendSignals>) -> Result<PatchSig
 	let conn = acquire_user_db(cx).await?;
 	let data = match fetch_accounts_page(conn.get()).await {
 		Ok(d) => d,
-		Err(e) => return send_err(&e, &form),
+		Err(e) => return send_err(e.user_message(), &form),
 	};
 	let sendable = sendable_accounts(&data.accounts);
 	let Some(from) = sendable.iter().find(|a| a.account_id == from_id) else {
@@ -397,7 +397,7 @@ async fn create(cx: &Cx, Signals(form): Signals<SendSignals>) -> Result<PatchSig
 				recipient_search: String::new(),
 			})
 		}
-		Err(e) => send_err(&map_transfer_error(&e), &form),
+		Err(e) => send_err(&map_transfer_error(e.user_message()), &form),
 	}
 }
 

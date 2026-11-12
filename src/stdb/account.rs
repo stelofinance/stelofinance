@@ -1,25 +1,22 @@
 //! Single-account home: fetch, live subscribe, reducers.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use crate::domain::role_rank;
 use crate::einro::PooledConn;
 use crate::module_bindings::{
 	MyAccountMemberRow, MyAccountRow, MyAccountTokenRow, MyAccountsMembersTableAccess,
 	MyAccountsTableAccess, MyAccountsTokensTableAccess, Role,
-	SubscriptionHandle as ModuleSubHandle, User, UserTableAccess, create_account_token,
+	SubscriptionHandle as ModuleSubHandle, UserSearchHit, create_account_token,
 	grant_account_member, my_accounts_membersQueryTableAccess, my_accounts_tokensQueryTableAccess,
 	my_accountsQueryTableAccess, revoke_account_member, revoke_account_tokens, set_account_label,
-	set_account_primary, set_account_webhook, userQueryTableAccess,
+	set_account_primary, set_account_webhook, user_search,
 };
 use spacetimedb_sdk::{DbContext, Identity, SubscriptionHandle, Table, TableWithPrimaryKey};
-use tokio::task::spawn_blocking;
 
+use super::call::{StdbError, call};
 use super::connector::StdbConn;
 use super::query::{is_live_row_change, subscribe_once};
-
-const REDUCER_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// One API token for the account home list (never includes the secret).
 #[derive(Clone, Debug)]
@@ -44,14 +41,13 @@ pub struct AccountHomeData {
 pub async fn fetch_account_home(
 	conn: &StdbConn,
 	account_id: u64,
-) -> Result<AccountHomeData, String> {
+) -> Result<AccountHomeData, StdbError> {
 	subscribe_once(
 		conn,
 		|b| {
 			b.add_query(|q| q.from.my_accounts())
 				.add_query(|q| q.from.my_accounts_members())
 				.add_query(|q| q.from.my_accounts_tokens())
-				.add_query(|q| q.from.user())
 				.subscribe()
 		},
 		move |ctx| {
@@ -59,7 +55,6 @@ pub async fn fetch_account_home(
 				ctx.db().my_accounts().iter(),
 				ctx.db().my_accounts_members().iter(),
 				ctx.db().my_accounts_tokens().iter(),
-				ctx.db().user().iter(),
 				account_id,
 			)
 		},
@@ -71,7 +66,6 @@ fn collect_home(
 	accounts: impl Iterator<Item = MyAccountRow>,
 	members: impl Iterator<Item = MyAccountMemberRow>,
 	tokens: impl Iterator<Item = MyAccountTokenRow>,
-	users: impl Iterator<Item = User>,
 	account_id: u64,
 ) -> AccountHomeData {
 	let accounts: Vec<MyAccountRow> = accounts.collect();
@@ -88,8 +82,6 @@ fn collect_home(
 		members.filter(|m| m.account_id == account_id).collect();
 	sort_members(&mut members);
 
-	let names: std::collections::HashMap<Identity, String> =
-		users.map(|u| (u.id, u.bitcraft_username)).collect();
 	let mut tokens: Vec<AccountTokenView> = tokens
 		.filter(|t| t.account_id == account_id)
 		.map(|t| AccountTokenView {
@@ -97,7 +89,7 @@ fn collect_home(
 			label: t.label,
 			created_micros: t.created_at.to_micros_since_unix_epoch(),
 			created_by: t.created_by,
-			created_by_username: names.get(&t.created_by).cloned(),
+			created_by_username: t.created_by_username,
 		})
 		.collect();
 	tokens.sort_by(|a, b| {
@@ -123,54 +115,26 @@ fn sort_members(members: &mut [MyAccountMemberRow]) {
 	});
 }
 
-fn map_reducer(result: Result<Result<(), String>, impl ToString>) -> Result<(), String> {
-	match result {
-		Ok(Ok(())) => Ok(()),
-		Ok(Err(e)) => Err(e),
-		Err(e) => Err(e.to_string()),
-	}
-}
-
-async fn wait_reducer(
-	start: impl FnOnce(std::sync::mpsc::SyncSender<Result<(), String>>) -> Result<(), String>,
-) -> Result<(), String> {
-	let (tx, rx) = std::sync::mpsc::sync_channel(1);
-	start(tx)?;
-	let wait = spawn_blocking(move || {
-		rx.recv_timeout(REDUCER_TIMEOUT)
-			.map_err(|_| "reducer timed out".to_owned())
-	})
-	.await
-	.map_err(|e| format!("reducer wait task: {e}"))?;
-	wait?
-}
-
-pub async fn set_primary(conn: &StdbConn, account_id: u64, primary: bool) -> Result<(), String> {
-	wait_reducer(|tx| {
-		conn.db()
-			.reducers
-			.set_account_primary_then(account_id, primary, move |_, r| {
-				let _ = tx.send(map_reducer(r));
-			})
-			.map_err(|e| format!("set_account_primary send: {e}"))
-	})
-	.await
+pub async fn set_primary(conn: &StdbConn, account_id: u64, primary: bool) -> Result<(), StdbError> {
+	let (reply, pending) = call("set_account_primary");
+	let sent = conn
+		.db()
+		.reducers
+		.set_account_primary_then(account_id, primary, move |_, r| reply.send(r));
+	pending.after_send(sent).await
 }
 
 pub async fn set_label(
 	conn: &StdbConn,
 	account_id: u64,
 	label: Option<String>,
-) -> Result<(), String> {
-	wait_reducer(|tx| {
-		conn.db()
-			.reducers
-			.set_account_label_then(account_id, label, move |_, r| {
-				let _ = tx.send(map_reducer(r));
-			})
-			.map_err(|e| format!("set_account_label send: {e}"))
-	})
-	.await
+) -> Result<(), StdbError> {
+	let (reply, pending) = call("set_account_label");
+	let sent = conn
+		.db()
+		.reducers
+		.set_account_label_then(account_id, label, move |_, r| reply.send(r));
+	pending.after_send(sent).await
 }
 
 /// Set or clear the account webhook URL. `None` / blank clears. Admin+ in the module.
@@ -178,16 +142,13 @@ pub async fn set_webhook(
 	conn: &StdbConn,
 	account_id: u64,
 	webhook: Option<String>,
-) -> Result<(), String> {
-	wait_reducer(|tx| {
-		conn.db()
-			.reducers
-			.set_account_webhook_then(account_id, webhook, move |_, r| {
-				let _ = tx.send(map_reducer(r));
-			})
-			.map_err(|e| format!("set_account_webhook send: {e}"))
-	})
-	.await
+) -> Result<(), StdbError> {
+	let (reply, pending) = call("set_account_webhook");
+	let sent = conn
+		.db()
+		.reducers
+		.set_account_webhook_then(account_id, webhook, move |_, r| reply.send(r));
+	pending.after_send(sent).await
 }
 
 pub async fn grant_member(
@@ -195,112 +156,43 @@ pub async fn grant_member(
 	account_id: u64,
 	member_id: Identity,
 	role: Role,
-) -> Result<(), String> {
-	wait_reducer(|tx| {
+) -> Result<(), StdbError> {
+	let (reply, pending) = call("grant_account_member");
+	let sent =
 		conn.db()
 			.reducers
-			.grant_account_member_then(account_id, member_id, role, move |_, r| {
-				let _ = tx.send(map_reducer(r));
-			})
-			.map_err(|e| format!("grant_account_member send: {e}"))
-	})
-	.await
+			.grant_account_member_then(account_id, member_id, role, move |_, r| reply.send(r));
+	pending.after_send(sent).await
 }
 
-const USER_SEARCH_LIMIT: usize = 10;
-
-/// Exclusive end of a prefix range: `"JA"` → `Some("JB")`.
-/// `None` means no upper bound (prefix is empty after carry, or last scalar is `char::MAX`).
-fn exclusive_prefix_end(prefix: &str) -> Option<String> {
-	let mut chars: Vec<char> = prefix.chars().collect();
-	while let Some(c) = chars.pop() {
-		let next_cp = (c as u32).saturating_add(1);
-		if let Some(next) = char::from_u32(next_cp) {
-			chars.push(next);
-			return Some(chars.into_iter().collect());
-		}
-		// Skip the UTF-16 surrogate gap so the bound stays a valid exclusive end.
-		if next_cp == 0xD800 {
-			chars.push('\u{E000}');
-			return Some(chars.into_iter().collect());
-		}
-	}
-	None
-}
-
-/// Case-insensitive username prefix search on the public `user` table.
+/// Case-insensitive username prefix search (`user_search` procedure), skipping `exclude`.
 pub async fn search_users(
 	conn: &StdbConn,
 	term: &str,
 	exclude: &[Identity],
-) -> Result<Vec<User>, String> {
-	let start = term.trim().to_ascii_uppercase();
-	if start.is_empty() {
+) -> Result<Vec<UserSearchHit>, StdbError> {
+	let term = term.trim().to_owned();
+	if term.is_empty() {
 		return Ok(Vec::new());
 	}
-	let end = exclusive_prefix_end(&start);
-	let exclude: Vec<Identity> = exclude.to_vec();
-	let start_for_collect = start.clone();
-	subscribe_once(
-		conn,
-		|b| match end {
-			Some(end) => {
-				let start = start.clone();
-				b.add_query(move |q| {
-					let start = start.clone();
-					let end = end.clone();
-					q.from.user().r#where(move |u| {
-						u.bitcraft_username_normalized
-							.gte(start.clone())
-							.and(u.bitcraft_username_normalized.lt(end.clone()))
-					})
-				})
-				.subscribe()
-			}
-			None => {
-				let start = start.clone();
-				b.add_query(move |q| {
-					let start = start.clone();
-					q.from
-						.user()
-						.r#where(move |u| u.bitcraft_username_normalized.gte(start.clone()))
-				})
-				.subscribe()
-			}
-		},
-		move |ctx| {
-			let mut rows: Vec<User> = ctx
-				.db()
-				.user()
-				.iter()
-				.filter(|u| {
-					!exclude.contains(&u.id)
-						&& u.bitcraft_username_normalized
-							.starts_with(&start_for_collect)
-				})
-				.collect();
-			rows.sort_by(|a, b| a.bitcraft_username.cmp(&b.bitcraft_username));
-			rows.truncate(USER_SEARCH_LIMIT);
-			rows
-		},
-	)
-	.await
+	let (reply, pending) = call("user_search");
+	conn.db()
+		.procedures
+		.user_search_then(term, exclude.to_vec(), move |_, r| reply.send(r));
+	pending.wait().await
 }
 
 pub async fn revoke_member(
 	conn: &StdbConn,
 	account_id: u64,
 	member_id: Identity,
-) -> Result<(), String> {
-	wait_reducer(|tx| {
-		conn.db()
-			.reducers
-			.revoke_account_member_then(account_id, member_id, move |_, r| {
-				let _ = tx.send(map_reducer(r));
-			})
-			.map_err(|e| format!("revoke_account_member send: {e}"))
-	})
-	.await
+) -> Result<(), StdbError> {
+	let (reply, pending) = call("revoke_account_member");
+	let sent = conn
+		.db()
+		.reducers
+		.revoke_account_member_then(account_id, member_id, move |_, r| reply.send(r));
+	pending.after_send(sent).await
 }
 
 const TOKEN_ENTROPY_LEN: usize = 32;
@@ -310,32 +202,16 @@ pub async fn create_account_api_token(
 	conn: &StdbConn,
 	account_id: u64,
 	label: String,
-) -> Result<String, String> {
+) -> Result<String, StdbError> {
 	let mut entropy = vec![0u8; TOKEN_ENTROPY_LEN];
-	getrandom::fill(&mut entropy).map_err(|e| format!("entropy: {e}"))?;
+	getrandom::fill(&mut entropy).map_err(|e| StdbError::internal(format!("entropy: {e}")))?;
 	let entropy = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &entropy);
 
-	let (tx, rx) = std::sync::mpsc::sync_channel(1);
-	conn.db().procedures.create_account_token_then(
-		account_id,
-		label,
-		entropy,
-		move |_ctx, result| {
-			let outcome = match result {
-				Ok(Ok(secret)) => Ok(secret),
-				Ok(Err(e)) => Err(e),
-				Err(e) => Err(e.to_string()),
-			};
-			let _ = tx.send(outcome);
-		},
-	);
-	let wait = spawn_blocking(move || {
-		rx.recv_timeout(REDUCER_TIMEOUT)
-			.map_err(|_| "create_account_token timed out".to_owned())
-	})
-	.await
-	.map_err(|e| format!("create_account_token wait task: {e}"))?;
-	wait?
+	let (reply, pending) = call("create_account_token");
+	conn.db()
+		.procedures
+		.create_account_token_then(account_id, label, entropy, move |_, r| reply.send(r));
+	pending.wait().await
 }
 
 /// Revoke listed tokens on an account. Admin+ is enforced in the module.
@@ -343,20 +219,16 @@ pub async fn revoke_account_api_tokens(
 	conn: &StdbConn,
 	account_id: u64,
 	token_ids: Vec<u64>,
-) -> Result<(), String> {
-	wait_reducer(|tx| {
-		conn.db()
-			.reducers
-			.revoke_account_tokens_then(account_id, token_ids, move |_, r| {
-				let _ = tx.send(map_reducer(r));
-			})
-			.map_err(|e| format!("revoke_account_tokens send: {e}"))
-	})
-	.await
+) -> Result<(), StdbError> {
+	let (reply, pending) = call("revoke_account_tokens");
+	let sent = conn
+		.db()
+		.reducers
+		.revoke_account_tokens_then(account_id, token_ids, move |_, r| reply.send(r));
+	pending.after_send(sent).await
 }
 
 /// Live `my_accounts` + `my_accounts_members` + `my_accounts_tokens` for one account.
-/// Public `user` is subscribed for token minter names but does not remorph.
 pub struct LiveAccountHome {
 	pooled: PooledConn<StdbConn>,
 	sub: Option<ModuleSubHandle>,
@@ -372,12 +244,17 @@ pub struct LiveAccountHome {
 }
 
 impl LiveAccountHome {
+	/// The connection this subscription lives on.
+	pub fn conn(&self) -> &StdbConn {
+		self.pooled.get()
+	}
+
 	pub fn start(
 		pooled: PooledConn<StdbConn>,
 		tx: tokio::sync::watch::Sender<Option<AccountHomeData>>,
 		account_id: u64,
 		snapshot_on_applied: bool,
-	) -> Result<Self, String> {
+	) -> Result<Self, StdbError> {
 		let send_snapshot: Arc<dyn Fn(AccountHomeData) + Send + Sync> = {
 			let tx = tx.clone();
 			Arc::new(move |data| {
@@ -391,7 +268,6 @@ impl LiveAccountHome {
 					$ctx.db().my_accounts().iter(),
 					$ctx.db().my_accounts_members().iter(),
 					$ctx.db().my_accounts_tokens().iter(),
-					$ctx.db().user().iter(),
 					account_id,
 				)
 			};
@@ -522,7 +398,6 @@ impl LiveAccountHome {
 			.add_query(|q| q.from.my_accounts())
 			.add_query(|q| q.from.my_accounts_members())
 			.add_query(|q| q.from.my_accounts_tokens())
-			.add_query(|q| q.from.user())
 			.subscribe();
 
 		Ok(Self {
@@ -574,25 +449,5 @@ impl Drop for LiveAccountHome {
 		if let Some(sub) = self.sub.take() {
 			let _ = sub.unsubscribe();
 		}
-	}
-}
-
-#[cfg(test)]
-mod tests {
-	use super::exclusive_prefix_end;
-
-	#[test]
-	fn exclusive_prefix_end_ascii() {
-		assert_eq!(exclusive_prefix_end("JA").as_deref(), Some("JB"));
-		assert_eq!(exclusive_prefix_end("JZ").as_deref(), Some("J["));
-		assert_eq!(exclusive_prefix_end("Z").as_deref(), Some("["));
-		assert_eq!(exclusive_prefix_end(""), None);
-	}
-
-	#[test]
-	fn exclusive_prefix_end_max_char_carries() {
-		let prefix = format!("A{}", char::MAX);
-		assert_eq!(exclusive_prefix_end(&prefix).as_deref(), Some("B"));
-		assert_eq!(exclusive_prefix_end(&char::MAX.to_string()), None);
 	}
 }

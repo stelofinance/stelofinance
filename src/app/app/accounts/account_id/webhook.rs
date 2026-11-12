@@ -9,7 +9,7 @@ use topcoat::{
 	Result,
 	context::Cx,
 	datastar::{PatchSignals, Signals},
-	router::{route},
+	router::route,
 	view::{View, component, view},
 };
 
@@ -98,7 +98,7 @@ async fn save_webhook(cx: &Cx, Signals(form): Signals<WebhookSignals>) -> Result
 			})
 		}
 		Err(e) => PatchSignals::json(&WebhookErrorPatch {
-			webhook_error: e,
+			webhook_error: e.user_message().to_owned(),
 			webhook_notice: String::new(),
 		}),
 	}

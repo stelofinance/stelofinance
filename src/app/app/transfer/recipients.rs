@@ -2,7 +2,7 @@
 
 use super::markup::recipient_results_html;
 use crate::auth::require_user;
-use crate::stdb::{StdbError, acquire_user_db, search_directory};
+use crate::stdb::{acquire_user_db, search_directory};
 use serde::Deserialize;
 use topcoat::{
 	Result,
@@ -36,6 +36,6 @@ async fn recipients(cx: &Cx, Signals(form): Signals<SearchSignals>) -> Result<Pa
 	let conn = acquire_user_db(cx).await?;
 	let hits = search_directory(conn.get(), ledger_id, exclude_id, term)
 		.await
-		.map_err(|e| internal_server_error(StdbError(e)))?;
+		.map_err(internal_server_error)?;
 	Ok(PatchElements::new(recipient_results_html(&hits, true)))
 }

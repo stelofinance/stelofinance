@@ -1,25 +1,36 @@
 //! Stelo adapter: einro `Connector` for generated `module_bindings::DbConnection`.
 
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use spacetimedb_sdk::{DbContext, Identity};
+use tokio::sync::watch;
 use tokio::task::spawn_blocking;
 
+use super::call::{Reply, StdbError, call};
 use crate::einro::{ConnectParams, Connection, Connector};
 use crate::module_bindings::DbConnection;
 
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
-
 /// Live STDB session: connection + background message pump.
+///
+/// Dropping it disconnects, including a half-open connection whose connect
+/// timed out or failed.
 pub struct StdbConn {
 	conn: DbConnection,
+	closed: watch::Receiver<bool>,
 	_runner: std::thread::JoinHandle<()>,
 }
 
 impl StdbConn {
 	pub fn db(&self) -> &DbConnection {
 		&self.conn
+	}
+
+	/// Resolves once the server connection has dropped.
+	pub async fn closed(&self) {
+		let mut closed = self.closed.clone();
+		// An error means the sender (held by the SDK callbacks) is gone, which
+		// also means the connection is over.
+		let _ = closed.wait_for(|closed| *closed).await;
 	}
 }
 
@@ -43,73 +54,69 @@ impl Drop for StdbConn {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct StdbConnector;
 
-#[derive(Debug)]
-pub struct StdbConnectError(pub String);
-
-impl std::fmt::Display for StdbConnectError {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}", self.0)
-	}
-}
-
-impl std::error::Error for StdbConnectError {}
-
 impl Connector for StdbConnector {
 	type Conn = StdbConn;
-	type Error = StdbConnectError;
+	type Error = StdbError;
 
 	async fn connect(&self, params: ConnectParams<'_>) -> Result<Self::Conn, Self::Error> {
 		let uri = params.uri.to_owned();
 		let database = params.database.to_owned();
 		let token = params.token.to_owned();
+		let (reply, pending) = call::<Identity>("connect");
 
-		spawn_blocking(move || connect_blocking(&uri, &database, &token))
+		// `build` blocks on the websocket handshake. If the pool's timeout
+		// drops this future first, the finished `StdbConn` is dropped (and
+		// disconnected) when the blocking task returns.
+		let conn = spawn_blocking(move || build_conn(&uri, &database, &token, reply))
 			.await
-			.map_err(|e| StdbConnectError(format!("connect task: {e}")))?
+			.map_err(|e| StdbError::internal(format!("connect task: {e}")))??;
+		// On error or cancellation from here on, dropping `conn` disconnects.
+		pending.wait().await?;
+		Ok(conn)
 	}
 }
 
-fn connect_blocking(uri: &str, database: &str, token: &str) -> Result<StdbConn, StdbConnectError> {
-	type Outcome = Result<Identity, String>;
-	type Tx = Arc<Mutex<Option<std::sync::mpsc::SyncSender<Outcome>>>>;
-
-	let (tx, rx) = std::sync::mpsc::sync_channel::<Outcome>(1);
-	let tx: Tx = Arc::new(Mutex::new(Some(tx)));
-
-	fn send(tx: &Tx, outcome: Outcome) {
-		if let Some(sender) = tx.lock().unwrap().take() {
-			let _ = sender.send(outcome);
-		}
-	}
+fn build_conn(
+	uri: &str,
+	database: &str,
+	token: &str,
+	reply: Reply<Identity>,
+) -> Result<StdbConn, StdbError> {
+	let reply = Arc::new(Mutex::new(Some(reply)));
+	let take_reply = {
+		let reply = Arc::clone(&reply);
+		move || reply.lock().unwrap().take()
+	};
+	let (closed_tx, closed) = watch::channel(false);
 
 	let conn = DbConnection::builder()
 		.with_uri(uri)
 		.with_database_name(database)
 		.with_token(Some(token.to_owned()))
 		.on_connect({
-			let tx = Arc::clone(&tx);
+			let take_reply = take_reply.clone();
 			move |_conn, identity, _ws_token| {
 				// Do not persist `_ws_token` over the BitAuth cookie.
-				send(&tx, Ok(identity));
+				if let Some(reply) = take_reply() {
+					reply.send_outcome(Ok(identity));
+				}
 			}
 		})
-		.on_connect_error({
-			let tx = Arc::clone(&tx);
-			move |_ctx, err| {
-				send(&tx, Err(format!("connect error: {err}")));
+		.on_connect_error(move |_ctx, err| {
+			if let Some(reply) = take_reply() {
+				reply.send_outcome(Err(StdbError::internal(format!("connect error: {err}"))));
 			}
+		})
+		.on_disconnect(move |_ctx, _err| {
+			let _ = closed_tx.send(true);
 		})
 		.build()
-		.map_err(|e| StdbConnectError(format!("build: {e}")))?;
+		.map_err(|e| StdbError::internal(format!("connect build: {e}")))?;
 
 	let runner = conn.run_threaded();
-
-	rx.recv_timeout(CONNECT_TIMEOUT)
-		.map_err(|_| StdbConnectError("connect timed out".into()))?
-		.map_err(StdbConnectError)?;
-
 	Ok(StdbConn {
 		conn,
+		closed,
 		_runner: runner,
 	})
 }

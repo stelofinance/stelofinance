@@ -5,7 +5,7 @@ use topcoat::{
 	Result,
 	context::{Cx, context},
 	router::{
-		HeaderMap, HeaderValue, RawPathParamValue, StatusCode, header, raw_path_params,
+		BodyLimit, HeaderMap, HeaderValue, RawPathParamValue, StatusCode, header, raw_path_params,
 		request::{Bytes, headers, method, uri},
 		route, segment,
 	},
@@ -16,8 +16,11 @@ segment!(kind: CatchAll, rename: "path");
 const UPSTREAM_UNAVAILABLE: &str = r#"{"error":"upstream unavailable"}"#;
 const BAD_PATH: &str = r#"{"error":"invalid path"}"#;
 
+/// Request bodies above this get `413`. Module HTTP routes take small JSON.
+const MAX_BODY_BYTES: usize = 64 * 1024;
+
 /// Forward method, query, body, and a small header allowlist to module HTTP.
-#[route(*)]
+#[route(*, with(BodyLimit::max(MAX_BODY_BYTES)))]
 async fn proxy(cx: &Cx, body: Bytes) -> Result<(StatusCode, HeaderMap, Bytes)> {
 	let Some(path) = catch_all_path(cx) else {
 		return Ok(json_status(StatusCode::BAD_REQUEST, BAD_PATH));
@@ -53,7 +56,9 @@ async fn proxy(cx: &Cx, body: Bytes) -> Result<(StatusCode, HeaderMap, Bytes)> {
 	Ok((status, out_headers, bytes))
 }
 
-/// Encoded catch-all tail, after rejecting empty, `.`, and `..` segments.
+/// Encoded catch-all tail, after rejecting empty, `.`, and `..` segments, and
+/// segments that decode to contain `/` or `\` (`a%2F..%2Fb` would otherwise
+/// pass the dot check and could be re-split upstream).
 ///
 /// `raw_path_params` yields a [`RawPathParamValue`]: the tail keeps the
 /// client's percent-encoding (so it can be placed in the upstream URL), and
@@ -63,10 +68,12 @@ fn catch_all_path(cx: &Cx) -> Option<&str> {
 	let RawPathParamValue::CatchAll { tail, segments } = value else {
 		return None;
 	};
-	let safe = segments
-		.clone()
-		.all(|seg| !seg.is_empty() && seg != "." && seg != "..");
+	let safe = segments.clone().all(|seg| is_safe_segment(&seg));
 	safe.then_some(tail)
+}
+
+fn is_safe_segment(seg: &str) -> bool {
+	!seg.is_empty() && seg != "." && seg != ".." && !seg.contains(['/', '\\'])
 }
 
 fn copy_allowlisted_headers(
@@ -91,4 +98,18 @@ fn json_status(status: StatusCode, body: &'static str) -> (StatusCode, HeaderMap
 		HeaderValue::from_static("application/json"),
 	);
 	(status, headers, Bytes::from_static(body.as_bytes()))
+}
+
+#[cfg(test)]
+mod tests {
+	use super::is_safe_segment;
+
+	#[test]
+	fn rejects_traversal_and_encoded_separators() {
+		assert!(is_safe_segment("accounts"));
+		assert!(is_safe_segment("a.b"));
+		for bad in ["", ".", "..", "a/..", "..\\x", "a\\b"] {
+			assert!(!is_safe_segment(bad), "{bad:?}");
+		}
+	}
 }

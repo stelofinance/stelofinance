@@ -11,7 +11,7 @@ mod webhook;
 use crate::auth::require_user;
 use crate::domain::{parse_role, role_rank};
 use crate::module_bindings::{AccountKind, Role};
-use crate::stdb::{StdbError, acquire_user_db};
+use crate::stdb::acquire_user_db;
 use crate::stdb::{
 	account::fetch_account_home, account::grant_member, account::revoke_member, account::set_label,
 	account::set_primary,
@@ -46,7 +46,7 @@ async fn show(cx: &Cx) -> Result<impl View> {
 	let conn = acquire_user_db(cx).await?;
 	let data = fetch_account_home(conn.get(), account_id)
 		.await
-		.map_err(|e| internal_server_error(StdbError(e)))?;
+		.map_err(internal_server_error)?;
 	let Some(acc) = &data.account else {
 		return Err(not_found().into());
 	};
@@ -61,7 +61,7 @@ async fn show(cx: &Cx) -> Result<impl View> {
 	);
 	let debit = matches!(acc.kind, AccountKind::Debit);
 	let ledger_name = acc.ledger_name.clone();
-	let updates = format!("@get('/app/accounts/{account_id}/updates')");
+	let updates = format!("@get('/app/accounts/{account_id}/updates', {{retry: 'always'}})");
 	let members_url = format!("/app/accounts/{account_id}/members");
 	let users_url = format!("/app/accounts/{account_id}/users");
 	let apps_url = format!("/app/accounts/{account_id}/apps");
@@ -267,7 +267,7 @@ async fn set_primary_route(cx: &Cx) -> Result<PatchSignals> {
 	let conn = acquire_user_db(cx).await?;
 	let data = match fetch_account_home(conn.get(), account_id).await {
 		Ok(d) => d,
-		Err(e) => return err_signal(&e),
+		Err(e) => return err_signal(e.user_message()),
 	};
 	let Some(acc) = data.account else {
 		return err_signal("Account not found.");
@@ -277,7 +277,7 @@ async fn set_primary_route(cx: &Cx) -> Result<PatchSignals> {
 	}
 	match set_primary(conn.get(), account_id, !acc.is_primary).await {
 		Ok(()) => clear_error(),
-		Err(e) => err_signal(&e),
+		Err(e) => err_signal(e.user_message()),
 	}
 }
 
@@ -293,7 +293,7 @@ async fn save_label(cx: &Cx, Signals(form): Signals<LabelSignals>) -> Result<Pat
 	};
 	match set_label(conn.get(), account_id, label).await {
 		Ok(()) => clear_error(),
-		Err(e) => err_signal(&e),
+		Err(e) => err_signal(e.user_message()),
 	}
 }
 
@@ -339,7 +339,7 @@ async fn add_member(cx: &Cx, Signals(form): Signals<MemberSignals>) -> Result<Pa
 				})
 			}
 		}
-		Err(e) => err_signal(&e),
+		Err(e) => err_signal(e.user_message()),
 	}
 }
 
@@ -355,7 +355,7 @@ async fn revoke_member_route(
 	let conn = acquire_user_db(cx).await?;
 	match revoke_member(conn.get(), account_id, member_id).await {
 		Ok(()) => clear_error(),
-		Err(e) => err_signal(&e),
+		Err(e) => err_signal(e.user_message()),
 	}
 }
 
@@ -376,7 +376,7 @@ async fn leave_account(cx: &Cx) -> Result<PatchSignals> {
 			edit_member_id: String::new(),
 			left_account: true,
 		}),
-		Err(e) => err_signal(&e),
+		Err(e) => err_signal(e.user_message()),
 	}
 }
 

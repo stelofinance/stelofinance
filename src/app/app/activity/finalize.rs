@@ -1,8 +1,8 @@
 //! `POST /app/activity/finalize` — Confirm (post held) or Void pending Issue/Redeem.
 
 use crate::auth::require_user;
-use crate::stdb::{StdbError, acquire_user_db, fetch_activity_page, finalize_user_transfer};
 use crate::domain::{can_finalize_transfer, map_transfer_error};
+use crate::stdb::{acquire_user_db, fetch_activity_page, finalize_user_transfer};
 use serde::{Deserialize, Serialize};
 use topcoat::{
 	Result,
@@ -45,7 +45,7 @@ async fn finalize(cx: &Cx, Signals(form): Signals<FinalizeSignals>) -> Result<Pa
 	let conn = acquire_user_db(cx).await?;
 	let data = match fetch_activity_page(conn.get()).await {
 		Ok(d) => d,
-		Err(e) => return Err(internal_server_error(StdbError(e)).into()),
+		Err(e) => return Err(internal_server_error(e).into()),
 	};
 	let Some(tr) = data.transfers.iter().find(|t| t.id == transfer_id) else {
 		return patch_err("Transfer not found.");
@@ -65,7 +65,7 @@ async fn finalize(cx: &Cx, Signals(form): Signals<FinalizeSignals>) -> Result<Pa
 			finalize_id: String::new(),
 			finalize_action: String::new(),
 		}),
-		Err(e) => patch_err(&map_transfer_error(&e)),
+		Err(e) => patch_err(&map_transfer_error(e.user_message())),
 	}
 }
 

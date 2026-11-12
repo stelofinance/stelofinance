@@ -77,7 +77,7 @@ async fn resolve_session(cx: &Cx) -> std::result::Result<AppUser, SessionError> 
 
 	let row = match fetch_my_user(pooled.get()).await {
 		Ok(row) => row,
-		Err(e) => return Err(SessionError::Backend(e)),
+		Err(e) => return Err(SessionError::Backend(e.to_string())),
 	};
 
 	match row {

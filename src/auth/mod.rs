@@ -1,6 +1,5 @@
 pub mod bitauth;
 pub mod cookies;
-pub mod jwt_peek;
 pub mod redirect;
 pub mod session;
 pub mod user;

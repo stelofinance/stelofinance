@@ -4,8 +4,8 @@ mod apps;
 mod updates;
 
 use crate::auth::require_user;
+use crate::stdb::acquire_user_db;
 use crate::stdb::apps::fetch_my_apps;
-use crate::stdb::{StdbError, acquire_user_db};
 use apps::{app_forms, my_apps_list};
 use topcoat::{
 	Result,
@@ -21,7 +21,7 @@ async fn me(cx: &Cx) -> Result<impl View> {
 	let conn = acquire_user_db(cx).await?;
 	let data = fetch_my_apps(conn.get())
 		.await
-		.map_err(|e| internal_server_error(StdbError(e)))?;
+		.map_err(internal_server_error)?;
 	let signals = "{appName:'',appError:'',appToken:'',appMintName:'',appMintId:'',appCopied:false,mintingApp:false,creatingApp:false,replacingApp:false}";
 
 	Ok(view! {
@@ -29,7 +29,7 @@ async fn me(cx: &Cx) -> Result<impl View> {
         id="page-content"
         class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10"
         data-signals=(signals)
-        data-init="@get('/app/me/updates')"
+        data-init="@get('/app/me/updates', {retry: 'always'})"
     >
         <h1 class="mb-6 text-2xl font-medium md:text-3xl">"You"</h1>
         <article

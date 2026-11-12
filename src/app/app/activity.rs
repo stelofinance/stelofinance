@@ -7,7 +7,7 @@ mod updates;
 
 use crate::auth::require_user;
 use crate::domain::{selected_account_id, unix_now_micros};
-use crate::stdb::{StdbError, acquire_user_db, fetch_activity_page};
+use crate::stdb::{acquire_user_db, fetch_activity_page};
 use list::activity_body;
 use topcoat::{
 	Result,
@@ -33,7 +33,7 @@ async fn page(cx: &Cx) -> Result<impl View> {
 	let conn = acquire_user_db(cx).await?;
 	let data = fetch_activity_page(conn.get())
 		.await
-		.map_err(|e| internal_server_error(StdbError(e)))?;
+		.map_err(internal_server_error)?;
 	let selected = selected_account_id(requested.as_deref(), &data.accounts);
 	let account_id = selected.map(|id| id.to_string()).unwrap_or_default();
 	let signals =
@@ -45,7 +45,7 @@ async fn page(cx: &Cx) -> Result<impl View> {
         id="page-content"
         class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10"
         data-signals=(signals)
-        data-init="@get('/app/activity/updates')"
+        data-init="@get('/app/activity/updates', {retry: 'always'})"
     >
         <div class="mb-6 flex items-center justify-between gap-3">
             <h1 class="text-2xl font-medium md:text-3xl">"Activity"</h1>

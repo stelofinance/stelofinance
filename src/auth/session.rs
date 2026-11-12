@@ -2,12 +2,12 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::bitauth::{AuthTokens, BitAuth};
+use super::bitauth::{AuthTokens, BitAuth, TokenRejected};
 use super::cookies::{
 	COOKIE_REFRESH, COOKIE_TOKEN, TOKEN_REFRESH_SKEW_SECS, get_cookie, set_auth_cookies,
 };
-use super::jwt_peek;
-use topcoat::context::{Cx, context};
+use crate::stdb::StdbState;
+use topcoat::context::{Cx, context, memoize};
 
 /// Result of [`ensure_bearer`]: ID token string ready for `pool.acquire`.
 #[derive(Debug, Clone)]
@@ -15,7 +15,7 @@ pub struct Bearer {
 	pub token: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum EnsureBearerError {
 	/// No ID token and no usable refresh path.
 	Unauthenticated,
@@ -39,32 +39,47 @@ impl std::error::Error for EnsureBearerError {}
 /// Does not talk to SpacetimeDB or einro. On successful refresh, rewrites
 /// `bitauth_token` (and refresh cookie if the IdP rotated it; otherwise the
 /// existing refresh cookie is re-applied so Max-Age stays consistent).
+///
+/// Memoized per request: the session gate and `acquire_user_db` share one
+/// answer, so a near-expiry request refreshes once instead of racing two
+/// refresh-token exchanges (a rotating IdP would reject the second).
+#[memoize(as_ref)]
 pub async fn ensure_bearer(cx: &Cx) -> Result<Bearer, EnsureBearerError> {
+	let bitauth = context::<BitAuth>(cx);
 	let id_token = get_cookie(cx, COOKIE_TOKEN);
 	let refresh_cookie = get_cookie(cx, COOKIE_REFRESH);
 
-	let should_refresh = match id_token.as_deref() {
-		None => true,
-		Some(t) => token_needs_refresh(t),
-	};
-
-	if !should_refresh {
-		return Ok(Bearer {
-			token: id_token.expect("present when !should_refresh"),
+	// Only a token that passes signature / iss / aud / exp checks counts. A
+	// forged or tampered cookie is treated like a missing one, so it never
+	// reaches the pool.
+	let current = id_token
+		.as_deref()
+		.and_then(|token| match bitauth.verify_id_token(token) {
+			Ok(exp) => Some((token.to_owned(), exp)),
+			Err(TokenRejected::Expired) => None,
+			Err(TokenRejected::Invalid(e)) => {
+				eprintln!("bitauth: rejected id_token cookie: {e}");
+				None
+			}
 		});
+
+	if let Some((token, exp)) = &current {
+		if !needs_refresh(*exp, unix_now()) {
+			return Ok(Bearer {
+				token: token.clone(),
+			});
+		}
 	}
+	// Still valid, but inside the refresh window.
+	let current = current.map(|(token, _)| token);
 
 	let Some(refresh) = refresh_cookie else {
-		// No refresh path. Use unexpired ID token if present; else login required.
-		return match id_token {
-			Some(t) if !token_is_past_exp(&t) => Ok(Bearer {
-				token: t,
-			}),
-			_ => Err(EnsureBearerError::Unauthenticated),
-		};
+		// No refresh path. Use the still-valid ID token if there is one.
+		return current
+			.map(|token| Bearer { token })
+			.ok_or(EnsureBearerError::Unauthenticated);
 	};
 
-	let bitauth = context::<BitAuth>(cx);
 	match bitauth.refresh(&refresh).await {
 		Ok(tokens) => {
 			let token = tokens.id_token.clone();
@@ -75,41 +90,28 @@ pub async fn ensure_bearer(cx: &Cx) -> Result<Bearer, EnsureBearerError> {
 			};
 			set_auth_cookies(cx, tokens);
 			eprintln!("bitauth: refreshed id_token cookie");
-			Ok(Bearer {
-				token,
-			})
+			// The old token's pool slot would otherwise sit open until idle
+			// eviction. In-flight handles (e.g. live streams) keep it until done.
+			if let Some(old) = &id_token {
+				context::<StdbState>(cx).pool.retire_token(old);
+			}
+			Ok(Bearer { token })
 		}
 		Err(e) => {
 			eprintln!("bitauth: refresh failed: {e}");
-			// Soft-fail while current ID token is still not past exp.
-			if let Some(t) = id_token {
-				if !token_is_past_exp(&t) {
-					eprintln!("bitauth: using current id_token until exp");
-					return Ok(Bearer {
-						token: t,
-					});
-				}
+			// Soft-fail while the current ID token is still valid.
+			if let Some(token) = current {
+				eprintln!("bitauth: using current id_token until exp");
+				return Ok(Bearer { token });
 			}
 			Err(EnsureBearerError::RefreshFailed(e))
 		}
 	}
 }
 
-fn token_needs_refresh(token: &str) -> bool {
-	match jwt_peek::peek_exp_unix(token) {
-		None => true,
-		Some(exp) => {
-			let now = unix_now();
-			now.saturating_add(TOKEN_REFRESH_SKEW_SECS) >= exp
-		}
-	}
-}
-
-fn token_is_past_exp(token: &str) -> bool {
-	match jwt_peek::peek_exp_unix(token) {
-		None => false,
-		Some(exp) => unix_now() >= exp,
-	}
+/// Refresh once `exp` is within [`TOKEN_REFRESH_SKEW_SECS`] of `now`.
+fn needs_refresh(exp: u64, now: u64) -> bool {
+	now.saturating_add(TOKEN_REFRESH_SKEW_SECS) >= exp
 }
 
 fn unix_now() -> u64 {
@@ -122,24 +124,12 @@ fn unix_now() -> u64 {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use base64::Engine;
-	use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-
-	fn token_with_exp(exp: u64) -> String {
-		let payload = URL_SAFE_NO_PAD.encode(format!(r#"{{"exp":{exp}}}"#).as_bytes());
-		format!("x.{payload}.y")
-	}
 
 	#[test]
-	fn needs_refresh_when_within_skew() {
-		let now = unix_now();
-		// Inside skew window (exp in a few seconds).
-		let soon = token_with_exp(now + 5);
-		assert!(token_needs_refresh(&soon));
-		// Comfortably beyond skew.
-		let later = token_with_exp(now + TOKEN_REFRESH_SKEW_SECS + 600);
-		assert!(!token_needs_refresh(&later));
-		let past = token_with_exp(now.saturating_sub(10));
-		assert!(token_needs_refresh(&past));
+	fn needs_refresh_within_skew() {
+		let now = 1_000_000;
+		assert!(needs_refresh(now + 5, now));
+		assert!(needs_refresh(now, now));
+		assert!(!needs_refresh(now + TOKEN_REFRESH_SKEW_SECS + 600, now));
 	}
 }

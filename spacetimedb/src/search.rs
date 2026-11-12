@@ -29,6 +29,13 @@ pub struct AppSearchHit {
 	pub owner_username: Option<String>,
 }
 
+/// Username hit for granting a member on an account.
+#[derive(SpacetimeType, Clone, Debug, PartialEq, Eq)]
+pub struct UserSearchHit {
+	pub id: Identity,
+	pub bitcraft_username: String,
+}
+
 /// Point lookup for payment-request (and similar) invoice chrome.
 ///
 /// Same public fields as a search hit (`account_id`, `address`, `ledger_id`,
@@ -90,6 +97,41 @@ fn account_search_tx(
 	}
 
 	Ok(rank_hits(hits, &needle, SEARCH_LIMIT))
+}
+
+/// Case-insensitive prefix search on BitCraft usernames, skipping `exclude`
+/// (e.g. existing members). Empty term → empty list. At most 10 hits, in
+/// normalized-name order.
+#[procedure]
+pub fn user_search(
+	ctx: &mut ProcedureContext,
+	term: String,
+	exclude: Vec<Identity>,
+) -> Result<Vec<UserSearchHit>, String> {
+	ctx.try_with_tx(move |tx| Ok(user_search_tx(tx, &term, &exclude)))
+}
+
+fn user_search_tx(tx: &TxContext, term: &str, exclude: &[Identity]) -> Vec<UserSearchHit> {
+	let needle = term.trim().to_ascii_uppercase();
+	if needle.is_empty() {
+		return Vec::new();
+	}
+	let by_name = tx.db.user().bitcraft_username_normalized();
+	match exclusive_prefix_end(&needle) {
+		Some(end) => take_user_hits(by_name.filter(needle.as_str()..end.as_str()), exclude),
+		None => take_user_hits(by_name.filter(needle.as_str()..), exclude),
+	}
+}
+
+fn take_user_hits(users: impl Iterator<Item = User>, exclude: &[Identity]) -> Vec<UserSearchHit> {
+	users
+		.filter(|u| !exclude.contains(&u.id))
+		.take(SEARCH_LIMIT)
+		.map(|u| UserSearchHit {
+			id: u.id,
+			bitcraft_username: u.bitcraft_username,
+		})
+		.collect()
 }
 
 /// Case-insensitive prefix search on app display names. Empty term → empty list. At most 10 hits.

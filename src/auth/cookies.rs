@@ -32,7 +32,7 @@ pub fn cookies(cx: &Cx) -> impl Cookies {
 
 /// `Secure` on every cookie unless `ENV=dev` (plain-HTTP local dev). Fails
 /// closed: a deploy that forgets to set `ENV` still gets secure cookies.
-fn secure_cookies() -> bool {
+pub(crate) fn secure_cookies() -> bool {
 	static SECURE: std::sync::LazyLock<bool> =
 		std::sync::LazyLock::new(|| std::env::var("ENV").map_or(true, |v| v != "dev"));
 	*SECURE

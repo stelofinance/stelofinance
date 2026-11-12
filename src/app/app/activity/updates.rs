@@ -3,8 +3,8 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::list::activity_body_html;
-use crate::stdb::{ActivitySnapshot, LiveActivity, StdbError, acquire_user_db};
 use crate::domain::unix_now_micros;
+use crate::stdb::{ActivitySnapshot, LiveActivity, acquire_user_db, next_change};
 use futures_core::Stream;
 use futures_util::stream;
 use serde::Deserialize;
@@ -44,8 +44,7 @@ async fn updates(
 	let selected = filter.and_then(|Signals(f)| f.account_id.trim().parse::<u64>().ok());
 	let pooled = acquire_user_db(cx).await?;
 	let (tx, rx) = tokio::sync::watch::channel(None);
-	let live = LiveActivity::start(pooled, tx, reconnect)
-		.map_err(|e| internal_server_error(StdbError(e)))?;
+	let live = LiveActivity::start(pooled, tx, reconnect).map_err(internal_server_error)?;
 
 	let seed = if reconnect { None } else { Some(seed_event()) };
 
@@ -55,7 +54,7 @@ async fn updates(
 			let event = if let Some(seed) = seed {
 				seed
 			} else {
-				rx.changed().await.ok()?;
+				next_change(&mut rx, live.conn()).await?;
 				let data = rx.borrow().clone()?;
 				list_patch(&data, selected)
 			};

@@ -7,7 +7,7 @@ mod updates;
 use crate::auth::require_user;
 use crate::domain::{has_primary_on_ledger, parse_kind};
 use crate::module_bindings::{AccountKind, Ledger};
-use crate::stdb::{StdbError, acquire_user_db, create_user_account, fetch_accounts_page};
+use crate::stdb::{acquire_user_db, create_user_account, fetch_accounts_page};
 use crate::ui::text::ledger_kind_label;
 use list::accounts_list;
 use serde::{Deserialize, Serialize};
@@ -27,7 +27,7 @@ async fn page(cx: &Cx) -> Result<impl View> {
 	let conn = acquire_user_db(cx).await?;
 	let data = fetch_accounts_page(conn.get())
 		.await
-		.map_err(|e| internal_server_error(StdbError(e)))?;
+		.map_err(internal_server_error)?;
 
 	let initial_ledger_id = if data.ledgers.len() == 1 {
 		data.ledgers[0].id.to_string()
@@ -49,7 +49,7 @@ async fn page(cx: &Cx) -> Result<impl View> {
         id="page-content"
         class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10"
         data-signals=(signals)
-        data-init="@get('/app/accounts/updates')"
+        data-init="@get('/app/accounts/updates', {retry: 'always'})"
     >
         page_header(
             can_create: !data.ledgers.is_empty(),
@@ -110,7 +110,7 @@ async fn create(cx: &Cx, Signals(form): Signals<CreateAccountSignals>) -> Result
 	let conn = acquire_user_db(cx).await?;
 	let snapshot = match fetch_accounts_page(conn.get()).await {
 		Ok(p) => p,
-		Err(e) => return create_signals(true, &e, &form, None, None),
+		Err(e) => return create_signals(true, e.user_message(), &form, None, None),
 	};
 	let is_primary =
 		matches!(kind, AccountKind::Debit) && !has_primary_on_ledger(&snapshot.accounts, ledger_id);
@@ -134,7 +134,7 @@ async fn create(cx: &Cx, Signals(form): Signals<CreateAccountSignals>) -> Result
 				Some(encode_primary_ids(ids)),
 			)
 		}
-		Err(e) => create_signals(true, &e, &form, None, None),
+		Err(e) => create_signals(true, e.user_message(), &form, None, None),
 	}
 }
 

@@ -1,77 +1,73 @@
 //! One-shot view/table subscribe: wait for applied, collect, unsubscribe.
 
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use crate::module_bindings::{DbConnection, SubscriptionEventContext, SubscriptionHandle};
 use spacetimedb_sdk::{DbContext, SubscriptionHandle as SubscriptionHandleExt};
 
 type SubBuilder = <DbConnection as DbContext>::SubscriptionBuilder;
-use tokio::task::spawn_blocking;
 
+use super::call::{StdbError, call};
 use super::connector::StdbConn;
-
-const SUBSCRIBE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Subscribe via the query builder, wait until applied, run `collect`, then unsubscribe.
 ///
 /// `build` should chain `add_query(|q| q.from.…())` and finish with `.subscribe()`.
 /// Rows are only valid inside `collect` (unsubscribe clears the client cache).
-pub async fn subscribe_once<T, B, F>(conn: &StdbConn, build: B, collect: F) -> Result<T, String>
+pub async fn subscribe_once<T, B, F>(conn: &StdbConn, build: B, collect: F) -> Result<T, StdbError>
 where
 	T: Send + 'static,
 	B: FnOnce(SubBuilder) -> SubscriptionHandle,
 	F: FnOnce(&SubscriptionEventContext) -> T + Send + 'static,
 {
-	type Outcome<T> = Result<T, String>;
-	type Tx<T> = Arc<Mutex<Option<std::sync::mpsc::SyncSender<Outcome<T>>>>>;
-
-	let (tx, rx) = std::sync::mpsc::sync_channel::<Outcome<T>>(1);
-	let tx: Tx<T> = Arc::new(Mutex::new(Some(tx)));
-
-	fn send<T>(tx: &Tx<T>, outcome: Outcome<T>) {
-		if let Some(sender) = tx.lock().unwrap().take() {
-			let _ = sender.send(outcome);
-		}
-	}
-
-	let collect = Arc::new(Mutex::new(Some(collect)));
+	let (reply, pending) = call("subscribe");
+	// `on_applied` and `on_error` each need the reply; whichever fires first takes it.
+	let slot = Arc::new(Mutex::new(Some((reply, collect))));
 
 	let builder = conn
 		.db()
 		.subscription_builder()
 		.on_applied({
-			let tx = Arc::clone(&tx);
-			let collect = Arc::clone(&collect);
+			let slot = Arc::clone(&slot);
 			move |ctx| {
-				let Some(collect) = collect.lock().unwrap().take() else {
-					return;
-				};
-				send(&tx, Ok(collect(ctx)));
+				if let Some((reply, collect)) = slot.lock().unwrap().take() {
+					reply.send_outcome(Ok(collect(ctx)));
+				}
 			}
 		})
-		.on_error({
-			let tx = Arc::clone(&tx);
-			move |_ctx, err| {
-				send(&tx, Err(format!("subscribe error: {err}")));
+		.on_error(move |_ctx, err| {
+			if let Some((reply, _)) = slot.lock().unwrap().take() {
+				reply.send_outcome(Err(StdbError::internal(format!("subscribe error: {err}"))));
 			}
 		});
 	let handle = build(builder);
 
-	let wait = spawn_blocking(move || {
-		rx.recv_timeout(SUBSCRIBE_TIMEOUT)
-			.map_err(|_| "subscribe timed out".to_owned())
-	})
-	.await
-	.map_err(|e| format!("subscribe wait task: {e}"))?;
-
+	let outcome = pending.wait().await;
 	let _ = handle.unsubscribe();
-	wait?
+	outcome
 }
 
 /// Row callbacks also fire while a subscription applies (one insert per
 /// existing row) and on unsubscribe. Only reducer / transaction events are real
 /// changes worth pushing to the browser.
-pub(super) fn is_live_row_change(event: &spacetimedb_sdk::Event<crate::module_bindings::Reducer>) -> bool {
-	matches!(event, spacetimedb_sdk::Event::Reducer(_) | spacetimedb_sdk::Event::Transaction)
+pub(super) fn is_live_row_change(
+	event: &spacetimedb_sdk::Event<crate::module_bindings::Reducer>,
+) -> bool {
+	matches!(
+		event,
+		spacetimedb_sdk::Event::Reducer(_) | spacetimedb_sdk::Event::Transaction
+	)
+}
+
+/// Wait for the next live snapshot. `None` when the sender is gone or the
+/// connection drops, so an SSE stream can end and let the browser reconnect
+/// on a fresh connection instead of hanging silently.
+pub async fn next_change<T>(
+	rx: &mut tokio::sync::watch::Receiver<T>,
+	conn: &StdbConn,
+) -> Option<()> {
+	tokio::select! {
+		changed = rx.changed() => changed.ok(),
+		() = conn.closed() => None,
+	}
 }

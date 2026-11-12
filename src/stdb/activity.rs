@@ -6,11 +6,12 @@ use crate::domain::{dedupe_and_sort_transfers, sort_accounts};
 use crate::einro::PooledConn;
 use crate::module_bindings::{
 	MyAccountRow, MyAccountsTableAccess, MyTransferRow, MyTransfersTableAccess,
-	SubscriptionHandle as ModuleSubHandle,
-	my_accountsQueryTableAccess, my_transfersQueryTableAccess,
+	SubscriptionHandle as ModuleSubHandle, my_accountsQueryTableAccess,
+	my_transfersQueryTableAccess,
 };
 use spacetimedb_sdk::{DbContext, SubscriptionHandle, Table, TableWithPrimaryKey};
 
+use super::call::StdbError;
 use super::connector::StdbConn;
 use super::query::{is_live_row_change, subscribe_once};
 
@@ -22,7 +23,7 @@ pub struct ActivitySnapshot {
 }
 
 /// One-shot subscribe of `my_accounts` and `my_transfers`.
-pub async fn fetch_activity_page(conn: &StdbConn) -> Result<ActivitySnapshot, String> {
+pub async fn fetch_activity_page(conn: &StdbConn) -> Result<ActivitySnapshot, StdbError> {
 	subscribe_once(
 		conn,
 		|b| {
@@ -69,11 +70,16 @@ pub struct LiveActivity {
 }
 
 impl LiveActivity {
+	/// The connection this subscription lives on.
+	pub fn conn(&self) -> &StdbConn {
+		self.pooled.get()
+	}
+
 	pub fn start(
 		pooled: PooledConn<StdbConn>,
 		tx: tokio::sync::watch::Sender<Option<ActivitySnapshot>>,
 		snapshot_on_applied: bool,
-	) -> Result<Self, String> {
+	) -> Result<Self, StdbError> {
 		let send_snapshot: Arc<dyn Fn(Vec<MyAccountRow>, Vec<MyTransferRow>) + Send + Sync> = {
 			let tx = tx.clone();
 			Arc::new(move |accounts, transfers| {

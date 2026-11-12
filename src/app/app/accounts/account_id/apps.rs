@@ -1,10 +1,10 @@
 //! `GET /app/accounts/{account_id}/apps` — app name search for add-permission.
 
 use super::account_id;
-use crate::ui::text::escape_html;
 use crate::auth::require_user;
 use crate::module_bindings::AppSearchHit;
-use crate::stdb::{StdbError, acquire_user_db, search_apps};
+use crate::stdb::{acquire_user_db, search_apps};
+use crate::ui::text::escape_html;
 use serde::Deserialize;
 use topcoat::{
 	Result,
@@ -31,7 +31,7 @@ async fn app_search_route(cx: &Cx, Signals(form): Signals<SearchSignals>) -> Res
 	let conn = acquire_user_db(cx).await?;
 	let rows = search_apps(conn.get(), term)
 		.await
-		.map_err(|e| internal_server_error(StdbError(e)))?;
+		.map_err(internal_server_error)?;
 	Ok(PatchElements::new(results_html(&rows, true)))
 }
 
@@ -71,4 +71,3 @@ fn results_html(rows: &[AppSearchHit], searched: bool) -> String {
 	out.push_str("</div>");
 	out
 }
-

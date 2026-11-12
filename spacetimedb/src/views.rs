@@ -108,6 +108,8 @@ pub struct MyAccountTokenRow {
 	pub account_id: u64,
 	pub label: String,
 	pub created_by: Identity,
+	/// BitCraft username of `created_by`, so clients don't need the `user` table.
+	pub created_by_username: Option<String>,
 	pub created_at: Timestamp,
 }
 
@@ -302,6 +304,7 @@ fn my_accounts_tokens(ctx: &ViewContext) -> Vec<MyAccountTokenRow> {
 				id: tok.id,
 				account_id: tok.account_id,
 				label: tok.label,
+				created_by_username: username_for(&ctx.db, tok.created_by),
 				created_by: tok.created_by,
 				created_at: tok.created_at,
 			});

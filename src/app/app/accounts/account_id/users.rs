@@ -1,10 +1,10 @@
 //! `GET /app/accounts/{account_id}/users` — username search for add-person.
 
 use super::account_id;
-use crate::ui::text::escape_html;
 use crate::auth::require_user;
 use crate::stdb::account::search_users;
-use crate::stdb::{StdbError, acquire_user_db};
+use crate::stdb::acquire_user_db;
+use crate::ui::text::escape_html;
 use serde::Deserialize;
 use topcoat::{
 	Result,
@@ -31,11 +31,11 @@ async fn user_search(cx: &Cx, Signals(form): Signals<SearchSignals>) -> Result<P
 	let conn = acquire_user_db(cx).await?;
 	let rows = search_users(conn.get(), term, &[user.identity])
 		.await
-		.map_err(|e| internal_server_error(StdbError(e)))?;
+		.map_err(internal_server_error)?;
 	Ok(PatchElements::new(results_html(&rows, true)))
 }
 
-fn results_html(rows: &[crate::module_bindings::User], searched: bool) -> String {
+fn results_html(rows: &[crate::module_bindings::UserSearchHit], searched: bool) -> String {
 	if !searched {
 		return String::from(r#"<div id="user-search-results"></div>"#);
 	}
@@ -60,4 +60,3 @@ fn results_html(rows: &[crate::module_bindings::User], searched: bool) -> String
 	out.push_str("</div>");
 	out
 }
-

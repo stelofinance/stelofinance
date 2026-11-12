@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use super::credentials::ConnectParams;
@@ -108,7 +108,15 @@ impl<C: Connector> IdentityPool<C> {
 		self.inner.lock().unwrap().slots.len()
 	}
 
-	/// Drop the slot for this token (if any).
+	/// Forget this token's slot without closing it. Handles still in use keep
+	/// working; the connection closes when the last one drops (for connections
+	/// that disconnect on drop). Use after a token refresh.
+	pub fn retire_token(&self, token: &str) {
+		self.inner.lock().unwrap().slots.remove(token);
+	}
+
+	/// Drop the slot for this token (if any) and disconnect it now, even if
+	/// handles are still in use. Use on logout.
 	pub fn invalidate_token(&self, token: &str) {
 		let mut g = self.inner.lock().unwrap();
 		if let Some(slot) = g.slots.remove(token) {
@@ -208,6 +216,24 @@ impl<C: Connector> IdentityPool<C> {
 			token,
 			pool_touch: Some(Arc::clone(&self.inner)),
 		})
+	}
+
+	/// Every `every`, close slots idle past `idle_ttl`. Without this, idle
+	/// connections only close when some later `acquire` happens. Stops once
+	/// the pool is dropped. Call from inside a Tokio runtime.
+	pub fn spawn_idle_sweeper(self: &Arc<Self>, every: Duration) {
+		let pool: Weak<Self> = Arc::downgrade(self);
+		tokio::spawn(async move {
+			let mut tick = tokio::time::interval(every);
+			tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+			loop {
+				tick.tick().await;
+				let Some(pool) = pool.upgrade() else {
+					return;
+				};
+				pool.evict_idle();
+			}
+		});
 	}
 
 	fn evict_idle(&self) {
@@ -337,6 +363,22 @@ mod tests {
 		// Slot still present but inactive → next acquire should open again.
 		let _b = pool.acquire("token-a").await.unwrap();
 		assert_eq!(opens.load(Ordering::SeqCst), 2);
+	}
+
+	#[tokio::test]
+	async fn retire_token_keeps_handle_alive() {
+		let pool = IdentityPool::new(
+			MockConnector {
+				opens: Arc::new(AtomicUsize::new(0)),
+			},
+			"http://127.0.0.1:3000",
+			"db",
+			PoolConfig::default(),
+		);
+		let c = pool.acquire("old").await.unwrap();
+		pool.retire_token("old");
+		assert_eq!(pool.len(), 0);
+		assert!(c.is_active());
 	}
 
 	#[tokio::test]

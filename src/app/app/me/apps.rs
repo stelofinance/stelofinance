@@ -1,11 +1,11 @@
 //! App list HTML, token sheet, and `POST /app/me/apps/token`.
 
-use crate::ui::text::{escape_html, js_str};
 use crate::auth::require_user;
-use crate::module_bindings::AppTicketPurpose;
-use crate::stdb::{apps::MyAppsData, apps::mint_app_identity};
-use crate::stdb::{StdbState, acquire_user_db, create_user_app_ticket, replace_user_app_ticket};
 use crate::domain::{format_rel_time, unix_now_micros};
+use crate::module_bindings::AppTicketPurpose;
+use crate::stdb::{StdbState, acquire_user_db, create_user_app_ticket, replace_user_app_ticket};
+use crate::stdb::{apps::MyAppsData, apps::mint_app_identity};
+use crate::ui::text::{escape_html, js_str};
 use serde::{Deserialize, Serialize};
 use topcoat::{
 	Result,
@@ -226,7 +226,7 @@ async fn token(cx: &Cx, Signals(form): Signals<TokenSignals>) -> Result<PatchSig
 		create_user_app_ticket(conn.get(), name.clone(), minted.identity.clone()).await
 	};
 	if let Err(e) = ticket {
-		return mint_err(&e);
+		return mint_err(e.user_message());
 	}
 
 	// Connect once as the app so the ticket is fulfilled right away rather than
@@ -279,5 +279,3 @@ fn mint_err(error: &str) -> Result<PatchSignals> {
 		app_error: error.to_owned(),
 	})
 }
-
-

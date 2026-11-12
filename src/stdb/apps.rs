@@ -1,7 +1,6 @@
 //! Caller-owned apps + tickets, and global `app_search`.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use crate::einro::PooledConn;
 use crate::module_bindings::{
@@ -11,13 +10,11 @@ use crate::module_bindings::{
 };
 use serde::Deserialize;
 use spacetimedb_sdk::{DbContext, SubscriptionHandle, Table, TableWithPrimaryKey};
-use tokio::task::spawn_blocking;
 
 use super::StdbState;
+use super::call::{StdbError, call};
 use super::connector::StdbConn;
 use super::query::{is_live_row_change, subscribe_once};
-
-const REDUCER_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// SSR / live snapshot of apps this caller created.
 #[derive(Clone)]
@@ -26,7 +23,7 @@ pub struct MyAppsData {
 	pub tickets: Vec<MyAppTicketRow>,
 }
 
-pub async fn fetch_my_apps(conn: &StdbConn) -> Result<MyAppsData, String> {
+pub async fn fetch_my_apps(conn: &StdbConn) -> Result<MyAppsData, StdbError> {
 	subscribe_once(
 		conn,
 		|b| {
@@ -55,28 +52,6 @@ fn collect_my_apps(
 	MyAppsData { apps, tickets }
 }
 
-fn map_reducer(result: Result<Result<(), String>, impl ToString>) -> Result<(), String> {
-	match result {
-		Ok(Ok(())) => Ok(()),
-		Ok(Err(e)) => Err(e),
-		Err(e) => Err(e.to_string()),
-	}
-}
-
-async fn wait_reducer(
-	start: impl FnOnce(std::sync::mpsc::SyncSender<Result<(), String>>) -> Result<(), String>,
-) -> Result<(), String> {
-	let (tx, rx) = std::sync::mpsc::sync_channel(1);
-	start(tx)?;
-	let wait = spawn_blocking(move || {
-		rx.recv_timeout(REDUCER_TIMEOUT)
-			.map_err(|_| "reducer timed out".to_owned())
-	})
-	.await
-	.map_err(|e| format!("reducer wait task: {e}"))?;
-	wait?
-}
-
 /// Identity + locally-signed token minted by the SpacetimeDB host.
 #[derive(Deserialize)]
 pub struct MintedIdentity {
@@ -86,20 +61,23 @@ pub struct MintedIdentity {
 }
 
 /// `POST /v1/identity` on the SpacetimeDB host.
-pub async fn mint_app_identity(stdb: &StdbState) -> Result<MintedIdentity, String> {
+pub async fn mint_app_identity(stdb: &StdbState) -> Result<MintedIdentity, StdbError> {
 	let resp = stdb
 		.http
 		.post(stdb.config.identity_url())
 		.send()
 		.await
-		.map_err(|e| format!("identity mint: {e}"))?;
+		.map_err(|e| StdbError::internal(format!("identity mint: {e}")))?;
 	if !resp.status().is_success() {
-		return Err(format!("identity mint: host returned {}", resp.status()));
+		return Err(StdbError::internal(format!(
+			"identity mint: host returned {}",
+			resp.status()
+		)));
 	}
 	let mut minted: MintedIdentity = resp
 		.json()
 		.await
-		.map_err(|e| format!("identity mint response: {e}"))?;
+		.map_err(|e| StdbError::internal(format!("identity mint response: {e}")))?;
 	minted.identity.make_ascii_lowercase();
 	Ok(minted)
 }
@@ -108,58 +86,39 @@ pub async fn create_user_app_ticket(
 	conn: &StdbConn,
 	name: String,
 	sub: String,
-) -> Result<(), String> {
-	wait_reducer(|tx| {
-		conn.db()
-			.reducers
-			.create_app_ticket_then(name, sub, move |_, r| {
-				let _ = tx.send(map_reducer(r));
-			})
-			.map_err(|e| format!("create_app_ticket send: {e}"))
-	})
-	.await
+) -> Result<(), StdbError> {
+	let (reply, pending) = call("create_app_ticket");
+	let sent = conn
+		.db()
+		.reducers
+		.create_app_ticket_then(name, sub, move |_, r| reply.send(r));
+	pending.after_send(sent).await
 }
 
 pub async fn replace_user_app_ticket(
 	conn: &StdbConn,
 	name: String,
 	sub: String,
-) -> Result<(), String> {
-	wait_reducer(|tx| {
-		conn.db()
-			.reducers
-			.replace_app_ticket_then(name, sub, move |_, r| {
-				let _ = tx.send(map_reducer(r));
-			})
-			.map_err(|e| format!("replace_app_ticket send: {e}"))
-	})
-	.await
+) -> Result<(), StdbError> {
+	let (reply, pending) = call("replace_app_ticket");
+	let sent = conn
+		.db()
+		.reducers
+		.replace_app_ticket_then(name, sub, move |_, r| reply.send(r));
+	pending.after_send(sent).await
 }
 
 /// Global case-insensitive app name prefix search.
-pub async fn search_apps(conn: &StdbConn, term: &str) -> Result<Vec<AppSearchHit>, String> {
+pub async fn search_apps(conn: &StdbConn, term: &str) -> Result<Vec<AppSearchHit>, StdbError> {
 	let term = term.trim().to_owned();
 	if term.is_empty() {
 		return Ok(Vec::new());
 	}
-	let (tx, rx) = std::sync::mpsc::sync_channel(1);
+	let (reply, pending) = call("app_search");
 	conn.db()
 		.procedures
-		.app_search_then(term, move |_ctx, result| {
-			let outcome = match result {
-				Ok(Ok(hits)) => Ok(hits),
-				Ok(Err(e)) => Err(e),
-				Err(e) => Err(e.to_string()),
-			};
-			let _ = tx.send(outcome);
-		});
-	let wait = spawn_blocking(move || {
-		rx.recv_timeout(REDUCER_TIMEOUT)
-			.map_err(|_| "app_search timed out".to_owned())
-	})
-	.await
-	.map_err(|e| format!("app_search wait task: {e}"))?;
-	wait?
+		.app_search_then(term, move |_, r| reply.send(r));
+	pending.wait().await
 }
 
 /// Live `my_apps` + `my_app_tickets`.
@@ -175,11 +134,16 @@ pub struct LiveMyApps {
 }
 
 impl LiveMyApps {
+	/// The connection this subscription lives on.
+	pub fn conn(&self) -> &StdbConn {
+		self.pooled.get()
+	}
+
 	pub fn start(
 		pooled: PooledConn<StdbConn>,
 		tx: tokio::sync::watch::Sender<Option<MyAppsData>>,
 		snapshot_on_applied: bool,
-	) -> Result<Self, String> {
+	) -> Result<Self, StdbError> {
 		let send_snapshot: Arc<dyn Fn(MyAppsData) + Send + Sync> = {
 			let tx = tx.clone();
 			Arc::new(move |data| {

@@ -1,8 +1,8 @@
 //! Build a shareable payment-request link (Read+).
 
-use crate::domain::{MAX_MEMO_LEN, normalize_memo, parse_qty};
 use super::account_id;
 use crate::auth::require_user;
+use crate::domain::{MAX_MEMO_LEN, normalize_memo, parse_qty};
 use crate::stdb::account::fetch_account_home;
 use crate::stdb::acquire_user_db;
 use serde::{Deserialize, Serialize};
@@ -10,13 +10,18 @@ use topcoat::{
 	Result,
 	context::Cx,
 	datastar::{PatchSignals, Signals},
-	router::{route},
+	router::route,
 	view::{View, component, view},
 };
 
 /// Amount + memo form. Lives outside remorph targets so typing survives `/updates`.
 #[component]
-pub async fn request_form(cx: &Cx, account_id: u64, ledger_name: String, debit: bool) -> Result<impl View> {
+pub async fn request_form(
+	cx: &Cx,
+	account_id: u64,
+	ledger_name: String,
+	debit: bool,
+) -> Result<impl View> {
 	let create = format!("@post('/app/accounts/{account_id}/request')");
 	let helper = if debit {
 		"Share a link so someone can pay this account."
@@ -146,7 +151,7 @@ async fn create_request_link(
 	let conn = acquire_user_db(cx).await?;
 	let data = match fetch_account_home(conn.get(), account_id).await {
 		Ok(d) => d,
-		Err(e) => return request_err(&e),
+		Err(e) => return request_err(e.user_message()),
 	};
 	let Some(acc) = data.account else {
 		return request_err("Account not found.");

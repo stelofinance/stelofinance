@@ -9,8 +9,7 @@ use crate::domain::{
 };
 use crate::module_bindings::{AccountKind, MyAccountRow};
 use crate::stdb::{
-	StdbError, acquire_user_db, create_user_transfer, fetch_accounts_page, lookup_account,
-	search_directory,
+	acquire_user_db, create_user_transfer, fetch_accounts_page, lookup_account, search_directory,
 };
 use crate::ui::text::js_str;
 use serde::{Deserialize, Serialize};
@@ -76,7 +75,7 @@ pub async fn flow_page(cx: &Cx, flow: Flow) -> Result<impl View> {
 	let conn = acquire_user_db(cx).await?;
 	let data = fetch_accounts_page(conn.get())
 		.await
-		.map_err(|e| internal_server_error(StdbError(e)))?;
+		.map_err(internal_server_error)?;
 	let accounts = flow_accounts(&data.accounts);
 	let selected = pick_flow(&accounts, requested);
 	let can_pick = accounts.len() > 1;
@@ -499,7 +498,7 @@ pub async fn flow_create(cx: &Cx, flow: Flow, form: FlowSignals) -> Result<Patch
 	let conn = acquire_user_db(cx).await?;
 	let data = match fetch_accounts_page(conn.get()).await {
 		Ok(d) => d,
-		Err(e) => return flow_err(&e, &form),
+		Err(e) => return flow_err(e.user_message(), &form),
 	};
 	let accounts = flow_accounts(&data.accounts);
 	let Some(yours) = accounts.iter().find(|a| a.account_id == from_id) else {
@@ -591,7 +590,7 @@ pub async fn flow_create(cx: &Cx, flow: Flow, form: FlowSignals) -> Result<Patch
 				recipient_search: String::new(),
 			})
 		}
-		Err(e) => flow_err(&map_transfer_error(&e), &form),
+		Err(e) => flow_err(&map_transfer_error(e.user_message()), &form),
 	}
 }
 
@@ -646,7 +645,7 @@ async fn counterparts(cx: &Cx, Signals(form): Signals<SearchSignals>) -> Result<
 	let conn = acquire_user_db(cx).await?;
 	let hits = search_directory(conn.get(), ledger_id, exclude_id, term)
 		.await
-		.map_err(|e| internal_server_error(StdbError(e)))?;
+		.map_err(internal_server_error)?;
 	let hits: Vec<_> = hits.into_iter().filter(|h| h.kind == want).collect();
 	Ok(PatchElements::new(recipient_results_html(&hits, true)))
 }

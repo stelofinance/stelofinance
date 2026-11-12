@@ -5,9 +5,11 @@ mod accounts;
 mod activity;
 mod admin;
 pub mod apps;
+mod call;
 mod config;
 mod connector;
 mod query;
+pub use query::next_change;
 mod user;
 
 mod transfer;
@@ -16,6 +18,7 @@ pub use accounts::{LiveAccounts, create_user_account, fetch_accounts_page};
 pub use activity::{ActivitySnapshot, LiveActivity, fetch_activity_page};
 pub use admin::create_user_ledger;
 pub use apps::{create_user_app_ticket, replace_user_app_ticket, search_apps};
+pub use call::StdbError;
 pub use config::StdbConfig;
 pub use connector::{StdbConn, StdbConnector};
 pub use transfer::{
@@ -33,50 +36,26 @@ use topcoat::{
 	router::error::internal_server_error,
 };
 
-/// Small error wrapper so `internal_server_error` has a `std::error::Error`.
-#[derive(Debug)]
-pub struct StdbError(pub String);
-
-impl std::fmt::Display for StdbError {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		f.write_str(&self.0)
-	}
-}
-
-impl std::error::Error for StdbError {}
-
-impl From<String> for StdbError {
-	fn from(s: String) -> Self {
-		Self(s)
-	}
-}
-
-impl From<&str> for StdbError {
-	fn from(s: &str) -> Self {
-		Self(s.to_owned())
-	}
-}
-
 /// Pooled STDB connection for the signed-in user (cookie → ensure_bearer → einro).
 pub async fn acquire_user_db(cx: &Cx) -> Result<PooledConn<StdbConn>> {
 	let _user = require_user(cx).await?;
 	let bearer = match ensure_bearer(cx).await {
 		Ok(b) => b,
 		Err(EnsureBearerError::Unauthenticated) => {
-			return Err(internal_server_error(StdbError::from(
+			return Err(internal_server_error(StdbError::internal(
 				"session token missing after auth gate",
 			))
 			.into());
 		}
 		Err(EnsureBearerError::RefreshFailed(e)) => {
-			return Err(internal_server_error(StdbError(e)).into());
+			return Err(internal_server_error(StdbError::internal(e)).into());
 		}
 	};
 	let stdb = context::<StdbState>(cx);
 	stdb.pool
 		.acquire(&bearer.token)
 		.await
-		.map_err(|e: PoolError| internal_server_error(StdbError(e.to_string())).into())
+		.map_err(|e: PoolError| internal_server_error(StdbError::internal(e)).into())
 }
 
 /// App-context bundle: config + token-keyed connection pool + module HTTP client.
@@ -102,10 +81,8 @@ impl StdbState {
 			.redirect(reqwest::redirect::Policy::none())
 			.build()
 			.expect("reqwest client");
-		Self {
-			config,
-			pool: std::sync::Arc::new(pool),
-			http,
-		}
+		let pool = std::sync::Arc::new(pool);
+		pool.spawn_idle_sweeper(Duration::from_secs(60));
+		Self { config, pool, http }
 	}
 }

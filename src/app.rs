@@ -13,6 +13,7 @@ use topcoat::{
 mod api;
 mod app;
 mod auth;
+mod headers;
 mod health;
 mod login;
 mod logout;
@@ -65,6 +66,7 @@ pub async fn router() -> Router {
 	module_router!()
 		.discover()
 		.layer(CookieLayer::new())
+		.layer(headers::SecurityHeadersLayer)
 		.with(bitauth)
 		.with(stdb)
 		.assets(
