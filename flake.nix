@@ -179,7 +179,6 @@
                 ./assets
                 ./spacetimedb
                 ./spacetime.json
-                ./spacetime.dev.json
               ];
             };
             cargoLock.lockFile = ./Cargo.lock;

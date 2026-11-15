@@ -13,7 +13,7 @@
 //! Configuration (environment):
 //! - `DEV_OIDC_ISSUER`, default `http://127.0.0.1:9090/`. Must be `http://`
 //!   and end with `/`; the server listens on its host and port. The module's
-//!   `USER_OIDC_ISSUER` (`spacetime.dev.json`) and the edge's
+//!   `USER_OIDC_ISSUER` (`spacetime.json`) and the edge's
 //!   `OIDC_ISSUER` must be the same string.
 //! - `DEV_OIDC_KEY`, default `tmp/dev-oidc/key.pem`. The RS256 signing key,
 //!   created on first run and reused so issued tokens survive restarts.

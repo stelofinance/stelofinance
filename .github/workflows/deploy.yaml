@@ -61,9 +61,10 @@ jobs:
           exit 1
         fi
         nix shell .#spacetimedb --command spacetime login --token "$SPACETIMEDB_TOKEN"
-        # spacetime.json defaults to server=local; override to maincloud.
+        # --no-config: spacetime*.json describe the local dev database; production
+        # takes nothing from them, so every setting is given here explicitly.
         # Do not pass --delete-data or --break-clients: a breaking schema fails the job.
-        nix shell .#spacetimedb --command spacetime publish \
+        nix shell .#spacetimedb --command spacetime publish --no-config \
           -s maincloud stelofinance-prod -y \
           --bin-path module-out/stelofinance.wasm
 
