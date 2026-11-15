@@ -1,1 +1,1 @@
-pub mod bitauth;
+pub mod oidc;

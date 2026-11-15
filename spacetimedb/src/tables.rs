@@ -26,7 +26,7 @@ pub struct User {
 	#[index(btree)]
 	pub bitcraft_username_normalized: String,
 
-	/// BitAuth JWT `sub` parsed as u64 (stable BitCraft player id, not the display username).
+	/// Login JWT `sub` parsed as u64 (stable BitCraft player id, not the display username).
 	#[unique]
 	pub bitcraft_player_id: u64,
 }

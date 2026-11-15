@@ -1,4 +1,4 @@
-//! `POST /logout` — Stelo session only. Does not call BitAuth end_session.
+//! `POST /logout` — Stelo session only. Does not call the OIDC provider's end_session.
 
 use crate::auth::cookies::{COOKIE_TOKEN, clear_auth_cookies, clear_oauth_cookies, get_cookie};
 use crate::stdb::StdbState;
@@ -11,7 +11,7 @@ use topcoat::{
 	},
 };
 
-/// Drop Stelo cookies and send the browser home. BitAuth stays signed in.
+/// Drop Stelo cookies and send the browser home. The OIDC provider session stays signed in.
 #[route(POST)]
 async fn logout(cx: &Cx) -> Result<SeeOther> {
 	// Close this session's SpacetimeDB connection now instead of at idle eviction.

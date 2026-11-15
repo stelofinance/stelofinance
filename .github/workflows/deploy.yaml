@@ -51,6 +51,8 @@ jobs:
     - name: Publish module to Maincloud
       env:
         SPACETIMEDB_TOKEN: ${{ secrets.SPACETIMEDB_TOKEN }}
+        # Module env
+        USER_OIDC_ISSUER: https://auth.trinit.is/
       run: |
         set -euo pipefail
         if [[ -z "${SPACETIMEDB_TOKEN}" ]]; then

@@ -1,16 +1,16 @@
-use crate::auth::bitauth::AuthTokens;
+use crate::auth::oidc::AuthTokens;
 use topcoat::{
 	context::Cx,
 	cookie::{Cookie, Cookies, SameSite, cookies as root_cookies, time::Duration},
 };
 
-pub const COOKIE_TOKEN: &str = "bitauth_token";
-pub const COOKIE_REFRESH: &str = "bitauth_refresh_token";
+pub const COOKIE_TOKEN: &str = "oidc_token";
+pub const COOKIE_REFRESH: &str = "oidc_refresh_token";
 
-pub const COOKIE_OAUTH_STATE: &str = "bitauth_oauth_state";
-pub const COOKIE_OAUTH_NONCE: &str = "bitauth_oauth_nonce";
-pub const COOKIE_OAUTH_PKCE: &str = "bitauth_oauth_pkce";
-pub const COOKIE_OAUTH_REDIRECT: &str = "bitauth_oauth_redirect";
+pub const COOKIE_OAUTH_STATE: &str = "oidc_oauth_state";
+pub const COOKIE_OAUTH_NONCE: &str = "oidc_oauth_nonce";
+pub const COOKIE_OAUTH_PKCE: &str = "oidc_oauth_pkce";
+pub const COOKIE_OAUTH_REDIRECT: &str = "oidc_oauth_redirect";
 
 pub const OAUTH_ROUNDTRIP_MAX_AGE_SECS: i64 = 10 * 60;
 pub const TOKEN_MAX_AGE_SECS: i64 = 20 * 60;
@@ -51,7 +51,7 @@ pub fn clear_auth_cookies(cx: &Cx) {
 	clear_cookie(cx, COOKIE_REFRESH);
 }
 
-/// Write `bitauth_token` (+ optional rotated refresh) after login or refresh.
+/// Write `oidc_token` (+ optional rotated refresh) after login or refresh.
 pub fn set_auth_cookies(cx: &Cx, tokens: AuthTokens) {
 	let jar = cookies(cx);
 	jar.add(

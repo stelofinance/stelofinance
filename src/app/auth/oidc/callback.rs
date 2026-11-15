@@ -1,10 +1,10 @@
 use crate::auth::{
-	bitauth::BitAuth,
-	redirect::is_safe_redirect,
 	cookies::{
 		COOKIE_OAUTH_NONCE, COOKIE_OAUTH_PKCE, COOKIE_OAUTH_REDIRECT, COOKIE_OAUTH_STATE,
 		clear_oauth_cookies, get_cookie, set_auth_cookies,
 	},
+	oidc::OidcAuth,
+	redirect::is_safe_redirect,
 };
 use topcoat::{
 	Result,
@@ -23,7 +23,7 @@ struct CallbackQuery {
 	error_description: Option<String>,
 }
 
-/// Complete BitAuth OIDC: exchange code, set token cookies, redirect home.
+/// Complete the OIDC login: exchange code, set token cookies, redirect home.
 #[route(GET)]
 async fn callback(cx: &Cx) -> Result<SeeOther> {
 	let q =
@@ -31,7 +31,7 @@ async fn callback(cx: &Cx) -> Result<SeeOther> {
 
 	if let Some(err) = &q.error {
 		let desc = q.error_description.as_deref().unwrap_or("");
-		eprintln!("bitauth: provider error: {err} {desc}");
+		eprintln!("oidc: provider error: {err} {desc}");
 		clear_oauth_cookies(cx);
 		return Err(bad_request("authentication failed").into());
 	}
@@ -57,11 +57,11 @@ async fn callback(cx: &Cx) -> Result<SeeOther> {
 	let pkce =
 		get_cookie(cx, COOKIE_OAUTH_PKCE).ok_or_else(|| bad_request("missing pkce cookie"))?;
 
-	let tokens = context::<BitAuth>(cx)
+	let tokens = context::<OidcAuth>(cx)
 		.exchange_code(code, &pkce, &nonce)
 		.await
 		.map_err(|e| {
-			eprintln!("bitauth: exchange failed: {e}");
+			eprintln!("oidc: exchange failed: {e}");
 			bad_request("token exchange failed")
 		})?;
 

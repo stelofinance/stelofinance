@@ -20,15 +20,17 @@ type OidcClient = CoreClient<
 	EndpointMaybeSet,
 >;
 
-/// Shared BitAuth OIDC client (app context).
+/// Shared OIDC client for user login (app context). The provider is whatever
+/// `OIDC_ISSUER` points at; it must match the module's `USER_OIDC_ISSUER`.
 #[derive(Clone)]
-pub struct BitAuth {
-	inner: Arc<BitAuthInner>,
+pub struct OidcAuth {
+	inner: Arc<OidcAuthInner>,
 }
 
-struct BitAuthInner {
+struct OidcAuthInner {
 	client: OidcClient,
 	http: reqwest::Client,
+	provider_name: Option<String>,
 }
 
 pub struct AuthStart {
@@ -38,7 +40,7 @@ pub struct AuthStart {
 	pub pkce_verifier: String,
 }
 
-/// Why a stored ID token was not accepted by [`BitAuth::verify_id_token`].
+/// Why a stored ID token was not accepted by [`OidcAuth::verify_id_token`].
 #[derive(Debug)]
 pub enum TokenRejected {
 	/// Signature and claims were fine but `exp` has passed. Routine; refresh.
@@ -53,14 +55,17 @@ pub struct AuthTokens {
 	pub refresh_token: Option<String>,
 }
 
-impl BitAuth {
+impl OidcAuth {
+	/// Configure from `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`,
+	/// `OIDC_REDIRECT_URL` (required) and `OIDC_PROVIDER_NAME` (optional, shown
+	/// to users), then run discovery.
 	pub async fn from_env() -> Result<Self, String> {
-		let client_id = env_required("BITAUTH_CLIENT_ID")?;
-		let client_secret = env_required("BITAUTH_CLIENT_SECRET")?;
-		let redirect = env_required("BITAUTH_REDIRECT_URL")?;
+		let client_id = env_required("OIDC_CLIENT_ID")?;
+		let client_secret = env_required("OIDC_CLIENT_SECRET")?;
+		let redirect = env_required("OIDC_REDIRECT_URL")?;
+		let provider_name = env_required("OIDC_PROVIDER_NAME").ok();
 
-		let mut issuer = std::env::var("BITAUTH_ISSUER")
-			.unwrap_or_else(|_| "https://auth.trinit.is/".to_owned());
+		let mut issuer = env_required("OIDC_ISSUER")?;
 		if !issuer.ends_with('/') {
 			issuer.push('/');
 		}
@@ -84,8 +89,17 @@ impl BitAuth {
 		.set_redirect_uri(RedirectUrl::new(redirect).map_err(|e| e.to_string())?);
 
 		Ok(Self {
-			inner: Arc::new(BitAuthInner { client, http }),
+			inner: Arc::new(OidcAuthInner {
+				client,
+				http,
+				provider_name,
+			}),
 		})
+	}
+
+	/// Display name of the login provider (`OIDC_PROVIDER_NAME`), if set.
+	pub fn provider_name(&self) -> Option<&str> {
+		self.inner.provider_name.as_deref()
 	}
 
 	pub fn auth_start(&self) -> AuthStart {

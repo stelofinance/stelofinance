@@ -1,11 +1,11 @@
-//! Session helpers: ensure a usable BitAuth ID token before STDB acquire.
+//! Session helpers: ensure a usable OIDC ID token before STDB acquire.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::bitauth::{AuthTokens, BitAuth, TokenRejected};
 use super::cookies::{
 	COOKIE_REFRESH, COOKIE_TOKEN, TOKEN_REFRESH_SKEW_SECS, get_cookie, set_auth_cookies,
 };
+use super::oidc::{AuthTokens, OidcAuth, TokenRejected};
 use crate::stdb::StdbState;
 use topcoat::context::{Cx, context, memoize};
 
@@ -34,10 +34,10 @@ impl std::fmt::Display for EnsureBearerError {
 
 impl std::error::Error for EnsureBearerError {}
 
-/// Return a bearer ID token for STDB, refreshing via BitAuth when near/past `exp`.
+/// Return a bearer ID token for STDB, refreshing via the OIDC provider when near/past `exp`.
 ///
 /// Does not talk to SpacetimeDB or einro. On successful refresh, rewrites
-/// `bitauth_token` (and refresh cookie if the IdP rotated it; otherwise the
+/// `oidc_token` (and refresh cookie if the IdP rotated it; otherwise the
 /// existing refresh cookie is re-applied so Max-Age stays consistent).
 ///
 /// Memoized per request: the session gate and `acquire_user_db` share one
@@ -45,7 +45,7 @@ impl std::error::Error for EnsureBearerError {}
 /// refresh-token exchanges (a rotating IdP would reject the second).
 #[memoize(as_ref)]
 pub async fn ensure_bearer(cx: &Cx) -> Result<Bearer, EnsureBearerError> {
-	let bitauth = context::<BitAuth>(cx);
+	let oidc = context::<OidcAuth>(cx);
 	let id_token = get_cookie(cx, COOKIE_TOKEN);
 	let refresh_cookie = get_cookie(cx, COOKIE_REFRESH);
 
@@ -54,11 +54,11 @@ pub async fn ensure_bearer(cx: &Cx) -> Result<Bearer, EnsureBearerError> {
 	// reaches the pool.
 	let current = id_token
 		.as_deref()
-		.and_then(|token| match bitauth.verify_id_token(token) {
+		.and_then(|token| match oidc.verify_id_token(token) {
 			Ok(exp) => Some((token.to_owned(), exp)),
 			Err(TokenRejected::Expired) => None,
 			Err(TokenRejected::Invalid(e)) => {
-				eprintln!("bitauth: rejected id_token cookie: {e}");
+				eprintln!("oidc: rejected id_token cookie: {e}");
 				None
 			}
 		});
@@ -80,7 +80,7 @@ pub async fn ensure_bearer(cx: &Cx) -> Result<Bearer, EnsureBearerError> {
 			.ok_or(EnsureBearerError::Unauthenticated);
 	};
 
-	match bitauth.refresh(&refresh).await {
+	match oidc.refresh(&refresh).await {
 		Ok(tokens) => {
 			let token = tokens.id_token.clone();
 			// Preserve refresh cookie when IdP does not rotate it.
@@ -89,7 +89,7 @@ pub async fn ensure_bearer(cx: &Cx) -> Result<Bearer, EnsureBearerError> {
 				refresh_token: tokens.refresh_token.or(Some(refresh)),
 			};
 			set_auth_cookies(cx, tokens);
-			eprintln!("bitauth: refreshed id_token cookie");
+			eprintln!("oidc: refreshed id_token cookie");
 			// The old token's pool slot would otherwise sit open until idle
 			// eviction. In-flight handles (e.g. live streams) keep it until done.
 			if let Some(old) = &id_token {
@@ -98,10 +98,10 @@ pub async fn ensure_bearer(cx: &Cx) -> Result<Bearer, EnsureBearerError> {
 			Ok(Bearer { token })
 		}
 		Err(e) => {
-			eprintln!("bitauth: refresh failed: {e}");
+			eprintln!("oidc: refresh failed: {e}");
 			// Soft-fail while the current ID token is still valid.
 			if let Some(token) = current {
-				eprintln!("bitauth: using current id_token until exp");
+				eprintln!("oidc: using current id_token until exp");
 				return Ok(Bearer { token });
 			}
 			Err(EnsureBearerError::RefreshFailed(e))

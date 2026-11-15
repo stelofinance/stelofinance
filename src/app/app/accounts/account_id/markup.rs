@@ -207,11 +207,7 @@ fn push_permissions(
 	out.push_str(
 		r#"<h2 class="text-sm font-medium uppercase tracking-wide text-neutral-400">Permissions</h2>"#,
 	);
-	if admin_plus {
-		out.push_str(
-			r#"<button type="button" class="cursor-pointer rounded-md bg-anakiwa-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50" data-attr:disabled="$addingPerm" data-on:click="$addingPerm = true; $accountError = ''; $memberId = ''; $memberName = ''; $userSearch = ''; $appSearch = ''; $permKind = 'user'; $addRole = 'write'">Add permission</button>"#,
-		);
-	}
+	// "Add permission" lives in `permission_panel` (runtime trial).
 	out.push_str("</div>");
 	out.push_str(r#"<div class="mt-3 flex flex-col gap-2">"#);
 	for m in members {

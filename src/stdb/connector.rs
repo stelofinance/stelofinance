@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use spacetimedb_sdk::{DbContext, Identity};
+use spacetimedb_sdk::{DbContext, Error as SdkError, Identity};
 use tokio::sync::watch;
 use tokio::task::spawn_blocking;
 
@@ -15,7 +15,7 @@ use crate::module_bindings::DbConnection;
 /// Dropping it disconnects, including a half-open connection whose connect
 /// timed out or failed.
 pub struct StdbConn {
-	conn: DbConnection,
+	conn: Arc<DbConnection>,
 	closed: watch::Receiver<bool>,
 	_runner: std::thread::JoinHandle<()>,
 }
@@ -36,21 +36,21 @@ impl StdbConn {
 
 impl Connection for StdbConn {
 	fn is_active(&self) -> bool {
-		DbContext::is_active(&self.conn)
+		DbContext::is_active(&*self.conn)
 	}
 
 	fn disconnect(&self) {
-		let _ = DbContext::disconnect(&self.conn);
+		let _ = DbContext::disconnect(&*self.conn);
 	}
 }
 
 impl Drop for StdbConn {
 	fn drop(&mut self) {
-		let _ = DbContext::disconnect(&self.conn);
+		let _ = DbContext::disconnect(&*self.conn);
 	}
 }
 
-/// Opens module connections with token auth; starts `run_threaded` pump.
+/// Opens module connections with token auth; starts the message pump.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct StdbConnector;
 
@@ -88,6 +88,7 @@ fn build_conn(
 		move || reply.lock().unwrap().take()
 	};
 	let (closed_tx, closed) = watch::channel(false);
+	let closed_tx = Arc::new(closed_tx);
 
 	let conn = DbConnection::builder()
 		.with_uri(uri)
@@ -96,7 +97,7 @@ fn build_conn(
 		.on_connect({
 			let take_reply = take_reply.clone();
 			move |_conn, identity, _ws_token| {
-				// Do not persist `_ws_token` over the BitAuth cookie.
+				// Do not persist `_ws_token` over the OIDC token cookie.
 				if let Some(reply) = take_reply() {
 					reply.send_outcome(Ok(identity));
 				}
@@ -107,16 +108,47 @@ fn build_conn(
 				reply.send_outcome(Err(StdbError::internal(format!("connect error: {err}"))));
 			}
 		})
-		.on_disconnect(move |_ctx, _err| {
-			let _ = closed_tx.send(true);
+		.on_disconnect({
+			let closed_tx = Arc::clone(&closed_tx);
+			move |_ctx, _err| {
+				let _ = closed_tx.send(true);
+			}
 		})
 		.build()
 		.map_err(|e| StdbError::internal(format!("connect build: {e}")))?;
 
-	let runner = conn.run_threaded();
+	let conn = Arc::new(conn);
+	let runner = spawn_pump(Arc::clone(&conn), closed_tx)?;
 	Ok(StdbConn {
 		conn,
 		closed,
 		_runner: runner,
 	})
+}
+
+/// Process messages until the connection ends, then mark it closed.
+///
+/// Replaces the SDK's `run_threaded`, which panics its thread on any error
+/// other than a requested disconnect. That includes a connection the module's
+/// `client_connected` refused, which `on_connect_error` has already reported.
+fn spawn_pump(
+	conn: Arc<DbConnection>,
+	closed_tx: Arc<watch::Sender<bool>>,
+) -> Result<std::thread::JoinHandle<()>, StdbError> {
+	std::thread::Builder::new()
+		.name("stdb-pump".to_owned())
+		.spawn(move || {
+			loop {
+				match conn.advance_one_message_blocking() {
+					Ok(()) => {}
+					Err(SdkError::Disconnected | SdkError::FailedToConnect { .. }) => break,
+					Err(e) => {
+						eprintln!("stdb: connection ended: {e}");
+						break;
+					}
+				}
+			}
+			let _ = closed_tx.send(true);
+		})
+		.map_err(|e| StdbError::internal(format!("spawn stdb pump: {e}")))
 }

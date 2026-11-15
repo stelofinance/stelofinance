@@ -9,7 +9,7 @@ const TICKET_TTL: Duration = Duration::from_secs(15 * 60);
 const MAX_APP_NAME_LEN: usize = 64;
 
 // ---------------------------------------------------------------------------
-// Ticket reducers (BitAuth human)
+// Ticket reducers (human user)
 // ---------------------------------------------------------------------------
 
 /// Create (or replace own) a Create-purpose ticket for a new app name + the app's identity (hex).

@@ -11,7 +11,7 @@ const MAX_MEMO_LEN: usize = 64;
 /// Who is authorizing a transfer mutation.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum TransferActor {
-	/// BitAuth user or app: use `account_member` roles via `ctx.sender()`.
+	/// User or app: use `account_member` roles via `ctx.sender()`.
 	Identity,
 	/// HTTP account token: full ops authority for this account id only.
 	TokenAccount(u64),

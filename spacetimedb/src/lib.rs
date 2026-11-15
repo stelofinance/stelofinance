@@ -11,35 +11,40 @@ pub use tables::*;
 
 use spacetimedb::{Identity, ReducerContext, Table, rand::Rng, reducer};
 
+#[spacetimedb::env]
+pub struct Env {
+	/// Issuer of user login JWTs. Must equal the token's `iss` exactly.
+	pub USER_OIDC_ISSUER: String,
+}
+
+/// Issuer of tokens the SpacetimeDB host mints itself
+const APP_OIDC_ISSUER: &str = "localhost";
+
 // OIDC configuration
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OidcProvider {
-	BitAuth,
-	/// Tokens minted by the SpacetimeDB host itself (`POST /v1/identity`), used by apps.
+	/// Human login through the `USER_OIDC_ISSUER` provider.
+	User,
+	/// Tokens minted by the SpacetimeDB host itself, used by apps.
 	Local,
 }
 
 impl OidcProvider {
-	pub const fn issuer(self) -> &'static str {
-		match self {
-			Self::BitAuth => "https://auth.trinit.is/",
-			Self::Local => "localhost",
-		}
-	}
-
 	pub const fn audience(self) -> &'static str {
 		match self {
-			Self::BitAuth => "nintron-stelofinance",
+			Self::User => "nintron-stelofinance", // TODO: Don't hardcode this
 			Self::Local => "spacetimedb",
 		}
 	}
 
-	/// Try to turn an issuer string into the enum
-	pub fn from_issuer(issuer: &str) -> Option<Self> {
-		match issuer {
-			"https://auth.trinit.is/" => Some(Self::BitAuth),
-			"localhost" => Some(Self::Local),
-			_ => None,
+	/// Match a token issuer against the configured user issuer and the host's own.
+	pub fn from_issuer(ctx: &ReducerContext, issuer: &str) -> Option<Self> {
+		if issuer == ctx.env.USER_OIDC_ISSUER() {
+			Some(Self::User)
+		} else if issuer == APP_OIDC_ISSUER {
+			Some(Self::Local)
+		} else {
+			None
 		}
 	}
 
@@ -84,7 +89,7 @@ pub fn client_connected(ctx: &ReducerContext) -> Result<(), String> {
 		.jwt()
 		.ok_or_else(|| "OIDC JWT missing".to_string())?;
 	let provider = {
-		let provider = OidcProvider::from_issuer(jwt.issuer())
+		let provider = OidcProvider::from_issuer(ctx, jwt.issuer())
 			.ok_or_else(|| "invalid OIDC provider".to_string())?;
 		jwt.audience()
 			.iter()
@@ -95,7 +100,7 @@ pub fn client_connected(ctx: &ReducerContext) -> Result<(), String> {
 
 	// Now handle users vs apps
 	return match provider {
-		OidcProvider::BitAuth => {
+		OidcProvider::User => {
 			let username = display_name_from_jwt(jwt)?;
 			let player_id = player_id_from_jwt(jwt)?;
 			ensure_user(ctx, identity, username, player_id)?;
@@ -309,7 +314,7 @@ pub(crate) fn require_admin(ctx: &ReducerContext) -> Result<(), String> {
 	Ok(())
 }
 
-/// Human player only (BitAuth `user` row).
+/// Human player only (`user` row from an OIDC login).
 pub(crate) fn require_registered_user(ctx: &ReducerContext) -> Result<(), String> {
 	if ctx.db.user().id().find(&ctx.sender()).is_none() {
 		return Err("not a registered user".to_string());
@@ -360,6 +365,12 @@ pub(crate) fn require_account_role(
 	}
 }
 
+// TODO: A new identity whose username is still held by another row fails the
+// unique `bitcraft_username` insert, and `client_connected` refuses the login.
+// In production: a player renames in BitCraft, someone else takes the old name,
+// and the original player has not logged in since to update their row. Locally:
+// a dev-oidc login reusing a name from an older issuer. Decide how to free the
+// name (e.g. rename the stale row, or insert under a placeholder name).
 fn ensure_user(
 	ctx: &ReducerContext,
 	identity: Identity,
@@ -412,7 +423,7 @@ fn ensure_user(
 	Ok(())
 }
 
-/// BitAuth display name from `preferred_username` only.
+/// Display name from the login JWT `preferred_username` only.
 fn display_name_from_jwt(jwt: &spacetimedb::JwtClaims) -> Result<String, String> {
 	let payload: serde_json::Value = serde_json::from_str(jwt.raw_payload())
 		.map_err(|e| format!("invalid JWT payload JSON: {e}"))?;
@@ -427,7 +438,7 @@ fn display_name_from_jwt(jwt: &spacetimedb::JwtClaims) -> Result<String, String>
 	Ok(username.to_string())
 }
 
-/// BitAuth JWT `sub` parsed as the stable BitCraft player id.
+/// Login JWT `sub` parsed as the stable BitCraft player id.
 fn player_id_from_jwt(jwt: &spacetimedb::JwtClaims) -> Result<u64, String> {
 	let raw = jwt.subject().trim();
 	if raw.is_empty() {

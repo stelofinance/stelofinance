@@ -6,6 +6,7 @@ use topcoat::{
 	font::{Font, font},
 	metadata::Metadata,
 	router::{Router, RouterBuilderDiscoverExt, Slot, layout, module_router, page},
+	runtime::RuntimeLayer,
 	tailwind,
 	view::{View, view},
 };
@@ -18,7 +19,7 @@ mod health;
 mod login;
 mod logout;
 
-use crate::auth::bitauth::BitAuth;
+use crate::auth::oidc::OidcAuth;
 use crate::auth::cookies::{COOKIE_REFRESH, COOKIE_TOKEN, get_cookie};
 use crate::stdb::StdbState;
 use crate::ui::{discord, github, logo_colored, nintron, public_footer, public_nav, right_arrow};
@@ -49,14 +50,15 @@ const SOURCE_CODE_PRO: Font = font! {
 
 /// Build the HTTP router for the lite edge.
 ///
-/// Requires BitAuth env (`BITAUTH_CLIENT_ID`, `BITAUTH_CLIENT_SECRET`,
-/// `BITAUTH_REDIRECT_URL`, …); refuses to start if discovery/config fails.
+/// Requires the user login OIDC env (`OIDC_ISSUER`, `OIDC_CLIENT_ID`,
+/// `OIDC_CLIENT_SECRET`, `OIDC_REDIRECT_URL`; see [`OidcAuth::from_env`]);
+/// refuses to start if discovery/config fails.
 ///
 /// STDB: `STDB_HOST` + `STDB_DATABASE` (defaults: local standalone + `stelofinance`).
 pub async fn router() -> Router {
-	let bitauth = BitAuth::from_env()
+	let oidc = OidcAuth::from_env()
 		.await
-		.unwrap_or_else(|e| panic!("BitAuth required to start: {e}"));
+		.unwrap_or_else(|e| panic!("OIDC login config required to start: {e}"));
 	let stdb = StdbState::from_env();
 	eprintln!(
 		"stdb: host={} database={} (einro token-keyed pool)",
@@ -67,7 +69,10 @@ pub async fn router() -> Router {
 		.discover()
 		.layer(CookieLayer::new())
 		.layer(headers::SecurityHeadersLayer)
-		.with(bitauth)
+		// Topcoat runtime (step-3 trial): shards, procedures, `live!` sockets.
+		// App layers above run first, as the runtime docs require.
+		.layer(RuntimeLayer::new())
+		.with(oidc)
 		.with(stdb)
 		.assets(
 			AssetBundle::load()
@@ -97,6 +102,8 @@ async fn root_layout(cx: &Cx, slot: Slot<'_>) -> Result<impl View> {
                     "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.2/bundles/datastar.js"
                 ))
             ></script>
+            // Topcoat runtime (step-3 trial), alongside Datastar.
+            topcoat::runtime::script()
             topcoat::dev::script()
         </head>
         <body class="bg-neutral-900 font-source-code-pro text-white">

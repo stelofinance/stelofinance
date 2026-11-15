@@ -3,13 +3,14 @@
 mod apps;
 mod updates;
 
+use crate::auth::oidc::OidcAuth;
 use crate::auth::require_user;
 use crate::stdb::acquire_user_db;
 use crate::stdb::apps::fetch_my_apps;
 use apps::{app_forms, my_apps_list};
 use topcoat::{
 	Result,
-	context::Cx,
+	context::{Cx, context},
 	metadata::Metadata,
 	router::{error::internal_server_error, page},
 	view::{View, view},
@@ -22,6 +23,10 @@ async fn me(cx: &Cx) -> Result<impl View> {
 	let data = fetch_my_apps(conn.get())
 		.await
 		.map_err(internal_server_error)?;
+	let signed_in = match context::<OidcAuth>(cx).provider_name() {
+		Some(name) => format!("Signed in with {name}"),
+		None => "Signed in".to_owned(),
+	};
 	let signals = "{appName:'',appError:'',appToken:'',appMintName:'',appMintId:'',appCopied:false,mintingApp:false,creatingApp:false,replacingApp:false}";
 
 	Ok(view! {
@@ -36,7 +41,7 @@ async fn me(cx: &Cx) -> Result<impl View> {
             class="rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-3 sm:px-4 sm:py-4"
         >
             <p class="truncate text-xl font-medium">(user.bitcraft_username.clone())</p>
-            <p class="mt-1 text-sm text-neutral-300">"Signed in with BitAuth"</p>
+            <p class="mt-1 text-sm text-neutral-300">(signed_in)</p>
             if user.is_admin {
                 <a
                     href="/app/admin"

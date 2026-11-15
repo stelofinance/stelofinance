@@ -1,4 +1,4 @@
-pub mod bitauth;
+pub mod oidc;
 pub mod cookies;
 pub mod redirect;
 pub mod session;

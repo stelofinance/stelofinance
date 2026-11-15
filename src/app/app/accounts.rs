@@ -1,8 +1,7 @@
-//! `GET/POST /app/accounts` — portfolio + create. Live patches: `updates`.
+//! `GET/POST /app/accounts` — portfolio + create. Live list: the `list` shard.
 
 mod account_id;
 mod list;
-mod updates;
 
 use crate::auth::require_user;
 use crate::domain::{has_primary_on_ledger, parse_kind};
@@ -49,7 +48,6 @@ async fn page(cx: &Cx) -> Result<impl View> {
         id="page-content"
         class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10"
         data-signals=(signals)
-        data-init="@get('/app/accounts/updates', {retry: 'always'})"
     >
         page_header(
             can_create: !data.ledgers.is_empty(),
@@ -60,12 +58,12 @@ async fn page(cx: &Cx) -> Result<impl View> {
             username: user.bitcraft_username.clone(),
             is_admin: user.is_admin
         )
-        accounts_list(rows: data.accounts)
+        accounts_list()
     </main>
 })
 }
 
-/// `POST /app/accounts` — command only. List updates via `/updates` subscription.
+/// `POST /app/accounts` — command only. The live `accounts_list` shard shows the new row.
 #[route(POST)]
 async fn create(cx: &Cx, Signals(form): Signals<CreateAccountSignals>) -> Result<PatchSignals> {
 	let user = require_user(cx).await?;

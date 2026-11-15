@@ -66,6 +66,15 @@
           rustTarget = pkgs.stdenv.hostPlatform.rust.rustcTarget;
 
           spacetimedb = pkgs.callPackage ./nix/spacetimedb.nix { };
+
+          # `spacetime build` runs `wasm-opt -all` when it is on PATH. Binaryen
+          # 133's `-all` includes the compact import section, which the
+          # SpacetimeDB 2.15 CLI cannot parse ("invalid leading byte (0x7e) for
+          # external kind"), so publish and generate fail. Appending the disable
+          # flag overrides `-all`. Drop this once the CLI parses compact imports.
+          wasm-opt = pkgs.writeShellScriptBin "wasm-opt" ''
+            exec ${pkgs.binaryen}/bin/wasm-opt "$@" --disable-compact-imports
+          '';
           topcoat-cli = pkgs.callPackage ./nix/topcoat-cli.nix { inherit rustPlatform; };
 
           # The spacetime CLI saves $XDG_CONFIG_HOME/spacetime/cli.toml and panics
@@ -132,7 +141,7 @@
 
             nativeBuildInputs = [
               pkgs.git
-              pkgs.binaryen
+              wasm-opt
               spacetimedb
             ];
 
@@ -249,7 +258,7 @@
 
               spacetimedb
               # `spacetime build --release` runs wasm-opt when it is on PATH.
-              pkgs.binaryen
+              wasm-opt
 
               topcoat-cli
               # The edge build.rs looks up `tailwindcss` on PATH (Topcoat Tailwind feature).

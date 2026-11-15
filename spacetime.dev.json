@@ -1,4 +1,7 @@
 {
   "database": "stelofinance",
-  "server": "local"
+  "server": "local",
+  "env": {
+    "USER_OIDC_ISSUER": "http://127.0.0.1:9090/"
+  }
 }

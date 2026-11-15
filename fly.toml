@@ -5,14 +5,17 @@ app = "stelofinance"
 primary_region = "iad"
 
 # Stateless Topcoat edge. Secrets stay on the app via `fly secrets` (not here):
-# BITAUTH_CLIENT_SECRET
+# OIDC_CLIENT_SECRET
 [env]
 	PORT = "8080"
 	HOST = "0.0.0.0"
 	ENV = "prod"
-	BITAUTH_ISSUER = "https://auth.trinit.is/"
-	BITAUTH_CLIENT_ID = "nintron-stelofinance"
-	BITAUTH_REDIRECT_URL = "https://stelo.finance/auth/bitauth/callback"
+	# User login provider. OIDC_ISSUER must equal the module's USER_OIDC_ISSUER
+	# (set in .github/workflows/deploy.yaml).
+	OIDC_ISSUER = "https://auth.trinit.is/"
+	OIDC_CLIENT_ID = "nintron-stelofinance"
+	OIDC_REDIRECT_URL = "https://stelo.finance/auth/oidc/callback"
+	OIDC_PROVIDER_NAME = "BitAuth"
 	STDB_HOST = "https://maincloud.spacetimedb.com"
 	STDB_DATABASE = "stelofinance-prod"
 

@@ -66,7 +66,7 @@ pub async fn create_user_account(
 /// Live `my_accounts` subscription. Publishes a full snapshot on a watch slot
 /// (latest-wins) for real row changes (`Reducer` / `Transaction`), not
 /// subscribe-apply inserts. Multiple row callbacks in one transaction collapse
-/// to one SSE patch.
+/// to one emitted render.
 ///
 /// Drop unsubscribes and unregisters callbacks.
 pub struct LiveAccounts {
@@ -85,16 +85,12 @@ impl LiveAccounts {
 
 	/// Subscribe and publish snapshots on `tx` (latest-wins).
 	///
-	/// Several row callbacks from one reducer/transaction overwrite the same
-	/// slot; the SSE task reads once and sends a single Datastar patch.
-	///
-	/// `snapshot_on_applied`: publish the current cache when the subscription
-	/// is applied (SSE reconnect / `Last-Event-Id`). First page load should pass
-	/// `false` — SSR is already fresh.
+	/// The first value is the applied subscription (the current rows); each
+	/// later value is a real change. Several row callbacks from one
+	/// reducer/transaction overwrite the same slot, so the reader sees one.
 	pub fn start(
 		pooled: PooledConn<StdbConn>,
 		tx: tokio::sync::watch::Sender<Option<Vec<MyAccountRow>>>,
-		snapshot_on_applied: bool,
 	) -> Result<Self, StdbError> {
 		let send_snapshot: Arc<dyn Fn(Vec<MyAccountRow>) + Send + Sync> = {
 			let tx = tx.clone();
@@ -140,11 +136,7 @@ impl LiveAccounts {
 			.subscription_builder()
 			.on_applied({
 				let send = Arc::clone(&send_snapshot);
-				move |ctx| {
-					if snapshot_on_applied {
-						send(ctx.db().my_accounts().iter().collect());
-					}
-				}
+				move |ctx| send(ctx.db().my_accounts().iter().collect())
 			})
 			.on_error(move |_ctx, err| {
 				eprintln!("accounts live subscribe error: {err}");
