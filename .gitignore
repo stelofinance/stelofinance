@@ -9,7 +9,6 @@ result
 
 # SpacetimeDB / Rust module
 spacetimedb/target/
-dev-oidc/target/
 spacetime.local.json
 spacetime.*.local.json
 # StDB client bindings

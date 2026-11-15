@@ -1,6 +1,12 @@
 //! Local OIDC provider for development: sign in to Stelo as any username,
 //! without the production login provider.
 //!
+//! Debug builds only (`main.rs` declares this module under
+//! `cfg(debug_assertions)`), so release builds, including production, do not
+//! contain it. It shares the edge's process and tokio runtime and nothing else:
+//! it has its own listener and does not touch the rest of the edge. The edge
+//! talks to it over HTTP like any other provider.
+//!
 //! It implements the subset of OIDC the edge (`src/auth/oidc.rs`) and
 //! SpacetimeDB use: discovery, JWKS, the authorization-code flow with PKCE,
 //! and refresh tokens. ID tokens carry the claims the module reads
@@ -60,8 +66,9 @@ const MAX_RECENT: usize = 10;
 type Res = Response<Full<Bytes>>;
 type Params = HashMap<String, String>;
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn Error>> {
+/// Bind the provider's listener and serve it on a background task. Returns
+/// once it is accepting connections, so the edge's OIDC discovery can reach it.
+pub async fn start() -> Result<(), Box<dyn Error>> {
 	let mut issuer = std::env::var("DEV_OIDC_ISSUER").unwrap_or_else(|_| DEFAULT_ISSUER.into());
 	if !issuer.ends_with('/') {
 		issuer.push('/');
@@ -79,7 +86,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
 		.await
 		.map_err(|e| format!("bind {authority}: {e}"))?;
 	eprintln!("dev-oidc: issuer {issuer}");
-	serve(listener, provider).await
+	tokio::spawn(async move {
+		if let Err(e) = serve(listener, provider).await {
+			eprintln!("dev-oidc: stopped: {e}");
+		}
+	});
+	Ok(())
 }
 
 async fn serve(listener: TcpListener, provider: Arc<Provider>) -> Result<(), Box<dyn Error>> {
@@ -651,7 +663,7 @@ mod tests {
 		serde_json::from_slice(&bytes).unwrap()
 	}
 
-	/// The edge's client (`src/auth/oidc.rs`, `openidconnect` 4) against a
+	/// The edge's client library (`openidconnect` 4, as in `src/auth/oidc.rs`) against a
 	/// running server: discovery, PKCE login, ID token checks, refresh.
 	#[tokio::test]
 	async fn edge_client_round_trip() {

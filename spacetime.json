@@ -6,6 +6,6 @@
         "USER_OIDC_ISSUER": "http://127.0.0.1:9090/"
     },
     "dev": {
-        "run": "task edge"
+        "run": "PORT=8080 topcoat dev"
     }
 }

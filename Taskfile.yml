@@ -1,12 +1,10 @@
 version: "3"
 
-dotenv: [".env"]
+# `.env` is not loaded here on purpose: the edge loads it itself (debug builds),
+# and loading it into the shell would leak it into every `spacetime` command
+# run from a task (see AGENTS.md).
 
 tasks:
-  live:
-    desc: SpacetimeDB + dev OIDC provider + module watch + edge
-    deps: [stdb, oidc, _live]
-
   stdb:
     desc: Local SpacetimeDB
     cmds:
@@ -17,41 +15,9 @@ tasks:
     cmds:
       - spacetime dev --server-only -y
 
-  oidc:
-    desc: Local OIDC provider (sign in as any username; see dev-oidc/src/main.rs)
-    cmds:
-      - cargo run --quiet --manifest-path dev-oidc/Cargo.toml
-
   edge:
-    desc: Topcoat edge
+    desc: Topcoat edge (with the dev OIDC provider on :9090)
     env:
       PORT: "8080"
     cmds:
       - topcoat dev
-
-  _live:
-    internal: true
-    cmds:
-      - |
-        n=0
-        until spacetime server ping local >/dev/null 2>&1; do
-          n=$((n + 1))
-          if [ "$n" -ge 120 ]; then
-            echo "timed out waiting for SpacetimeDB"
-            exit 1
-          fi
-          sleep 0.25
-        done
-      # The edge runs OIDC discovery at startup and exits if it fails, and the
-      # first `task oidc` run compiles the provider.
-      - |
-        n=0
-        until curl -sf "${OIDC_ISSUER%/}/.well-known/openid-configuration" >/dev/null; do
-          n=$((n + 1))
-          if [ "$n" -ge 600 ]; then
-            echo "timed out waiting for the OIDC provider at $OIDC_ISSUER"
-            exit 1
-          fi
-          sleep 0.5
-        done
-      - spacetime dev -y

@@ -5,18 +5,33 @@
 
 [dependencies]
 	base64 = "0.22"
+	bytes = "1"
 	futures-core = "0.3"
 	futures-util = "0.3"
 	getrandom = "0.3"
+	dotenvy = "0.15"
+	http-body-util = "0.1"
+	hyper = { version = "1", features = ["server", "http1"] }
+	hyper-util = { version = "0.1", features = ["tokio"] }
 	openidconnect = "4.0.1"
 	reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+	rsa = { version = "0.9", features = ["sha2", "getrandom"] }
 	serde = { version = "1", features = ["derive"] }
+	serde_json = "1"
+	serde_urlencoded = "0.7"
 	spacetimedb-sdk = "=2.15.0"
-	tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+	tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "sync", "time", "net"] }
 	topcoat = { version = "0.12.1", features = ["tailwind", "icon-iconify", "datastar"] }
 
 [dev-dependencies]
 	tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+
+# dev-oidc (`src/dev_oidc.rs`) generates its RSA signing key on first run,
+# which is very slow unoptimized.
+[profile.dev.package.rsa]
+	opt-level = 3
+[profile.dev.package.num-bigint-dig]
+	opt-level = 3
 
 [build-dependencies]
 	topcoat = { version = "0.12.1", default-features = false, features = [
