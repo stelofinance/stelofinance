@@ -318,9 +318,9 @@ pub(crate) fn require_registered_user(ctx: &ReducerContext) -> Result<(), String
 }
 
 /// Registered human **or** app principal.
-// TODO: Technically we don't delete apps or users, so if the client even connected they
-// MUST exist... I guess it's extra safety for now. We also could return the caller so
-// later things can use it rather than a refresh.
+// Apps can be deleted (`delete_app`) while their connection is still open, so this
+// check is what locks a deleted app out. We also could return the caller so later
+// things can use it rather than a refresh.
 pub(crate) fn require_principal(ctx: &ReducerContext) -> Result<(), String> {
 	let sender = ctx.sender();
 	if ctx.db.user().id().find(&sender).is_some() {

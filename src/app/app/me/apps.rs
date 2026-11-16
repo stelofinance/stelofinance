@@ -1,19 +1,31 @@
-//! Live apps list shard, token sheet, and the `token` procedure.
+//! Live apps list shard, token sheet, and the `token` / `delete` procedures.
 
 use crate::auth::require_user;
 use crate::domain::{format_rel_time, unix_now_micros};
 use crate::module_bindings::{AppTicketPurpose, MyAppRow, MyAppTicketRow};
 use crate::stdb::apps::{LiveMyApps, MyAppsData, mint_app_identity};
 use crate::stdb::{
-	LiveFeed, StdbState, acquire_user_db, create_user_app_ticket, replace_user_app_ticket,
+	LiveFeed, StdbState, acquire_user_db, create_user_app_ticket, delete_user_app,
+	replace_user_app_ticket,
 };
 use crate::ui::runtime::copy_button;
+use spacetimedb_sdk::Identity;
 use topcoat::{
 	Result,
 	context::{Cx, context},
-	runtime::{Event, Expr, Signal, connected, procedure, record, shard},
+	runtime::{Event, Expr, Signal, connected, procedure, record, shard, signal},
 	view::{View, component, emit, live, view},
 };
+
+/// App names: ASCII letters and digits, `MIN..=MAX` long. The module enforces
+/// the same rule (`spacetimedb/src/apps.rs`); this only gives a friendlier error.
+const MIN_APP_NAME_LEN: usize = 3;
+const MAX_APP_NAME_LEN: usize = 32;
+
+fn valid_app_name(name: &str) -> bool {
+	(MIN_APP_NAME_LEN..=MAX_APP_NAME_LEN).contains(&name.len())
+		&& name.bytes().all(|b| b.is_ascii_alphanumeric())
+}
 
 /// The page's signals, only used inside `$(...)` by the live list so that
 /// changing them does not re-render it. It gets `mint_id`, never `token`:
@@ -169,6 +181,9 @@ async fn app_row(
 	error: Signal<String>,
 ) -> Result<impl View> {
 	let app_name = app.name.clone();
+	let app_id = app.id.to_hex().to_string();
+	let confirming = signal(cx, || false);
+	let deleting = signal(cx, || false);
 	Ok(view! {
     <div
         class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2.5"
@@ -176,28 +191,82 @@ async fn app_row(
         <div class="min-w-0">
             <p class="truncate text-sm text-neutral-100">(app.name.clone())</p>
             <p class="mt-0.5 truncate font-mono text-xs text-neutral-500">
-                (app.id.to_hex().to_string())
+                (app_id.clone())
             </p>
         </div>
-        <button
-            type="button"
-            class="cursor-pointer text-sm text-neutral-300 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-            :disabled=$(if creating.get() {
-                true
-            } else if replacing.get() {
-                true
-            } else {
-                mint_id.get() != ""
-            })
-            @click=$(|_e| {
-                replacing.set(true);
-                creating.set(false);
-                error.set("".to_owned());
-                name.set(app_name.clone());
-            })
+        <div class="flex flex-wrap items-center gap-3" :hidden=$(confirming.get())>
+            <button
+                type="button"
+                class="cursor-pointer text-sm text-neutral-300 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                :disabled=$(if creating.get() {
+                    true
+                } else if replacing.get() {
+                    true
+                } else {
+                    mint_id.get() != ""
+                })
+                @click=$(|_e| {
+                    replacing.set(true);
+                    creating.set(false);
+                    error.set("".to_owned());
+                    name.set(app_name.clone());
+                })
+            >
+                "Replace"
+            </button>
+            <button
+                type="button"
+                class="cursor-pointer text-sm text-red-400 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
+                :disabled=$(if creating.get() {
+                    true
+                } else if replacing.get() {
+                    true
+                } else {
+                    mint_id.get() != ""
+                })
+                @click=$(|_e| {
+                    confirming.set(true);
+                    error.set("".to_owned());
+                })
+            >
+                "Delete"
+            </button>
+        </div>
+        <div
+            class="flex w-full flex-wrap items-center justify-between gap-2"
+            :hidden=$(!confirming.get())
         >
-            "Replace"
-        </button>
+            <p class="text-sm text-neutral-300">
+                "Delete this app? Its account roles are removed and its token stops working."
+            </p>
+            <div class="flex flex-wrap items-center gap-2">
+                <button
+                    type="button"
+                    class="cursor-pointer rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 hover:border-neutral-500 hover:text-white"
+                    @click=$(|_e| confirming.set(false))
+                >
+                    "Cancel"
+                </button>
+                <button
+                    type="button"
+                    class="cursor-pointer rounded-md bg-red-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                    :disabled=$(deleting.get())
+                    @click=$(async |_e| {
+                        deleting.set(true);
+                        let result = delete_app(app_id.clone()).await;
+                        deleting.set(false);
+                        if result.is_ok() {
+                            confirming.set(false);
+                            error.set("".to_owned());
+                        } else {
+                            error.set(result.unwrap_err());
+                        }
+                    })
+                >
+                    "Delete app"
+                </button>
+            </div>
+        </div>
     </div>
 })
 }
@@ -229,10 +298,13 @@ pub async fn app_forms(
             class="mt-4 w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-400"
             :value=$(name.get())
             @input=$(|e: Event| name.set(e.target.value))
-            maxlength="64"
+            minlength="3"
+            maxlength="32"
+            pattern="[A-Za-z0-9]+"
             placeholder="App name"
             autocomplete="off"
         >
+        <p class="mt-1 text-xs text-neutral-500">"3–32 letters and numbers."</p>
         <div class="mt-4 flex flex-wrap gap-2">
             <button
                 type="button"
@@ -407,8 +479,12 @@ async fn mint_app_token(
 		return Ok(Err("Your session expired. Reload the page.".into()));
 	}
 	let name = name.trim().to_owned();
-	if name.is_empty() || name.len() > 64 {
-		return Ok(Err("Enter an app name (max 64 characters).".into()));
+	// Replace names an existing app, which may predate the name rules; the
+	// module checks it exists and is yours.
+	if !replacing && !valid_app_name(&name) {
+		return Ok(Err(format!(
+			"App names are {MIN_APP_NAME_LEN}–{MAX_APP_NAME_LEN} letters and numbers (no spaces or symbols)."
+		)));
 	}
 
 	let stdb = context::<StdbState>(cx);
@@ -450,4 +526,22 @@ async fn mint_app_token(
 		name,
 		id: minted.identity,
 	}))
+}
+
+/// `POST /app/me/apps/delete` — delete an app the caller owns (the module enforces ownership).
+#[procedure("/app/me/apps/delete")]
+async fn delete_app(cx: &Cx, id: String) -> Result<std::result::Result<bool, String>> {
+	if require_user(cx).await.is_err() {
+		return Ok(Err("Your session expired. Reload the page.".into()));
+	}
+	let Ok(id) = Identity::from_hex(id.trim()) else {
+		return Ok(Err("Invalid app.".into()));
+	};
+	let Ok(conn) = acquire_user_db(cx).await else {
+		return Ok(Err("Your session expired. Reload the page.".into()));
+	};
+	Ok(delete_user_app(conn.get(), id)
+		.await
+		.map(|()| true)
+		.map_err(|e| e.user_message().to_owned()))
 }

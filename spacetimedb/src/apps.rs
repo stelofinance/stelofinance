@@ -6,7 +6,10 @@ use spacetimedb::{
 use std::time::Duration;
 
 const TICKET_TTL: Duration = Duration::from_secs(15 * 60);
-const MAX_APP_NAME_LEN: usize = 64;
+/// App names are ASCII alphanumeric, `MIN_APP_NAME_LEN..=MAX_APP_NAME_LEN` long.
+/// Keep in sync with `src/app/app/me/apps.rs` (`valid_app_name`).
+const MIN_APP_NAME_LEN: usize = 3;
+const MAX_APP_NAME_LEN: usize = 32;
 
 // ---------------------------------------------------------------------------
 // Ticket reducers (human user)
@@ -30,7 +33,7 @@ pub fn create_app_ticket(ctx: &ReducerContext, name: String, sub: String) -> Res
 #[reducer]
 pub fn replace_app_ticket(ctx: &ReducerContext, name: String, sub: String) -> Result<(), String> {
 	require_registered_user(ctx)?;
-	let name = normalize_name(name)?;
+	let name = name.trim().to_string();
 	let sub = normalize_sub(sub)?;
 
 	let app = ctx
@@ -44,6 +47,49 @@ pub fn replace_app_ticket(ctx: &ReducerContext, name: String, sub: String) -> Re
 	}
 
 	upsert_ticket(ctx, AppTicketPurpose::Replace, name, sub)
+}
+
+/// Delete an app you own. Its account grants and any open ticket for its name go
+/// with it; the app's identity can no longer connect (no app row, no ticket).
+#[reducer]
+pub fn delete_app(ctx: &ReducerContext, id: Identity) -> Result<(), String> {
+	require_registered_user(ctx)?;
+	let app = ctx
+		.db
+		.app()
+		.id()
+		.find(&id)
+		.ok_or_else(|| "app not found".to_string())?;
+	if app.created_by != ctx.sender() {
+		return Err("only the app owner can delete it".to_string());
+	}
+
+	let grants: Vec<u64> = ctx
+		.db
+		.account_member()
+		.member_id()
+		.filter(&id)
+		.map(|m| m.id)
+		.collect();
+	for grant in &grants {
+		ctx.db.account_member().id().delete(grant);
+	}
+
+	// A pending Replace ticket would otherwise fail on connect ("app not found").
+	if let Some(ticket) = ctx.db.app_ticket().name().find(&app.name) {
+		ctx.db.app_ticket().id().delete(&ticket.id);
+	}
+
+	ctx.db.app().id().delete(&id);
+
+	log::info!(
+		"app deleted name={} id={} by={} grants_removed={}",
+		app.name,
+		id,
+		app.created_by,
+		grants.len()
+	);
+	Ok(())
 }
 
 /// Scheduled cleanup when a ticket's `expires_at` fires (host deletes the row first).
@@ -261,8 +307,13 @@ fn normalize_name(name: String) -> Result<String, String> {
 	if name.is_empty() {
 		return Err("app name required".to_string());
 	}
-	if name.len() > MAX_APP_NAME_LEN {
-		return Err(format!("app name too long (max {MAX_APP_NAME_LEN})"));
+	if name.len() < MIN_APP_NAME_LEN || name.len() > MAX_APP_NAME_LEN {
+		return Err(format!(
+			"app name must be {MIN_APP_NAME_LEN}-{MAX_APP_NAME_LEN} characters"
+		));
+	}
+	if !name.bytes().all(|b| b.is_ascii_alphanumeric()) {
+		return Err("app name may only contain letters and numbers".to_string());
 	}
 	Ok(name)
 }

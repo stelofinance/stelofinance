@@ -5,11 +5,11 @@ use std::sync::Arc;
 use crate::einro::PooledConn;
 use crate::module_bindings::{
 	AppSearchHit, MyAppRow, MyAppTicketRow, MyAppTicketsTableAccess, MyAppsTableAccess,
-	SubscriptionHandle as ModuleSubHandle, app_search, create_app_ticket,
+	SubscriptionHandle as ModuleSubHandle, app_search, create_app_ticket, delete_app,
 	my_app_ticketsQueryTableAccess, my_appsQueryTableAccess, replace_app_ticket,
 };
 use serde::Deserialize;
-use spacetimedb_sdk::{DbContext, SubscriptionHandle, Table, TableWithPrimaryKey};
+use spacetimedb_sdk::{DbContext, Identity, SubscriptionHandle, Table, TableWithPrimaryKey};
 
 use super::StdbState;
 use super::call::{StdbError, call};
@@ -92,6 +92,16 @@ pub async fn replace_user_app_ticket(
 		.db()
 		.reducers
 		.replace_app_ticket_then(name, sub, move |_, r| reply.send(r));
+	pending.after_send(sent).await
+}
+
+/// Delete an app the caller owns (the module enforces ownership).
+pub async fn delete_user_app(conn: &StdbConn, id: Identity) -> Result<(), StdbError> {
+	let (reply, pending) = call("delete_app");
+	let sent = conn
+		.db()
+		.reducers
+		.delete_app_then(id, move |_, r| reply.send(r));
 	pending.after_send(sent).await
 }
 

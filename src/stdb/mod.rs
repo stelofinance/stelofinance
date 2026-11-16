@@ -18,7 +18,7 @@ mod transfer;
 pub use accounts::{LiveAccounts, create_user_account, fetch_accounts_page};
 pub use activity::{ActivitySnapshot, LiveActivity, fetch_activity_page};
 pub use admin::create_user_ledger;
-pub use apps::{create_user_app_ticket, replace_user_app_ticket, search_apps};
+pub use apps::{create_user_app_ticket, delete_user_app, replace_user_app_ticket, search_apps};
 pub use call::StdbError;
 pub use config::StdbConfig;
 pub use connector::{StdbConn, StdbConnector};
