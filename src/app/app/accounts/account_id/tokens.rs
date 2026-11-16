@@ -1,27 +1,35 @@
-//! Create / revoke API tokens on an account (Admin+).
+//! Create API tokens on an account (Admin+). Revoking lives in the live
+//! token list (`live.rs`).
 
-use super::account_id;
-use crate::auth::require_user;
+use crate::stdb::account::create_account_api_token;
 use crate::stdb::acquire_user_db;
-use crate::stdb::{account::create_account_api_token, account::revoke_account_api_tokens};
-use serde::{Deserialize, Serialize};
+use crate::ui::runtime::copy_button;
 use topcoat::{
 	Result,
 	context::Cx,
-	datastar::{PatchSignals, Signals},
-	router::route,
+	runtime::{Event, Signal, procedure, signal},
 	view::{View, component, view},
 };
 
-/// Create + one-time secret sheet. Lives outside `#account-home` so remorphs keep it.
+/// Create form + one-time secret sheet. Outside the live region so the form
+/// and the secret survive live updates. The secret exists only in `new_token`,
+/// which never enters a shard (signal values are sent with shard requests);
+/// the live region reads `has_token` instead.
 #[component]
-pub async fn token_forms(cx: &Cx, account_id: u64) -> Result<impl View> {
-	let create_url = format!("@post('/app/accounts/{account_id}/tokens')");
+pub async fn token_forms(
+	cx: &Cx,
+	account_id: u64,
+	creating_token: Signal<bool>,
+	new_token: Signal<String>,
+	has_token: Signal<bool>,
+	token_label: Signal<String>,
+	token_error: Signal<String>,
+) -> Result<impl View> {
+	let busy = signal(cx, || false);
 	Ok(view! {
     <section
         class="mt-4 rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5"
-        data-show="$creatingToken && !$newToken"
-        style="display: none"
+        :hidden=$(if creating_token.get() { new_token.get() != "" } else { true })
     >
         <h2 class="text-lg font-medium">"New token"</h2>
         <p class="mt-1 text-sm text-neutral-300">
@@ -30,40 +38,53 @@ pub async fn token_forms(cx: &Cx, account_id: u64) -> Result<impl View> {
         <input
             type="text"
             class="mt-4 w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-400"
-            data-bind="tokenLabel"
+            :value=$(token_label.get())
+            @input=$(|e: Event| token_label.set(e.target.value))
             maxlength="32"
             placeholder="Label (optional)"
             autocomplete="off"
         >
-        <p
-            class="mt-3 text-sm text-red-400"
-            data-show="$tokenError"
-            data-text="$tokenError"
-        ></p>
+        <p class="mt-3 text-sm text-red-400" :hidden=$(token_error.get().is_empty())>
+            $(token_error.get())
+        </p>
         <div class="mt-4 flex flex-wrap gap-2">
             <button
                 type="button"
                 class="cursor-pointer rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 hover:border-neutral-500 hover:text-white"
-                data-on:click="$creatingToken = false; $tokenLabel = ''; $tokenError = ''"
+                @click=$(|_e| {
+                    creating_token.set(false);
+                    token_label.set("".to_owned());
+                    token_error.set("".to_owned());
+                })
             >
                 "Cancel"
             </button>
             <button
                 type="button"
-                class="cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600"
-                data-on:click=(create_url)
-                data-indicator="creatingTokenBusy"
-                data-attr:disabled="$creatingTokenBusy"
+                class="cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50"
+                :disabled=$(busy.get())
+                @click=$(async |_e| {
+                    busy.set(true);
+                    let result = create_token(account_id, token_label.get()).await;
+                    busy.set(false);
+                    if result.is_ok() {
+                        token_error.set("".to_owned());
+                        new_token.set(result.unwrap());
+                        has_token.set(true);
+                        creating_token.set(false);
+                        token_label.set("".to_owned());
+                    } else {
+                        token_error.set(result.unwrap_err());
+                    }
+                })
             >
                 "Create"
             </button>
         </div>
     </section>
-
     <section
         class="mt-4 rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5"
-        data-show="$newToken"
-        style="display: none"
+        :hidden=$(new_token.get() == "")
     >
         <h2 class="text-lg font-medium">"Token created"</h2>
         <p class="mt-1 text-sm text-neutral-300">
@@ -74,22 +95,24 @@ pub async fn token_forms(cx: &Cx, account_id: u64) -> Result<impl View> {
         >
             <code
                 class="min-w-0 flex-1 truncate bg-neutral-900 px-3 py-2 text-sm text-anakiwa"
-                data-text="$newToken"
-            ></code>
-            <button
-                type="button"
-                class="shrink-0 cursor-pointer border-l border-neutral-800 px-3 text-xs text-neutral-300 hover:bg-neutral-900 hover:text-white"
-                data-on:click="window.navigator.clipboard.writeText($newToken); $tokenCopied = true"
-                data-on:click__delay.2000ms="$tokenCopied = false"
-                data-text="$tokenCopied ? 'Copied' : 'Copy'"
             >
-                "Copy"
-            </button>
+                $(new_token.get())
+            </code>
+            copy_button(
+                text: $(new_token.get()),
+                class: "shrink-0 cursor-pointer border-l border-neutral-800 px-3 text-xs text-neutral-300 hover:bg-neutral-900 hover:text-white"
+            )
         </div>
         <button
             type="button"
             class="mt-4 cursor-pointer rounded-md bg-neutral-800 px-4 py-2 text-sm hover:bg-neutral-700"
-            data-on:click="$newToken = ''; $creatingToken = false; $tokenLabel = ''; $tokenCopied = false; $tokenError = ''"
+            @click=$(|_e| {
+                new_token.set("".to_owned());
+                has_token.set(false);
+                creating_token.set(false);
+                token_label.set("".to_owned());
+                token_error.set("".to_owned());
+            })
         >
             "Done"
         </button>
@@ -97,82 +120,24 @@ pub async fn token_forms(cx: &Cx, account_id: u64) -> Result<impl View> {
 })
 }
 
-/// `POST /app/accounts/{account_id}/tokens` — mint; secret in `$newToken` only.
-#[route(POST)]
-async fn create_token(cx: &Cx, Signals(form): Signals<CreateTokenSignals>) -> Result<PatchSignals> {
-	let _user = require_user(cx).await?;
-	let account_id = *account_id(cx)?;
-	let label = form.token_label.trim().to_owned();
-	let conn = acquire_user_db(cx).await?;
-	match create_account_api_token(conn.get(), account_id, label).await {
-		Ok(secret) => PatchSignals::json(&TokenCreatedPatch {
-			token_error: String::new(),
-			new_token: secret,
-			creating_token: false,
-			token_label: String::new(),
-		}),
-		Err(e) => token_err(e.user_message()),
+/// Mint a token and return its secret (shown once, held only in a signal).
+#[procedure("/app/accounts/tokens/create")]
+async fn create_token(
+	cx: &Cx,
+	account_id: u64,
+	label: String,
+) -> Result<std::result::Result<String, String>> {
+	let Ok(conn) = acquire_user_db(cx).await else {
+		return Ok(Err("Your session expired. Reload the page.".into()));
+	};
+	// The input's `maxlength` is client-side only.
+	let label = label.trim();
+	if label.chars().count() > 32 {
+		return Ok(Err("Labels are at most 32 characters.".into()));
 	}
-}
-
-/// `POST /app/accounts/{account_id}/tokens/revoke`
-#[route(POST "/app/accounts/{account_id}/tokens/revoke")]
-async fn revoke(cx: &Cx, Signals(form): Signals<RevokeTokenSignals>) -> Result<PatchSignals> {
-	let _user = require_user(cx).await?;
-	let account_id = *account_id(cx)?;
-	if form.revoke_token_id == 0 {
-		return token_err("Pick a token to revoke.");
-	}
-	let conn = acquire_user_db(cx).await?;
-	match revoke_account_api_tokens(conn.get(), account_id, vec![form.revoke_token_id]).await {
-		Ok(()) => PatchSignals::json(&TokenRevokedPatch {
-			token_error: String::new(),
-			revoke_token_id: 0,
-		}),
-		Err(e) => token_err(e.user_message()),
-	}
-}
-
-#[derive(Debug, Deserialize)]
-struct CreateTokenSignals {
-	#[serde(default, rename = "tokenLabel")]
-	token_label: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct RevokeTokenSignals {
-	#[serde(default, rename = "revokeTokenId")]
-	revoke_token_id: u64,
-}
-
-#[derive(Serialize)]
-struct TokenCreatedPatch {
-	#[serde(rename = "tokenError")]
-	token_error: String,
-	#[serde(rename = "newToken")]
-	new_token: String,
-	#[serde(rename = "creatingToken")]
-	creating_token: bool,
-	#[serde(rename = "tokenLabel")]
-	token_label: String,
-}
-
-#[derive(Serialize)]
-struct TokenRevokedPatch {
-	#[serde(rename = "tokenError")]
-	token_error: String,
-	#[serde(rename = "revokeTokenId")]
-	revoke_token_id: u64,
-}
-
-#[derive(Serialize)]
-struct TokenErrorPatch {
-	#[serde(rename = "tokenError")]
-	token_error: String,
-}
-
-fn token_err(error: &str) -> Result<PatchSignals> {
-	PatchSignals::json(&TokenErrorPatch {
-		token_error: error.to_owned(),
-	})
+	Ok(
+		create_account_api_token(conn.get(), account_id, label.to_owned())
+			.await
+			.map_err(|e| e.user_message().to_owned()),
+	)
 }

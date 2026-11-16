@@ -58,16 +58,3 @@ pub(super) fn is_live_row_change(
 		spacetimedb_sdk::Event::Reducer(_) | spacetimedb_sdk::Event::Transaction
 	)
 }
-
-/// Wait for the next live snapshot. `None` when the sender is gone or the
-/// connection drops, so an SSE stream can end and let the browser reconnect
-/// on a fresh connection instead of hanging silently.
-pub async fn next_change<T>(
-	rx: &mut tokio::sync::watch::Receiver<T>,
-	conn: &StdbConn,
-) -> Option<()> {
-	tokio::select! {
-		changed = rx.changed() => changed.ok(),
-		() = conn.closed() => None,
-	}
-}

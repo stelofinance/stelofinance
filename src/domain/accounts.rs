@@ -174,7 +174,8 @@ pub fn group_by_ledger<'a>(
 	groups
 }
 
-/// The `'debit'` / `'credit'` token used for account kinds in Datastar signals.
+/// The `debit` / `credit` token used for account kinds in runtime signals and
+/// procedure arguments.
 pub fn kind_token(kind: AccountKind) -> &'static str {
 	match kind {
 		AccountKind::Debit => "debit",

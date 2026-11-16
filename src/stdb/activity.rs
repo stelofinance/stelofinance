@@ -69,16 +69,16 @@ pub struct LiveActivity {
 	tr_delete: Option<crate::module_bindings::MyTransfersDeleteCallbackId>,
 }
 
-impl LiveActivity {
-	/// The connection this subscription lives on.
-	pub fn conn(&self) -> &StdbConn {
+impl super::LiveSubscription for LiveActivity {
+	fn conn(&self) -> &StdbConn {
 		self.pooled.get()
 	}
+}
 
+impl LiveActivity {
 	pub fn start(
 		pooled: PooledConn<StdbConn>,
 		tx: tokio::sync::watch::Sender<Option<ActivitySnapshot>>,
-		snapshot_on_applied: bool,
 	) -> Result<Self, StdbError> {
 		let send_snapshot: Arc<dyn Fn(Vec<MyAccountRow>, Vec<MyTransferRow>) + Send + Sync> = {
 			let tx = tx.clone();
@@ -168,12 +168,10 @@ impl LiveActivity {
 			.on_applied({
 				let send = Arc::clone(&send_snapshot);
 				move |ctx| {
-					if snapshot_on_applied {
-						send(
-							ctx.db().my_accounts().iter().collect(),
-							ctx.db().my_transfers().iter().collect(),
-						);
-					}
+					send(
+						ctx.db().my_accounts().iter().collect(),
+						ctx.db().my_transfers().iter().collect(),
+					);
 				}
 			})
 			.on_error(move |_ctx, err| {

@@ -1,27 +1,21 @@
 //! Set / clear account webhook URL (Admin+).
 
-use super::account_id;
-use crate::auth::require_user;
 use crate::stdb::account::set_webhook;
 use crate::stdb::acquire_user_db;
-use serde::{Deserialize, Serialize};
 use topcoat::{
 	Result,
 	context::Cx,
-	datastar::{PatchSignals, Signals},
-	router::route,
+	runtime::{Event, procedure, record, signal},
 	view::{View, component, view},
 };
 
-/// Lives below API tokens. Input is signal-bound so remorphs of the token list stay out of the way.
+/// Lives below API tokens, outside the live region so the input keeps typing.
 #[component]
-pub async fn webhook_form(cx: &Cx, account_id: u64) -> Result<impl View> {
-	let save = format!(
-		"$webhookNotice = ''; $webhookError = ''; @post('/app/accounts/{account_id}/webhook')"
-	);
-	let clear = format!(
-		"$webhookUrl = ''; $webhookNotice = ''; $webhookError = ''; @post('/app/accounts/{account_id}/webhook')"
-	);
+pub async fn webhook_form(cx: &Cx, account_id: u64, initial_url: String) -> Result<impl View> {
+	let url = signal(cx, || initial_url.clone());
+	let notice = signal(cx, String::new);
+	let error = signal(cx, String::new);
+	let busy = signal(cx, || false);
 	Ok(view! {
     <section class="mt-10">
         <h2 class="text-sm font-medium uppercase tracking-wide text-neutral-400">
@@ -34,96 +28,105 @@ pub async fn webhook_form(cx: &Cx, account_id: u64) -> Result<impl View> {
             <input
                 type="url"
                 class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-400"
-                data-bind="webhookUrl"
+                :value=$(url.get())
+                @input=$(|e: Event| {
+                    url.set(e.target.value);
+                    notice.set("".to_owned());
+                })
                 placeholder="https://example.com/hooks/stelo"
                 autocomplete="off"
-                data-on:input="$webhookNotice = ''"
             >
             <button
                 type="button"
-                class="cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600"
-                data-on:click=(save)
-                data-indicator="savingWebhook"
+                class="cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50"
+                :disabled=$(busy.get())
+                @click=$(async |_e| {
+                    notice.set("".to_owned());
+                    error.set("".to_owned());
+                    busy.set(true);
+                    let result = save_webhook(account_id, url.get()).await;
+                    busy.set(false);
+                    if result.is_ok() {
+                        let saved = result.unwrap();
+                        url.set(saved.url);
+                        notice.set(saved.notice);
+                    } else {
+                        error.set(result.unwrap_err());
+                    }
+                })
             >
                 "Save"
             </button>
             <button
                 type="button"
-                class="cursor-pointer rounded-md border border-neutral-700 px-4 py-2 text-sm text-neutral-300 hover:border-neutral-500 hover:text-white"
-                data-on:click=(clear)
-                data-show="$webhookUrl"
-                data-indicator="savingWebhook"
-                style="display: none"
+                class="cursor-pointer rounded-md border border-neutral-700 px-4 py-2 text-sm text-neutral-300 hover:border-neutral-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                :hidden=$(url.get().is_empty())
+                :disabled=$(busy.get())
+                @click=$(async |_e| {
+                    url.set("".to_owned());
+                    notice.set("".to_owned());
+                    error.set("".to_owned());
+                    busy.set(true);
+                    let result = save_webhook(account_id, "".to_owned()).await;
+                    busy.set(false);
+                    if result.is_ok() {
+                        let saved = result.unwrap();
+                        url.set(saved.url);
+                        notice.set(saved.notice);
+                    } else {
+                        error.set(result.unwrap_err());
+                    }
+                })
             >
                 "Clear"
             </button>
         </div>
-        <p
-            class="mt-3 text-sm text-anakiwa"
-            data-show="$webhookNotice"
-            data-text="$webhookNotice"
-        ></p>
-        <p
-            class="mt-3 text-sm text-red-400"
-            data-show="$webhookError"
-            data-text="$webhookError"
-        ></p>
+        <p class="mt-3 text-sm text-anakiwa" :hidden=$(notice.get().is_empty())>
+            $(notice.get())
+        </p>
+        <p class="mt-3 text-sm text-red-400" :hidden=$(error.get().is_empty())>
+            $(error.get())
+        </p>
     </section>
 })
 }
 
-/// `POST /app/accounts/{account_id}/webhook` — set or clear (`None` if blank).
-#[route(POST)]
-async fn save_webhook(cx: &Cx, Signals(form): Signals<WebhookSignals>) -> Result<PatchSignals> {
-	let _user = require_user(cx).await?;
-	let account_id = *account_id(cx)?;
-	let trimmed = form.webhook_url.trim();
+/// What a save stored (`url` is empty when cleared) and the message to show.
+#[record]
+#[derive(Clone, Debug)]
+struct WebhookSaved {
+	url: String,
+	notice: String,
+}
+
+/// Set or clear (blank) the webhook. The module validates the URL.
+#[procedure("/app/accounts/webhook")]
+async fn save_webhook(
+	cx: &Cx,
+	account_id: u64,
+	url: String,
+) -> Result<std::result::Result<WebhookSaved, String>> {
+	let trimmed = url.trim();
 	let webhook = if trimmed.is_empty() {
 		None
 	} else {
 		Some(trimmed.to_owned())
 	};
-	let conn = acquire_user_db(cx).await?;
-	match set_webhook(conn.get(), account_id, webhook.clone()).await {
-		Ok(()) => {
-			let cleared = webhook.is_none();
-			PatchSignals::json(&WebhookPatch {
-				webhook_error: String::new(),
-				webhook_url: webhook.unwrap_or_default(),
-				webhook_notice: if cleared {
-					"Webhook cleared.".to_owned()
-				} else {
-					"Saved.".to_owned()
-				},
-			})
-		}
-		Err(e) => PatchSignals::json(&WebhookErrorPatch {
-			webhook_error: e.user_message().to_owned(),
-			webhook_notice: String::new(),
-		}),
-	}
-}
-
-#[derive(Debug, Deserialize)]
-struct WebhookSignals {
-	#[serde(default, rename = "webhookUrl")]
-	webhook_url: String,
-}
-
-#[derive(Serialize)]
-struct WebhookPatch {
-	#[serde(rename = "webhookError")]
-	webhook_error: String,
-	#[serde(rename = "webhookUrl")]
-	webhook_url: String,
-	#[serde(rename = "webhookNotice")]
-	webhook_notice: String,
-}
-
-#[derive(Serialize)]
-struct WebhookErrorPatch {
-	#[serde(rename = "webhookError")]
-	webhook_error: String,
-	#[serde(rename = "webhookNotice")]
-	webhook_notice: String,
+	let Ok(conn) = acquire_user_db(cx).await else {
+		return Ok(Err("Your session expired. Reload the page.".into()));
+	};
+	Ok(set_webhook(conn.get(), account_id, webhook.clone())
+		.await
+		.map(|()| {
+			let notice = if webhook.is_none() {
+				"Webhook cleared."
+			} else {
+				"Saved."
+			};
+			WebhookSaved {
+				url: webhook.unwrap_or_default(),
+				notice: notice.to_owned(),
+			}
+		})
+		.map_err(|e| e.user_message().to_owned()))
 }

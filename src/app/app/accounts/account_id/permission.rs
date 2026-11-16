@@ -8,6 +8,7 @@
 use crate::domain::parse_role;
 use crate::stdb::account::{grant_member, search_users};
 use crate::stdb::{acquire_user_db, search_apps};
+use crate::ui::runtime::search_input;
 use spacetimedb_sdk::Identity;
 use topcoat::{
 	Result,
@@ -241,14 +242,11 @@ pub async fn permission_panel(cx: &Cx, account_id: u64) -> Result<impl View> {
         </div>
         <div :hidden=$(!member_id.get().is_empty())>
             <div :hidden=$(is_app.get())>
-                <input
-                    type="text"
-                    class=(INPUT)
-                    placeholder="Search username…"
-                    autocomplete="off"
-                    :value=$(user_search.get())
-                    @input=$(|e: Event| user_search.set(e.target.value))
-                >
+                search_input(
+                    query: user_search.clone(),
+                    class: INPUT,
+                    placeholder: $("Search username…".to_owned())
+                )
                 user_results(
                     query: $(user_search.get()),
                     member_id: member_id.clone(),
@@ -257,14 +255,11 @@ pub async fn permission_panel(cx: &Cx, account_id: u64) -> Result<impl View> {
                 )
             </div>
             <div :hidden=$(!is_app.get())>
-                <input
-                    type="text"
-                    class=(INPUT)
-                    placeholder="Search app name…"
-                    autocomplete="off"
-                    :value=$(app_search.get())
-                    @input=$(|e: Event| app_search.set(e.target.value))
-                >
+                search_input(
+                    query: app_search.clone(),
+                    class: INPUT,
+                    placeholder: $("Search app name…".to_owned())
+                )
                 app_results(
                     query: $(app_search.get()),
                     member_id: member_id.clone(),

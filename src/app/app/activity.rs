@@ -1,19 +1,19 @@
-//! `GET /app/activity` — live transfer history. Live patches: `updates`.
+//! `GET /app/activity` — live transfer history. Live list: the `list` shard.
 
 mod finalize;
 mod list;
 mod present;
-mod updates;
 
 use crate::auth::require_user;
-use crate::domain::{selected_account_id, unix_now_micros};
+use crate::domain::selected_account_id;
 use crate::stdb::{acquire_user_db, fetch_activity_page};
-use list::activity_body;
+use list::{activity_body, needle};
 use topcoat::{
 	Result,
 	context::Cx,
 	metadata::Metadata,
 	router::{error::internal_server_error, page, query_params},
+	runtime::signal,
 	view::{View, view},
 };
 
@@ -35,17 +35,14 @@ async fn page(cx: &Cx) -> Result<impl View> {
 		.await
 		.map_err(internal_server_error)?;
 	let selected = selected_account_id(requested.as_deref(), &data.accounts);
-	let account_id = selected.map(|id| id.to_string()).unwrap_or_default();
-	let signals =
-		format!("{{accountId:'{account_id}',finalizeId:'',finalizeAction:'',finalizeError:''}}");
-	let now = unix_now_micros();
+	let filter = signal(cx, || selected.map(needle).unwrap_or_default());
+	let busy = signal(cx, || false);
+	let error = signal(cx, String::new);
 
 	Ok(view! {
     <main
         id="page-content"
         class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10"
-        data-signals=(signals)
-        data-init="@get('/app/activity/updates', {retry: 'always'})"
     >
         <div class="mb-6 flex items-center justify-between gap-3">
             <h1 class="text-2xl font-medium md:text-3xl">"Activity"</h1>
@@ -56,12 +53,10 @@ async fn page(cx: &Cx) -> Result<impl View> {
                 "Send"
             </a>
         </div>
-        activity_body(data: data, selected: selected, now_micros: now)
-        <p
-            class="mt-4 text-sm text-red-400"
-            data-show="$finalizeError"
-            data-text="$finalizeError"
-        ></p>
+        activity_body(filter: filter.clone(), busy: busy.clone(), error: error.clone())
+        <p class="mt-4 text-sm text-red-400" :hidden=$(error.get() == "")>
+            $(error.get())
+        </p>
     </main>
 })
 }

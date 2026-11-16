@@ -1,20 +1,23 @@
 //! Build a shareable payment-request link (Read+).
 
-use super::account_id;
-use crate::auth::require_user;
 use crate::domain::{MAX_MEMO_LEN, normalize_memo, parse_qty};
 use crate::stdb::account::fetch_account_home;
 use crate::stdb::acquire_user_db;
-use serde::{Deserialize, Serialize};
+use crate::ui::runtime::copy_button;
 use topcoat::{
 	Result,
 	context::Cx,
-	datastar::{PatchSignals, Signals},
-	router::route,
+	runtime::{Event, procedure, signal},
 	view::{View, component, view},
 };
 
-/// Amount + memo form. Lives outside remorph targets so typing survives `/updates`.
+/// Static suffix of the memo counter; keep in sync with `MAX_MEMO_LEN`.
+const MEMO_MAX: &str = "/64";
+
+const _: () = assert!(MAX_MEMO_LEN == 64);
+
+/// Amount + memo form, then the link once created. Owns its signals, and is
+/// outside the live region so typing survives live updates.
 #[component]
 pub async fn request_form(
 	cx: &Cx,
@@ -22,7 +25,11 @@ pub async fn request_form(
 	ledger_name: String,
 	debit: bool,
 ) -> Result<impl View> {
-	let create = format!("@post('/app/accounts/{account_id}/request')");
+	let amount = signal(cx, String::new);
+	let memo = signal(cx, String::new);
+	let link = signal(cx, String::new);
+	let error = signal(cx, String::new);
+	let busy = signal(cx, || false);
 	let helper = if debit {
 		"Share a link so someone can pay this account."
 	} else {
@@ -30,7 +37,7 @@ pub async fn request_form(
 	};
 	Ok(view! {
     <section class="mt-10">
-        <div data-show="!$requestLink">
+        <div :hidden=$(link.get() != "")>
             <h2 class="text-sm font-medium uppercase tracking-wide text-neutral-400">
                 "Request"
             </h2>
@@ -45,7 +52,8 @@ pub async fn request_form(
                     type="text"
                     inputmode="decimal"
                     class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-400"
-                    data-bind="requestAmount"
+                    :value=$(amount.get())
+                    @input=$(|e: Event| amount.set(e.target.value))
                     placeholder="0"
                     autocomplete="off"
                 >
@@ -65,15 +73,16 @@ pub async fn request_form(
                             "(optional)"
                         </span>
                     </p>
-                    <p
-                        class="text-xs text-neutral-400"
-                        data-text=(format!("$requestMemo.length + '/{MAX_MEMO_LEN}'"))
-                    ></p>
+                    <p class="text-xs text-neutral-400">
+                        $(memo.get().len())
+                        (MEMO_MAX)
+                    </p>
                 </div>
                 <input
                     type="text"
                     class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-400"
-                    data-bind="requestMemo"
+                    :value=$(memo.get())
+                    @input=$(|e: Event| memo.set(e.target.value))
                     maxlength=(MAX_MEMO_LEN)
                     placeholder="What's this for?"
                     autocomplete="off"
@@ -82,22 +91,33 @@ pub async fn request_form(
             <button
                 type="button"
                 class="mt-4 cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50"
-                data-on:click=(create)
-                data-indicator="creatingRequest"
-                data-attr:disabled="$creatingRequest || $requestAmount == ''"
+                :disabled=$(if busy.get() { true } else { amount.get() == "" })
+                @click=$(async |_e| {
+                    busy.set(true);
+                    let result = create_request_link(
+                        account_id,
+                        amount.get(),
+                        memo.get(),
+                    ).await;
+                    busy.set(false);
+                    if result.is_ok() {
+                        link.set(result.unwrap());
+                        error.set("".to_owned());
+                    } else {
+                        link.set("".to_owned());
+                        error.set(result.unwrap_err());
+                    }
+                })
             >
                 "Create link"
             </button>
-            <p
-                class="mt-3 text-sm text-red-400"
-                data-show="$requestError"
-                data-text="$requestError"
-            ></p>
+            <p class="mt-3 text-sm text-red-400" :hidden=$(error.get().is_empty())>
+                $(error.get())
+            </p>
         </div>
         <div
             class="rounded-lg border border-neutral-800 bg-neutral-950 p-4 sm:p-5"
-            data-show="$requestLink"
-            style="display: none"
+            :hidden=$(link.get() == "")
         >
             <h2 class="text-lg font-medium">"Payment link"</h2>
             <p class="mt-1 text-sm text-neutral-300">
@@ -108,29 +128,34 @@ pub async fn request_form(
             >
                 <code
                     class="min-w-0 flex-1 truncate bg-neutral-900 px-3 py-2 text-sm text-anakiwa"
-                    data-text="window.location.origin + $requestLink"
-                ></code>
-                <button
-                    type="button"
-                    class="shrink-0 cursor-pointer border-l border-neutral-800 px-3 text-xs text-neutral-300 hover:bg-neutral-900 hover:text-white"
-                    data-on:click="window.navigator.clipboard.writeText(window.location.origin + $requestLink); $requestCopied = true"
-                    data-on:click__delay.2000ms="$requestCopied = false"
-                    data-text="$requestCopied ? 'Copied' : 'Copy'"
                 >
-                    "Copy"
-                </button>
+                    $({
+                        let l = link.get();
+                        raw!("window.location.origin + ${l}", l.to_owned())
+                    })
+                </code>
+                copy_button(
+                    text: $(link.get()),
+                    origin: true,
+                    class: "shrink-0 cursor-pointer border-l border-neutral-800 px-3 text-xs text-neutral-300 hover:bg-neutral-900 hover:text-white"
+                )
             </div>
             <div class="mt-4 flex flex-wrap gap-2">
                 <a
                     class="cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600"
-                    data-attr:href="$requestLink"
+                    :href=$(link.get())
                 >
                     "Preview"
                 </a>
                 <button
                     type="button"
                     class="cursor-pointer rounded-md bg-neutral-800 px-4 py-2 text-sm hover:bg-neutral-700"
-                    data-on:click="$requestLink = ''; $requestAmount = ''; $requestMemo = ''; $requestError = ''; $requestCopied = false"
+                    @click=$(|_e| {
+                        link.set("".to_owned());
+                        amount.set("".to_owned());
+                        memo.set("".to_owned());
+                        error.set("".to_owned());
+                    })
                 >
                     "New"
                 </button>
@@ -140,72 +165,42 @@ pub async fn request_form(
 })
 }
 
-/// `POST /app/accounts/{account_id}/request` — path+query in `$requestLink`.
-#[route(POST)]
+/// Validate the form and return the link's path + query. Any Read+ member
+/// may build one; the account lookup only returns accounts they belong to.
+#[procedure("/app/accounts/request-link")]
 async fn create_request_link(
 	cx: &Cx,
-	Signals(form): Signals<RequestSignals>,
-) -> Result<PatchSignals> {
-	let _user = require_user(cx).await?;
-	let account_id = *account_id(cx)?;
-	let conn = acquire_user_db(cx).await?;
+	account_id: u64,
+	amount: String,
+	memo: String,
+) -> Result<std::result::Result<String, String>> {
+	let Ok(conn) = acquire_user_db(cx).await else {
+		return Ok(Err("Your session expired. Reload the page.".into()));
+	};
 	let data = match fetch_account_home(conn.get(), account_id).await {
 		Ok(d) => d,
-		Err(e) => return request_err(e.user_message()),
+		Err(e) => return Ok(Err(e.user_message().to_owned())),
 	};
 	let Some(acc) = data.account else {
-		return request_err("Account not found.");
+		return Ok(Err("Account not found.".into()));
 	};
 
-	let amount = match parse_qty(&form.request_amount, acc.ledger_scale) {
-		Ok(0) => return request_err("Enter an amount greater than zero."),
+	let amount = match parse_qty(&amount, acc.ledger_scale) {
+		Ok(0) => return Ok(Err("Enter an amount greater than zero.".into())),
 		Ok(n) => n,
-		Err(e) => return request_err(&e),
+		Err(e) => return Ok(Err(e)),
 	};
 
-	let Ok(memo) = normalize_memo(&form.request_memo) else {
-		return request_err("Memo is too long.");
+	let Ok(memo) = normalize_memo(&memo) else {
+		return Ok(Err("Memo is too long.".into()));
 	};
 
-	let path = request_link_path(acc.ledger_id, acc.account_id, amount, memo.as_deref());
-	PatchSignals::json(&RequestOkPatch {
-		request_link: path,
-		request_error: String::new(),
-		request_copied: false,
-	})
-}
-
-#[derive(Debug, Deserialize)]
-struct RequestSignals {
-	#[serde(default, rename = "requestAmount")]
-	request_amount: String,
-	#[serde(default, rename = "requestMemo")]
-	request_memo: String,
-}
-
-#[derive(Serialize)]
-struct RequestOkPatch {
-	#[serde(rename = "requestLink")]
-	request_link: String,
-	#[serde(rename = "requestError")]
-	request_error: String,
-	#[serde(rename = "requestCopied")]
-	request_copied: bool,
-}
-
-#[derive(Serialize)]
-struct RequestErrPatch {
-	#[serde(rename = "requestError")]
-	request_error: String,
-	#[serde(rename = "requestLink")]
-	request_link: String,
-}
-
-fn request_err(error: &str) -> Result<PatchSignals> {
-	PatchSignals::json(&RequestErrPatch {
-		request_error: error.to_owned(),
-		request_link: String::new(),
-	})
+	Ok(Ok(request_link_path(
+		acc.ledger_id,
+		acc.account_id,
+		amount,
+		memo.as_deref(),
+	)))
 }
 
 /// Path + query for `/app/request`. Amount is ledger base units. Memo is omitted when empty.

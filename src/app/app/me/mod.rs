@@ -1,40 +1,31 @@
 //! `GET /app/me` — You: session + owned apps.
 
 mod apps;
-mod updates;
 
 use crate::auth::oidc::OidcAuth;
 use crate::auth::require_user;
-use crate::stdb::acquire_user_db;
-use crate::stdb::apps::fetch_my_apps;
-use apps::{app_forms, my_apps_list};
+use apps::{app_forms, apps_list};
 use topcoat::{
 	Result,
 	context::{Cx, context},
 	metadata::Metadata,
-	router::{error::internal_server_error, page},
-	view::{View, view},
+	router::page,
+	runtime::signal,
+	view::{View, component, view},
 };
 
 #[page(with(Metadata::new().title("You · Stelo Finance")))]
 async fn me(cx: &Cx) -> Result<impl View> {
 	let user = require_user(cx).await?;
-	let conn = acquire_user_db(cx).await?;
-	let data = fetch_my_apps(conn.get())
-		.await
-		.map_err(internal_server_error)?;
 	let signed_in = match context::<OidcAuth>(cx).provider_name() {
 		Some(name) => format!("Signed in with {name}"),
 		None => "Signed in".to_owned(),
 	};
-	let signals = "{appName:'',appError:'',appToken:'',appMintName:'',appMintId:'',appCopied:false,mintingApp:false,creatingApp:false,replacingApp:false}";
 
 	Ok(view! {
     <main
         id="page-content"
         class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10"
-        data-signals=(signals)
-        data-init="@get('/app/me/updates', {retry: 'always'})"
     >
         <h1 class="mb-6 text-2xl font-medium md:text-3xl">"You"</h1>
         <article
@@ -51,13 +42,7 @@ async fn me(cx: &Cx) -> Result<impl View> {
                 </a>
             }
         </article>
-        my_apps_list(data: data)
-        app_forms()
-        <p
-            class="mt-2 text-sm text-red-400"
-            data-show="$appError"
-            data-text="$appError"
-        ></p>
+        apps_panel()
         <section
             class="mt-6 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-3 sm:px-4 sm:py-4"
         >
@@ -75,5 +60,41 @@ async fn me(cx: &Cx) -> Result<impl View> {
             </form>
         </section>
     </main>
+})
+}
+
+/// Owns the apps signals; wires the live list, forms and error line.
+#[component]
+async fn apps_panel(cx: &Cx) -> Result<impl View> {
+	let name = signal(cx, String::new);
+	let error = signal(cx, String::new);
+	let token = signal(cx, String::new);
+	let mint_name = signal(cx, String::new);
+	let mint_id = signal(cx, String::new);
+	let minting = signal(cx, || false);
+	let creating = signal(cx, || false);
+	let replacing = signal(cx, || false);
+
+	Ok(view! {
+    apps_list(
+        creating: creating.clone(),
+        replacing: replacing.clone(),
+        mint_id: mint_id.clone(),
+        name: name.clone(),
+        error: error.clone()
+    )
+    app_forms(
+        creating: creating.clone(),
+        replacing: replacing.clone(),
+        token: token.clone(),
+        mint_name: mint_name.clone(),
+        mint_id: mint_id.clone(),
+        name: name.clone(),
+        error: error.clone(),
+        minting: minting.clone()
+    )
+    <p class="mt-2 text-sm text-red-400" :hidden=$(error.get().is_empty())>
+        $(error.get())
+    </p>
 })
 }

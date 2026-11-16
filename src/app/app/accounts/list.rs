@@ -5,19 +5,17 @@
 //! again with `connected(cx) == true`, re-emitting the list on every
 //! `my_accounts` change. Reconnects simply render again.
 
-use std::time::Duration;
-
 use crate::auth::require_user;
 use crate::domain::accounts::{LedgerGroup, group_by_ledger};
 use crate::domain::format_qty;
 use crate::module_bindings::{AccountKind, LedgerKind, MyAccountRow, Role};
-use crate::stdb::{LiveAccounts, acquire_user_db, next_change};
+use crate::stdb::{LiveAccounts, LiveFeed};
+use crate::ui::runtime::copy_button;
 use crate::ui::text::{ledger_kind_label, role_label};
 use topcoat::{
 	Result,
 	context::Cx,
-	router::error::internal_server_error,
-	runtime::{Signal, connected, shard, signal},
+	runtime::{Signal, connected, shard},
 	view::{View, component, emit, live, view},
 };
 
@@ -27,53 +25,36 @@ use topcoat::{
 /// itself. `acquire_user_db` would too, but fail with a 500 instead of the
 /// login redirect.
 #[shard("/app/accounts/list")]
-pub async fn accounts_list(cx: &Cx) -> Result<impl View> {
+pub async fn accounts_list(
+	cx: &Cx,
+	creating: Signal<bool>,
+	error: Signal<String>,
+) -> Result<impl View> {
 	require_user(cx).await?;
-	let copied = signal(cx, || 0u64);
 
 	Ok(live! {
-    let mut retry = Duration::from_millis(250);
+    // Resubscribes itself after a SpacetimeDB restart (see `LiveFeed`).
+    let mut feed = LiveFeed::new(LiveAccounts::start);
     loop {
-        let conn = acquire_user_db(cx).await?;
-        // Latest-wins slot: one transaction's row callbacks collapse to one emit.
-        let (tx, mut rx) = tokio::sync::watch::channel(None);
-        let live = LiveAccounts::start(conn, tx).map_err(internal_server_error)?;
-        // The first value is the applied snapshot, so HTTP and connected
-        // renders share this loop. `None`: the STDB connection dropped.
-        while next_change(&mut rx, live.conn()).await.is_some() {
-            let rows = rx.borrow_and_update().clone().unwrap_or_default();
-            let token = emit! { list_view(rows: rows, copied: copied.clone()) }?;
-            if !connected(cx) {
-                return Ok(token);
-            }
-            retry = Duration::from_millis(250);
-        }
-        // The runtime never restarts a finished run (only a closed socket
-        // reconnects), so resubscribe here on a fresh pooled connection.
-        drop(live);
+        let rows = feed.next(cx).await?;
+        let token = emit! {
+            list_view(rows: rows, creating: creating.clone(), error: error.clone())
+        }?;
         if !connected(cx) {
-            return Err(
-                internal_server_error(
-                    crate::stdb::StdbError::internal(
-                        "stdb connection closed before the accounts snapshot",
-                    ),
-                ).into(),
-            );
+            break Ok(token);
         }
-        tokio::time::sleep(retry).await;
-        retry = (retry * 2).min(Duration::from_secs(10));
     }
 })
 }
 
 #[component]
-async fn list_view(cx: &Cx, rows: Vec<MyAccountRow>, copied: Signal<u64>) -> Result<impl View> {
+async fn list_view(
+	cx: &Cx,
+	rows: Vec<MyAccountRow>,
+	creating: Signal<bool>,
+	error: Signal<String>,
+) -> Result<impl View> {
 	let is_empty = rows.is_empty();
-	// Bridge to the Datastar create form's `$primaryIds` (trial only).
-	// Datastar re-applies `data-signals` when the runtime morphs this attribute.
-	let primary_ids =
-		super::encode_primary_ids(rows.iter().filter(|a| a.is_primary).map(|a| a.ledger_id));
-	let primary_signal = format!("{{primaryIds:'{primary_ids}'}}");
 	let (debit, credit): (Vec<&MyAccountRow>, Vec<&MyAccountRow>) = rows
 		.iter()
 		.partition(|a| matches!(a.kind, AccountKind::Debit));
@@ -83,12 +64,12 @@ async fn list_view(cx: &Cx, rows: Vec<MyAccountRow>, copied: Signal<u64>) -> Res
 
 	Ok(view! {
     <div id="accounts-list" class="flex flex-col">
-        <div class="hidden" data-signals=(primary_signal)></div>
         if is_empty {
-            empty_state()
+            empty_state(creating: creating.clone(), error: error.clone())
         }
+        #[key(group.name.clone())]
         for group in &debit {
-            ledger_group(group: group, copied: copied.clone())
+            ledger_group(group: group)
         }
         if !credit.is_empty() {
             <h2
@@ -96,8 +77,9 @@ async fn list_view(cx: &Cx, rows: Vec<MyAccountRow>, copied: Signal<u64>) -> Res
             >
                 "Issuer accounts"
             </h2>
+            #[key(group.name.clone())]
             for group in &credit {
-                ledger_group(group: group, copied: copied.clone())
+                ledger_group(group: group)
             }
         }
     </div>
@@ -122,7 +104,7 @@ fn owned_groups(groups: Vec<LedgerGroup<'_>>) -> Vec<Group> {
 }
 
 #[component]
-async fn ledger_group(cx: &Cx, group: &Group, copied: Signal<u64>) -> Result<impl View> {
+async fn ledger_group(cx: &Cx, group: &Group) -> Result<impl View> {
 	Ok(view! {
     <section class="mb-5 last:mb-0">
         <div class="mb-3 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
@@ -134,8 +116,9 @@ async fn ledger_group(cx: &Cx, group: &Group, copied: Signal<u64>) -> Result<imp
             </span>
         </div>
         <div class="flex flex-col gap-3">
+            #[key(acc.account_id)]
             for acc in &group.accounts {
-                account_card(acc: acc, copied: copied.clone())
+                account_card(acc: acc)
             }
         </div>
     </section>
@@ -143,7 +126,7 @@ async fn ledger_group(cx: &Cx, group: &Group, copied: Signal<u64>) -> Result<imp
 }
 
 #[component]
-async fn account_card(cx: &Cx, acc: &MyAccountRow, copied: Signal<u64>) -> Result<impl View> {
+async fn account_card(cx: &Cx, acc: &MyAccountRow) -> Result<impl View> {
 	let qty = format_qty(acc.balance, acc.ledger_scale);
 	let href = format!("/app/accounts/{}", acc.account_id);
 	let label = acc
@@ -193,26 +176,11 @@ async fn account_card(cx: &Cx, acc: &MyAccountRow, copied: Signal<u64>) -> Resul
                 (meta_suffix(acc))
             </p>
         </a>
-        <button
-            type="button"
-            class="shrink-0 cursor-pointer self-stretch border-l border-neutral-800 px-3 text-xs text-neutral-300 hover:bg-neutral-900 hover:text-white"
-            aria-label=(format!("Copy address {}", acc.address))
-            @click=$(|_e| {
-                // Clipboard and timers are outside the expression vocabulary.
-                // JS sees runtime surrogates: `.toString()` unwraps a string,
-                // and a signal is set with another surrogate (`zero`).
-                copied.set(id);
-                let zero = 0u64;
-                raw!(
-                    "navigator.clipboard.writeText(${address}.toString()); setTimeout(() => ${copied}.set(${zero}), 2000)",
-                    {
-                        let _ = zero;
-                    },
-                )
-            })
-        >
-            $(if copied.get() == id { "Copied" } else { "Copy" })
-        </button>
+        copy_button(
+            text: $(address),
+            class: "shrink-0 cursor-pointer self-stretch border-l border-neutral-800 px-3 text-xs text-neutral-300 hover:bg-neutral-900 hover:text-white",
+            aria_label: Some(format!("Copy address {}", acc.address))
+        )
     </article>
 })
 }
@@ -234,14 +202,15 @@ fn meta_suffix(acc: &MyAccountRow) -> String {
 	s
 }
 
-/// Uses the page's Datastar `$creatingAcc` (the create form stays on Datastar
-/// in this trial); Datastar binds these attributes after each runtime morph.
+/// Shown when the user has no accounts and the create form is closed. The
+/// signals are the page's; they are only used inside `$(...)`, never read on
+/// the server, so opening the form does not re-render the live list.
 #[component]
-async fn empty_state(cx: &Cx) -> Result<impl View> {
+async fn empty_state(cx: &Cx, creating: Signal<bool>, error: Signal<String>) -> Result<impl View> {
 	Ok(view! {
     <div
         class="rounded-lg border border-neutral-800 bg-neutral-950 px-5 py-10 text-center"
-        data-show="!$creatingAcc"
+        :hidden=$(creating.get())
     >
         <p class="text-neutral-300">"You don't have any accounts yet."</p>
         <p class="mt-2 text-sm text-neutral-400">
@@ -250,7 +219,10 @@ async fn empty_state(cx: &Cx) -> Result<impl View> {
         <button
             type="button"
             class="mt-6 rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600"
-            data-on:click="$creatingAcc = true; $createError = ''"
+            @click=$(|_e| {
+                creating.set(true);
+                error.set("".to_owned());
+            })
         >
             "Create an account"
         </button>

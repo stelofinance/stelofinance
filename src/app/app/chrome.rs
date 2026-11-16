@@ -4,7 +4,8 @@
 //! Mobile: top logo + username; bottom Accounts · Activity · Transfer (send only).
 //!
 //! Transfer hover: browsers do not paint closed `<details>` content via CSS alone
-//! (see SO / MDN). Datastar sets `details.open` on mouseenter/leave of the control.
+//! (see SO / MDN). Inline `onmouseenter`/`onmouseleave` handlers set `details.open`
+//! on the control (pure DOM state, so no runtime signal).
 
 use crate::ui::{activity, logo_full, transfer, wallet};
 use topcoat::{
@@ -122,11 +123,11 @@ pub async fn app_header(cx: &Cx, #[into] username: String) -> Result<impl View> 
                 </a>
 
                 // Transfer split control: border on wrapper (seamless underline).
-                // Hover opens via Datastar (set open attribute — CSS alone cannot show closed details content).
+                // Hover opens the menu (CSS alone cannot show closed details content).
                 <div
                     class=(transfer_control_class(transfer_on))
-                    data-on:mouseenter="el.querySelector('details').open = true"
-                    data-on:mouseleave="el.querySelector('details').open = false"
+                    onmouseenter="this.querySelector('details').open = true"
+                    onmouseleave="this.querySelector('details').open = false"
                 >
                     <a href="/app/transfer" class=(transfer_label_class)>"Transfer"</a>
                     <details class="group/dd relative">

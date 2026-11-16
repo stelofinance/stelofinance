@@ -77,12 +77,13 @@ pub struct LiveAccounts {
 	delete_id: Option<crate::module_bindings::MyAccountsDeleteCallbackId>,
 }
 
-impl LiveAccounts {
-	/// The connection this subscription lives on.
-	pub fn conn(&self) -> &StdbConn {
+impl super::LiveSubscription for LiveAccounts {
+	fn conn(&self) -> &StdbConn {
 		self.pooled.get()
 	}
+}
 
+impl LiveAccounts {
 	/// Subscribe and publish snapshots on `tx` (latest-wins).
 	///
 	/// The first value is the applied subscription (the current rows); each

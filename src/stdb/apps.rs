@@ -14,26 +14,13 @@ use spacetimedb_sdk::{DbContext, SubscriptionHandle, Table, TableWithPrimaryKey}
 use super::StdbState;
 use super::call::{StdbError, call};
 use super::connector::StdbConn;
-use super::query::{is_live_row_change, subscribe_once};
+use super::query::is_live_row_change;
 
 /// SSR / live snapshot of apps this caller created.
 #[derive(Clone)]
 pub struct MyAppsData {
 	pub apps: Vec<MyAppRow>,
 	pub tickets: Vec<MyAppTicketRow>,
-}
-
-pub async fn fetch_my_apps(conn: &StdbConn) -> Result<MyAppsData, StdbError> {
-	subscribe_once(
-		conn,
-		|b| {
-			b.add_query(|q| q.from.my_apps())
-				.add_query(|q| q.from.my_app_tickets())
-				.subscribe()
-		},
-		|ctx| collect_my_apps(ctx.db().my_apps().iter(), ctx.db().my_app_tickets().iter()),
-	)
-	.await
 }
 
 fn collect_my_apps(
@@ -133,16 +120,16 @@ pub struct LiveMyApps {
 	tkt_delete: Option<crate::module_bindings::MyAppTicketsDeleteCallbackId>,
 }
 
-impl LiveMyApps {
-	/// The connection this subscription lives on.
-	pub fn conn(&self) -> &StdbConn {
+impl super::LiveSubscription for LiveMyApps {
+	fn conn(&self) -> &StdbConn {
 		self.pooled.get()
 	}
+}
 
+impl LiveMyApps {
 	pub fn start(
 		pooled: PooledConn<StdbConn>,
 		tx: tokio::sync::watch::Sender<Option<MyAppsData>>,
-		snapshot_on_applied: bool,
 	) -> Result<Self, StdbError> {
 		let send_snapshot: Arc<dyn Fn(MyAppsData) + Send + Sync> = {
 			let tx = tx.clone();
@@ -231,9 +218,7 @@ impl LiveMyApps {
 			.on_applied({
 				let send = Arc::clone(&send_snapshot);
 				move |ctx| {
-					if snapshot_on_applied {
-						send(snap!(ctx));
-					}
+					send(snap!(ctx));
 				}
 			})
 			.on_error(move |_ctx, err| {

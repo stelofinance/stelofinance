@@ -8,8 +8,9 @@ pub mod apps;
 mod call;
 mod config;
 mod connector;
+mod live;
+pub use live::{LiveFeed, LiveSubscription};
 mod query;
-pub use query::next_change;
 mod user;
 
 mod transfer;

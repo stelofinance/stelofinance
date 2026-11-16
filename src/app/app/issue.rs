@@ -1,24 +1,26 @@
-//! Shared deposit / withdraw form (Issue / Redeem). Routes live on those pages;
-//! counterpart search is `GET /app/issue/counterparts`.
+//! Shared deposit / withdraw form (Issue / Redeem). Pages live in `deposit.rs`
+//! and `withdraw.rs`; the procedure is `/app/issue/send` and counterpart
+//! search is the `/app/issue/counterparts` shard.
 
-use super::transfer::markup::{from_panel, recipient_results_html};
-use crate::auth::require_user;
+use super::transfer::markup::{
+	Recipient, SEARCH_CLASS, Sent, amount_field, from_panel, memo_field, recipient_chip,
+	recipient_hits,
+};
 use crate::domain::{
-	MAX_MEMO_LEN, counterpart_kind, flow_accounts, format_qty, kind_token, map_transfer_error,
-	new_idempotency_key, normalize_memo, own_issuer, parse_kind, parse_qty, pick_flow,
+	counterpart_kind, flow_accounts, format_qty, kind_token, map_transfer_error,
+	new_idempotency_key, normalize_memo, own_issuer, parse_qty, pick_flow,
 };
 use crate::module_bindings::{AccountKind, MyAccountRow};
 use crate::stdb::{
 	acquire_user_db, create_user_transfer, fetch_accounts_page, lookup_account, search_directory,
 };
-use crate::ui::text::js_str;
-use serde::{Deserialize, Serialize};
+use crate::ui::runtime::search_input;
 use topcoat::{
 	Result,
 	context::Cx,
-	datastar::{PatchElements, PatchSignals, Signals},
-	router::{error::internal_server_error, query_params, route},
-	view::{View, ViewExt, component, view},
+	router::{error::internal_server_error, query_params},
+	runtime::{Signal, procedure, shard, signal},
+	view::{View, component, view},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,13 +34,6 @@ impl Flow {
 		match self {
 			Self::Deposit => "Deposit",
 			Self::Withdraw => "Withdraw",
-		}
-	}
-
-	fn action_path(self) -> &'static str {
-		match self {
-			Self::Deposit => "/app/deposit",
-			Self::Withdraw => "/app/withdraw",
 		}
 	}
 
@@ -66,7 +61,6 @@ struct FlowQuery {
 
 #[component]
 pub async fn flow_page(cx: &Cx, flow: Flow) -> Result<impl View> {
-	let _user = require_user(cx).await?;
 	let requested = query_params::<FlowQuery>(cx)
 		.ok()
 		.and_then(|q| q.from.clone())
@@ -79,25 +73,21 @@ pub async fn flow_page(cx: &Cx, flow: Flow) -> Result<impl View> {
 	let accounts = flow_accounts(&data.accounts);
 	let selected = pick_flow(&accounts, requested);
 	let can_pick = accounts.len() > 1;
-	let key = new_idempotency_key();
 	let selected_id = selected.map(|a| a.account_id).unwrap_or(0);
-	let from_id = if selected_id == 0 {
-		String::new()
-	} else {
-		selected_id.to_string()
-	};
-	let from_ledger = selected
-		.map(|a| a.ledger_id.to_string())
-		.unwrap_or_default();
-	let from_kind = selected.map(|a| kind_token(a.kind)).unwrap_or_default();
+	let selected_ledger = selected.map(|a| a.ledger_id).unwrap_or(0);
+	let selected_kind = selected
+		.map(|a| kind_token(a.kind))
+		.unwrap_or_default()
+		.to_owned();
 
-	let mut recipient_id = String::new();
+	// A debit sender starts with its own issuer as the counterpart.
+	let mut recipient_id = 0;
 	let mut recipient_name = String::new();
 	let mut recipient_addr = String::new();
 	let mut recipient_label = String::new();
 	if let Some(yours) = selected {
 		if let Some(issuer) = own_issuer(&accounts, yours) {
-			recipient_id = issuer.account_id.to_string();
+			recipient_id = issuer.account_id;
 			recipient_addr = format!("#{}", issuer.address);
 			recipient_name = recipient_addr.clone();
 			if let Some(label) = issuer
@@ -111,21 +101,12 @@ pub async fn flow_page(cx: &Cx, flow: Flow) -> Result<impl View> {
 		}
 	}
 
-	let signals = format!(
-		"{{fromId:'{from_id}',fromLedgerId:'{from_ledger}',fromKind:'{from_kind}',pickingFrom:false,recipientId:{},recipientName:{},recipientAddr:{},recipientLabel:{},recipientSearch:'',amount:'',memo:'',idempotencyKey:'{key}',sendError:'',sent:false,pending:false,sentQty:'',sentTo:'',sentAddr:''}}",
-		js_str(&recipient_id),
-		js_str(&recipient_name),
-		js_str(&recipient_addr),
-		js_str(&recipient_label),
-	);
-
 	let title = flow.title();
 	let handling_note = flow.handling_note();
 	Ok(view! {
     <main
         id="page-content"
         class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10"
-        data-signals=(signals)
     >
         <h1 class="mb-3 text-2xl font-medium md:text-3xl">(title)</h1>
         <section
@@ -140,7 +121,14 @@ pub async fn flow_page(cx: &Cx, flow: Flow) -> Result<impl View> {
                 flow: flow,
                 accounts: accounts,
                 can_pick: can_pick,
-                selected_id: selected_id
+                selected_id: selected_id,
+                selected_ledger: selected_ledger,
+                selected_kind: selected_kind,
+                recipient_id: recipient_id,
+                recipient_name: recipient_name,
+                recipient_addr: recipient_addr,
+                recipient_label: recipient_label,
+                key: new_idempotency_key()
             )
         }
     </main>
@@ -173,188 +161,200 @@ async fn flow_form(
 	accounts: Vec<MyAccountRow>,
 	can_pick: bool,
 	selected_id: u64,
+	selected_ledger: u64,
+	selected_kind: String,
+	recipient_id: u64,
+	recipient_name: String,
+	recipient_addr: String,
+	recipient_label: String,
+	key: String,
 ) -> Result<impl View> {
-	let post = format!("@post('{}')", flow.action_path());
 	let cta = flow.title();
 	let posted = flow.success_posted();
+	let deposit = matches!(flow, Flow::Deposit);
 	let other_when_issuer = match flow {
 		Flow::Deposit => "To wallet",
 		Flow::Withdraw => "From wallet",
 	};
+
+	let from_id = signal(cx, || selected_id);
+	let from_ledger_id = signal(cx, || selected_ledger);
+	let from_kind = signal(cx, || selected_kind.clone());
+	let picking = signal(cx, || false);
+	let recipient = Recipient::new(
+		cx,
+		recipient_id,
+		recipient_name.clone(),
+		recipient_addr.clone(),
+		recipient_label.clone(),
+	);
+	let amount = signal(cx, String::new);
+	let memo = signal(cx, String::new);
+	let key = signal(cx, || key.clone());
+	let error = signal(cx, String::new);
+	let busy = signal(cx, || false);
+	let sent = signal(cx, || false);
+	let pending = signal(cx, || false);
+	let sent_qty = signal(cx, String::new);
+	let sent_to = signal(cx, String::new);
+	let sent_addr = signal(cx, String::new);
+	let r_id = recipient.id.clone();
+	let r_name = recipient.name.clone();
+	let r_addr = recipient.addr.clone();
+	let r_label = recipient.label.clone();
+	let r_search = recipient.search.clone();
+
 	Ok(view! {
-    <div data-show="!$sent">
+    <div :hidden=$(sent.get())>
         from_panel(
             accounts: accounts.clone(),
             can_pick: can_pick,
-            selected_id: selected_id
+            from_id: from_id.clone(),
+            from_ledger_id: from_ledger_id.clone(),
+            from_kind: from_kind.clone(),
+            picking: picking.clone(),
+            recipient: recipient.clone(),
+            error: error.clone()
         )
 
-        <div class="mt-5" data-show="$fromId != ''">
+        <div class="mt-5" :hidden=$(from_id.get() == 0u64)>
             <p
                 class="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-400"
-                data-show="$fromKind == 'debit'"
+                :hidden=$(from_kind.get() != "debit")
             >
                 "Issuer"
             </p>
             <p
                 class="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-400"
-                data-show="$fromKind == 'credit'"
-                style="display: none"
+                :hidden=$(from_kind.get() != "credit")
             >
                 (other_when_issuer)
             </p>
-            <div data-show="!$recipientId">
-                <input
-                    type="text"
-                    class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-400"
-                    data-bind="recipientSearch"
-                    data-attr:placeholder="$fromKind == 'debit' ? 'Issuer #address' : '@username or #address'"
-                    autocomplete="off"
-                    autocapitalize="off"
-                    spellcheck="false"
-                    data-on:input__debounce.300ms="@get('/app/issue/counterparts')"
-                >
+            <div :hidden=$(r_id.get() != 0u64)>
+                search_input(
+                    query: r_search.clone(),
+                    class: SEARCH_CLASS,
+                    placeholder: $(if from_kind.get() == "debit" {
+                        "Issuer #address".to_owned()
+                    } else {
+                        "@username or #address".to_owned()
+                    })
+                )
                 <p
                     class="mt-1 text-xs text-neutral-400"
-                    data-show="$fromKind == 'debit'"
+                    :hidden=$(from_kind.get() != "debit")
                 >
                     "Same asset. Search the issuer address, e.g. #STELOBANK."
                 </p>
                 <p
                     class="mt-1 text-xs text-neutral-400"
-                    data-show="$fromKind == 'credit'"
-                    style="display: none"
+                    :hidden=$(from_kind.get() != "credit")
                 >
                     "Same asset as the issuer account. Prefix @ or # to search only that kind."
                 </p>
-                <div id="recipient-results"></div>
+                counterparts(
+                    query: $(r_search.get()),
+                    from_id: $(from_id.get()),
+                    recipient_id: r_id.clone(),
+                    recipient_name: r_name.clone(),
+                    recipient_addr: r_addr.clone(),
+                    recipient_label: r_label.clone(),
+                    recipient_search: r_search.clone(),
+                    error: error.clone()
+                )
             </div>
-            <div
-                class="flex items-center justify-between rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2.5"
-                data-show="$recipientId"
-                style="display: none"
-            >
-                <div class="min-w-0">
-                    <p
-                        class="truncate text-sm text-neutral-100"
-                        data-show="$recipientLabel"
-                        data-text="$recipientLabel"
-                        style="display: none"
-                    ></p>
-                    <p
-                        class="truncate text-sm text-neutral-100"
-                        data-text="$recipientName"
-                    ></p>
-                    <p
-                        class="truncate text-xs text-neutral-400"
-                        data-show="$recipientAddr"
-                        data-text="$recipientAddr"
-                        style="display: none"
-                    ></p>
-                </div>
-                <button
-                    type="button"
-                    class="ml-3 shrink-0 cursor-pointer text-sm text-neutral-300 hover:text-white"
-                    data-on:click="$recipientId = ''; $recipientName = ''; $recipientAddr = ''; $recipientLabel = ''; $recipientSearch = ''; $sendError = ''"
-                >
-                    "Clear"
-                </button>
-            </div>
+            recipient_chip(recipient: recipient.clone(), error: error.clone())
         </div>
 
-        <div class="mt-5" data-show="$fromId != ''">
-            <p
-                class="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-400"
-            >
-                "Amount"
-            </p>
-            <div class="flex items-center gap-2">
-                <input
-                    type="text"
-                    inputmode="decimal"
-                    class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-400"
-                    data-bind="amount"
-                    placeholder="0"
-                    autocomplete="off"
-                >
-                amount_suffixes(accounts: accounts.clone(), selected_id: selected_id)
-            </div>
-            amount_hints(accounts: accounts, selected_id: selected_id)
+        <div class="mt-5" :hidden=$(from_id.get() == 0u64)>
+            amount_field(
+                accounts: accounts,
+                from_id: from_id.clone(),
+                amount: amount.clone()
+            )
         </div>
 
-        <div class="mt-5" data-show="$fromId != ''">
-            <div class="mb-2 flex items-baseline justify-between">
-                <p class="text-xs font-medium uppercase tracking-wide text-neutral-400">
-                    "Memo "
-                    <span
-                        class="font-normal normal-case tracking-normal text-neutral-400"
-                    >
-                        "(optional)"
-                    </span>
-                </p>
-                <p
-                    class="text-xs text-neutral-400"
-                    data-text=(format!("$memo.length + '/{MAX_MEMO_LEN}'"))
-                ></p>
-            </div>
-            <input
-                type="text"
-                class="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-white placeholder:text-neutral-400"
-                data-bind="memo"
-                maxlength=(MAX_MEMO_LEN)
-                placeholder="What's this for?"
-                autocomplete="off"
-            >
+        <div class="mt-5" :hidden=$(from_id.get() == 0u64)>
+            memo_field(memo: memo.clone())
         </div>
-
-        <input type="hidden" data-bind="idempotencyKey">
 
         <button
             type="button"
             class="mt-6 w-full cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50"
-            data-on:click=(post)
-            data-indicator="sending"
-            data-attr:disabled="$sending || !$fromId || !$recipientId || $amount == ''"
+            :disabled=$(if busy.get() {
+                true
+            } else if from_id.get() == 0u64 {
+                true
+            } else if r_id.get() == 0u64 {
+                true
+            } else {
+                amount.get() == ""
+            })
+            @click=$(async |_e| {
+                busy.set(true);
+                // Captured before the await: a second click's response can
+                // land after the first one cleared the recipient.
+                let to = r_name.get();
+                let addr = r_addr.get();
+                let result = issue_send(
+                    deposit,
+                    from_id.get(),
+                    r_id.get(),
+                    amount.get(),
+                    memo.get(),
+                    key.get(),
+                ).await;
+                busy.set(false);
+                if result.is_ok() {
+                    let done = result.unwrap();
+                    sent_qty.set(done.qty.clone());
+                    sent_to.set(to);
+                    sent_addr.set(addr);
+                    pending.set(done.pending);
+                    key.set(done.key.clone());
+                    error.set("".to_owned());
+                    amount.set("".to_owned());
+                    memo.set("".to_owned());
+                    r_search.set("".to_owned());
+                    sent.set(true);
+                } else {
+                    error.set(result.unwrap_err());
+                }
+            })
         >
             (cta)
         </button>
-        <p
-            class="mt-3 text-sm text-red-400"
-            data-show="$sendError"
-            data-text="$sendError"
-        ></p>
+        <p class="mt-3 text-sm text-red-400" :hidden=$(error.get().is_empty())>
+            $(error.get())
+        </p>
     </div>
 
-    <div data-show="$sent" style="display: none">
+    <div :hidden=$(!sent.get())>
         <div
             class="rounded-lg border border-neutral-800 bg-neutral-950 px-4 py-6 sm:px-5"
         >
-            <h2 class="text-xl font-medium" data-show="!$pending">
+            <h2 class="text-xl font-medium" :hidden=$(pending.get())>
                 (posted)
                 " "
-                <span data-text="$sentQty"></span>
+                <span>$(sent_qty.get())</span>
             </h2>
-            <h2 class="text-xl font-medium" data-show="$pending" style="display: none">
+            <h2 class="text-xl font-medium" :hidden=$(!pending.get())>
                 "Requested "
-                <span data-text="$sentQty"></span>
+                <span>$(sent_qty.get())</span>
             </h2>
-            <p class="mt-1 text-sm text-neutral-300" data-show="!$pending">
-                <span data-text="$sentTo"></span>
-                <span data-show="$sentAddr">
+            <p class="mt-1 text-sm text-neutral-300" :hidden=$(pending.get())>
+                <span>$(sent_to.get())</span>
+                <span :hidden=$(sent_addr.get().is_empty())>
                     " · "
-                    <span data-text="$sentAddr"></span>
+                    <span>$(sent_addr.get())</span>
                 </span>
             </p>
-            <p
-                class="mt-1 text-sm text-neutral-300"
-                data-show="$pending"
-                style="display: none"
-            >
+            <p class="mt-1 text-sm text-neutral-300" :hidden=$(!pending.get())>
                 "Waiting on the issuer to confirm. "
-                <span data-text="$sentTo"></span>
-                <span data-show="$sentAddr">
+                <span>$(sent_to.get())</span>
+                <span :hidden=$(sent_addr.get().is_empty())>
                     " · "
-                    <span data-text="$sentAddr"></span>
+                    <span>$(sent_addr.get())</span>
                 </span>
             </p>
             <a
@@ -368,158 +368,60 @@ async fn flow_form(
 })
 }
 
-#[component]
-async fn amount_suffixes(
+/// Deposit or withdraw between one of the user's accounts and a counterpart
+/// on the same asset. Failures come back as `Err(message)` data; the key stays
+/// the same on failure so a retry is deduplicated.
+#[procedure("/app/issue/send")]
+async fn issue_send(
 	cx: &Cx,
-	accounts: Vec<MyAccountRow>,
-	selected_id: u64,
-) -> Result<impl View> {
-	Ok(view! {
-    for acc in &accounts {
-        ledger_suffix(acc: acc, selected: acc.account_id == selected_id)
-    }
-})
-}
-
-#[component]
-async fn ledger_suffix(cx: &Cx, acc: &MyAccountRow, selected: bool) -> Result<impl View> {
-	let show = format!("$fromId == '{}'", acc.account_id);
-	if selected {
-		Ok(view! {
-    <span class="shrink-0 text-sm text-neutral-300" data-show=(show)>
-        (acc.ledger_name.clone())
-    </span>
-}
-		.boxed())
-	} else {
-		Ok(view! {
-    <span
-        class="shrink-0 text-sm text-neutral-300"
-        data-show=(show)
-        style="display: none"
-    >
-        (acc.ledger_name.clone())
-    </span>
-}
-		.boxed())
-	}
-}
-
-#[component]
-async fn amount_hints(cx: &Cx, accounts: Vec<MyAccountRow>, selected_id: u64) -> Result<impl View> {
-	Ok(view! {
-    for acc in &accounts {
-        avail_hint(acc: acc, selected: acc.account_id == selected_id)
-    }
-})
-}
-
-#[component]
-async fn avail_hint(cx: &Cx, acc: &MyAccountRow, selected: bool) -> Result<impl View> {
-	let show = format!("$fromId == '{}' && $fromKind == 'debit'", acc.account_id);
-	let qty = format_qty(acc.balance, acc.ledger_scale);
-	if selected && matches!(acc.kind, AccountKind::Debit) {
-		Ok(view! {
-    <p class="mt-1 text-xs text-neutral-400" data-show=(show)>
-        "Available "
-        <span class="text-anakiwa">(qty)</span>
-    </p>
-}
-		.boxed())
-	} else {
-		Ok(view! {
-    <p class="mt-1 text-xs text-neutral-400" data-show=(show) style="display: none">
-        "Available "
-        <span class="text-anakiwa">(qty)</span>
-    </p>
-}
-		.boxed())
-	}
-}
-
-#[derive(Debug, Deserialize)]
-pub struct FlowSignals {
-	#[serde(default, rename = "fromId")]
-	from_id: String,
-	#[serde(default, rename = "recipientId")]
-	recipient_id: String,
-	#[serde(default, rename = "recipientName")]
-	recipient_name: String,
-	#[serde(default, rename = "recipientAddr")]
-	recipient_addr: String,
-	#[serde(default)]
-	amount: String,
-	#[serde(default)]
-	memo: String,
-	#[serde(default, rename = "idempotencyKey")]
-	idempotency_key: String,
-}
-
-#[derive(Serialize)]
-struct FlowPatch {
-	#[serde(rename = "sendError")]
-	send_error: String,
-	sent: bool,
-	pending: bool,
-	#[serde(rename = "sentQty")]
-	sent_qty: String,
-	#[serde(rename = "sentTo")]
-	sent_to: String,
-	#[serde(rename = "sentAddr")]
-	sent_addr: String,
-	#[serde(rename = "idempotencyKey")]
-	idempotency_key: String,
+	deposit: bool,
+	from_id: u64,
+	recipient_id: u64,
 	amount: String,
 	memo: String,
-	#[serde(rename = "recipientId")]
-	recipient_id: String,
-	#[serde(rename = "recipientName")]
-	recipient_name: String,
-	#[serde(rename = "recipientAddr")]
-	recipient_addr: String,
-	#[serde(rename = "recipientLabel")]
-	recipient_label: String,
-	#[serde(rename = "recipientSearch")]
-	recipient_search: String,
-}
-
-pub async fn flow_create(cx: &Cx, flow: Flow, form: FlowSignals) -> Result<PatchSignals> {
-	let _user = require_user(cx).await?;
-	let Ok(from_id) = form.from_id.trim().parse::<u64>() else {
-		return flow_err("Choose an account.", &form);
+	idempotency_key: String,
+) -> Result<std::result::Result<Sent, String>> {
+	let flow = if deposit {
+		Flow::Deposit
+	} else {
+		Flow::Withdraw
 	};
-	let Ok(counterpart_id) = form.recipient_id.trim().parse::<u64>() else {
-		return flow_err("Pick the other account.", &form);
-	};
-	if form.idempotency_key.trim().is_empty() {
-		return flow_err("Refresh the page and try again.", &form);
+	let counterpart_id = recipient_id;
+	if from_id == 0 {
+		return Ok(Err("Choose an account.".into()));
+	}
+	if counterpart_id == 0 {
+		return Ok(Err("Pick the other account.".into()));
+	}
+	if idempotency_key.trim().is_empty() {
+		return Ok(Err("Refresh the page and try again.".into()));
 	}
 
-	let conn = acquire_user_db(cx).await?;
+	let Ok(conn) = acquire_user_db(cx).await else {
+		return Ok(Err("Your session expired. Reload the page.".into()));
+	};
 	let data = match fetch_accounts_page(conn.get()).await {
 		Ok(d) => d,
-		Err(e) => return flow_err(e.user_message(), &form),
+		Err(e) => return Ok(Err(e.user_message().to_owned())),
 	};
 	let accounts = flow_accounts(&data.accounts);
 	let Some(yours) = accounts.iter().find(|a| a.account_id == from_id) else {
-		return flow_err("You can't use that account.", &form);
+		return Ok(Err("You can't use that account.".into()));
 	};
 
 	let counterpart = match lookup_account(conn.get(), counterpart_id).await {
 		Ok(hit) => hit,
-		Err(_) => return flow_err("That account wasn't found.", &form),
+		Err(_) => return Ok(Err("That account wasn't found.".into())),
 	};
 	if counterpart.ledger_id != yours.ledger_id {
-		return flow_err("That account is a different asset.", &form);
+		return Ok(Err("That account is a different asset.".into()));
 	}
 	if counterpart.kind != counterpart_kind(yours.kind) {
-		return flow_err(
-			match yours.kind {
-				AccountKind::Debit => "Pick an issuer (credit) account.",
-				AccountKind::Credit => "Pick a player (debit) account.",
-			},
-			&form,
-		);
+		return Ok(Err(match yours.kind {
+			AccountKind::Debit => "Pick an issuer (credit) account.",
+			AccountKind::Credit => "Pick a player (debit) account.",
+		}
+		.into()));
 	}
 
 	let (sending_id, receiving_id) = match (flow, yours.kind) {
@@ -529,21 +431,21 @@ pub async fn flow_create(cx: &Cx, flow: Flow, form: FlowSignals) -> Result<Patch
 		(Flow::Withdraw, AccountKind::Credit) => (counterpart_id, from_id),
 	};
 
-	let amount = match parse_qty(&form.amount, yours.ledger_scale) {
-		Ok(0) => return flow_err("Enter an amount greater than zero.", &form),
+	let amount = match parse_qty(&amount, yours.ledger_scale) {
+		Ok(0) => return Ok(Err("Enter an amount greater than zero.".into())),
 		Ok(n) => n,
-		Err(e) => return flow_err(&e, &form),
+		Err(e) => return Ok(Err(e)),
 	};
 
 	if matches!(yours.kind, AccountKind::Debit)
 		&& matches!(flow, Flow::Withdraw)
 		&& amount > yours.balance
 	{
-		return flow_err("Not enough available balance.", &form);
+		return Ok(Err("Not enough available balance.".into()));
 	}
 
-	let Ok(memo) = normalize_memo(&form.memo) else {
-		return flow_err("Memo is too long.", &form);
+	let Ok(memo) = normalize_memo(&memo) else {
+		return Ok(Err("Memo is too long.".into()));
 	};
 
 	// Debit as "your account" = player request → pending; issuer confirms on Activity.
@@ -557,95 +459,67 @@ pub async fn flow_create(cx: &Cx, flow: Flow, form: FlowSignals) -> Result<Patch
 		receiving_id,
 		amount,
 		memo,
-		form.idempotency_key.trim().to_owned(),
+		idempotency_key.trim().to_owned(),
 		pending,
 	)
 	.await
 	{
-		Ok(()) => {
-			let sent_qty = format!(
+		Ok(()) => Ok(Ok(Sent {
+			qty: format!(
 				"{} {}",
 				format_qty(amount, yours.ledger_scale),
 				yours.ledger_name
-			);
-			let sent_to = if form.recipient_name.trim().is_empty() {
-				form.recipient_id.clone()
-			} else {
-				form.recipient_name.clone()
-			};
-			PatchSignals::json(&FlowPatch {
-				send_error: String::new(),
-				sent: true,
-				pending,
-				sent_qty,
-				sent_to,
-				sent_addr: form.recipient_addr.clone(),
-				idempotency_key: new_idempotency_key(),
-				amount: String::new(),
-				memo: String::new(),
-				recipient_id: form.recipient_id.clone(),
-				recipient_name: form.recipient_name.clone(),
-				recipient_addr: form.recipient_addr.clone(),
-				recipient_label: String::new(),
-				recipient_search: String::new(),
-			})
-		}
-		Err(e) => flow_err(&map_transfer_error(e.user_message()), &form),
+			),
+			pending,
+			key: new_idempotency_key(),
+		})),
+		Err(e) => Ok(Err(map_transfer_error(e.user_message()))),
 	}
 }
 
-fn flow_err(error: &str, form: &FlowSignals) -> Result<PatchSignals> {
-	PatchSignals::json(&FlowPatch {
-		send_error: error.to_owned(),
-		sent: false,
-		pending: false,
-		sent_qty: String::new(),
-		sent_to: String::new(),
-		sent_addr: String::new(),
-		idempotency_key: form.idempotency_key.clone(),
-		amount: form.amount.clone(),
-		memo: form.memo.clone(),
-		recipient_id: form.recipient_id.clone(),
-		recipient_name: form.recipient_name.clone(),
-		recipient_addr: form.recipient_addr.clone(),
-		recipient_label: String::new(),
-		recipient_search: String::new(),
-	})
-}
-
-#[derive(Debug, Deserialize)]
-struct SearchSignals {
-	#[serde(default, rename = "fromId")]
-	from_id: String,
-	#[serde(default, rename = "fromLedgerId")]
-	from_ledger_id: String,
-	#[serde(default, rename = "fromKind")]
-	from_kind: String,
-	#[serde(default, rename = "recipientSearch")]
-	recipient_search: String,
-}
-
-/// `GET /app/issue/counterparts` — kind-filtered directory search.
-#[route(GET "/app/issue/counterparts")]
-async fn counterparts(cx: &Cx, Signals(form): Signals<SearchSignals>) -> Result<PatchElements> {
-	let _user = require_user(cx).await?;
-	let term = form.recipient_search.trim();
-	if term.is_empty() {
-		return Ok(PatchElements::new(recipient_results_html(&[], false)));
-	}
-	let Ok(ledger_id) = form.from_ledger_id.trim().parse::<u64>() else {
-		return Ok(PatchElements::new(recipient_results_html(&[], true)));
+/// Counterpart search, kind-filtered to the opposite of the user's account
+/// `from_id`. The ledger and kind come from that account, never from the
+/// client; an account the user cannot use yields no hits.
+#[shard("/app/issue/counterparts")]
+async fn counterparts(
+	cx: &Cx,
+	query: String,
+	from_id: u64,
+	recipient_id: Signal<u64>,
+	recipient_name: Signal<String>,
+	recipient_addr: Signal<String>,
+	recipient_label: Signal<String>,
+	recipient_search: Signal<String>,
+	error: Signal<String>,
+) -> Result<impl View> {
+	let term = query.trim();
+	let hits = if term.is_empty() {
+		None
+	} else {
+		let conn = acquire_user_db(cx).await?;
+		let data = fetch_accounts_page(conn.get())
+			.await
+			.map_err(internal_server_error)?;
+		let accounts = flow_accounts(&data.accounts);
+		Some(match accounts.iter().find(|a| a.account_id == from_id) {
+			Some(yours) => {
+				let want = counterpart_kind(yours.kind);
+				search_directory(conn.get(), yours.ledger_id, from_id, term)
+					.await
+					.map_err(internal_server_error)?
+					.into_iter()
+					.filter(|h| h.kind == want)
+					.collect()
+			}
+			None => Vec::new(),
+		})
 	};
-	let exclude_id = form.from_id.trim().parse::<u64>().unwrap_or(0);
-	let Some(yours_kind) = parse_kind(&form.from_kind) else {
-		return Ok(PatchElements::new(recipient_results_html(&[], true)));
+	let recipient = Recipient {
+		id: recipient_id,
+		name: recipient_name,
+		addr: recipient_addr,
+		label: recipient_label,
+		search: recipient_search,
 	};
-	let want = counterpart_kind(yours_kind);
-
-	let conn = acquire_user_db(cx).await?;
-	let hits = search_directory(conn.get(), ledger_id, exclude_id, term)
-		.await
-		.map_err(internal_server_error)?;
-	let hits: Vec<_> = hits.into_iter().filter(|h| h.kind == want).collect();
-	Ok(PatchElements::new(recipient_results_html(&hits, true)))
+	Ok(view! { recipient_hits(hits: hits, recipient: recipient, error: error) })
 }

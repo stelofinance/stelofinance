@@ -1,78 +1,45 @@
-//! `POST /app/activity/finalize` — Confirm (post held) or Void pending Issue/Redeem.
+//! `finalize_transfer` procedure — Confirm (post held) or Void pending Issue/Redeem.
 
 use crate::auth::require_user;
 use crate::domain::{can_finalize_transfer, map_transfer_error};
 use crate::stdb::{acquire_user_db, fetch_activity_page, finalize_user_transfer};
-use serde::{Deserialize, Serialize};
-use topcoat::{
-	Result,
-	context::Cx,
-	datastar::{PatchSignals, Signals},
-	router::{error::internal_server_error, route},
-};
-
-#[derive(Debug, Deserialize)]
-struct FinalizeSignals {
-	#[serde(default, rename = "finalizeId")]
-	finalize_id: String,
-	#[serde(default, rename = "finalizeAction")]
-	finalize_action: String,
-}
-
-#[derive(Serialize)]
-struct FinalizePatch {
-	#[serde(rename = "finalizeError")]
-	finalize_error: String,
-	#[serde(rename = "finalizeId")]
-	finalize_id: String,
-	#[serde(rename = "finalizeAction")]
-	finalize_action: String,
-}
+use topcoat::{Result, context::Cx, runtime::procedure};
 
 /// `POST /app/activity/finalize` — issuer Write+ on the credit leg.
-#[route(POST)]
-async fn finalize(cx: &Cx, Signals(form): Signals<FinalizeSignals>) -> Result<PatchSignals> {
-	let _user = require_user(cx).await?;
-	let Ok(transfer_id) = form.finalize_id.trim().parse::<u64>() else {
-		return patch_err("Pick a pending transfer.");
+/// `confirm == false` voids (posts 0).
+#[procedure("/app/activity/finalize")]
+pub async fn finalize_transfer(
+	cx: &Cx,
+	transfer_id: u64,
+	confirm: bool,
+) -> Result<std::result::Result<bool, String>> {
+	if require_user(cx).await.is_err() {
+		return Ok(Err("Your session expired. Reload the page.".into()));
+	}
+	let Ok(conn) = acquire_user_db(cx).await else {
+		return Ok(Err("Your session expired. Reload the page.".into()));
 	};
-	let void = match form.finalize_action.trim() {
-		"void" => true,
-		"confirm" => false,
-		_ => return patch_err("Choose Confirm or Void."),
-	};
-
-	let conn = acquire_user_db(cx).await?;
 	let data = match fetch_activity_page(conn.get()).await {
 		Ok(d) => d,
-		Err(e) => return Err(internal_server_error(e).into()),
+		Err(e) => {
+			eprintln!("finalize: {e}");
+			return Ok(Err("Couldn't load your transfers. Try again.".into()));
+		}
 	};
 	let Some(tr) = data.transfers.iter().find(|t| t.id == transfer_id) else {
-		return patch_err("Transfer not found.");
+		return Ok(Err("Transfer not found.".into()));
 	};
 	if !can_finalize_transfer(tr, &data.accounts) {
-		return patch_err("You can't confirm this transfer.");
+		return Ok(Err("You can't confirm this transfer.".into()));
 	}
 	let held = tr.pending_amount.unwrap_or(0);
 	if held == 0 {
-		return patch_err("No pending amount to finalize.");
+		return Ok(Err("No pending amount to finalize.".into()));
 	}
-	let amount = if void { 0 } else { held };
+	let amount = if confirm { held } else { 0 };
 
 	match finalize_user_transfer(conn.get(), transfer_id, amount).await {
-		Ok(()) => PatchSignals::json(&FinalizePatch {
-			finalize_error: String::new(),
-			finalize_id: String::new(),
-			finalize_action: String::new(),
-		}),
-		Err(e) => patch_err(&map_transfer_error(e.user_message())),
+		Ok(()) => Ok(Ok(true)),
+		Err(e) => Ok(Err(map_transfer_error(e.user_message()))),
 	}
-}
-
-fn patch_err(error: &str) -> Result<PatchSignals> {
-	PatchSignals::json(&FinalizePatch {
-		finalize_error: error.to_owned(),
-		finalize_id: String::new(),
-		finalize_action: String::new(),
-	})
 }

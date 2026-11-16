@@ -243,17 +243,17 @@ pub struct LiveAccountHome {
 	tok_delete: Option<crate::module_bindings::MyAccountsTokensDeleteCallbackId>,
 }
 
-impl LiveAccountHome {
-	/// The connection this subscription lives on.
-	pub fn conn(&self) -> &StdbConn {
+impl super::LiveSubscription for LiveAccountHome {
+	fn conn(&self) -> &StdbConn {
 		self.pooled.get()
 	}
+}
 
+impl LiveAccountHome {
 	pub fn start(
 		pooled: PooledConn<StdbConn>,
 		tx: tokio::sync::watch::Sender<Option<AccountHomeData>>,
 		account_id: u64,
-		snapshot_on_applied: bool,
 	) -> Result<Self, StdbError> {
 		let send_snapshot: Arc<dyn Fn(AccountHomeData) + Send + Sync> = {
 			let tx = tx.clone();
@@ -387,9 +387,7 @@ impl LiveAccountHome {
 			.on_applied({
 				let send = Arc::clone(&send_snapshot);
 				move |ctx| {
-					if snapshot_on_applied {
-						send(snap!(ctx));
-					}
+					send(snap!(ctx));
 				}
 			})
 			.on_error(move |_ctx, err| {

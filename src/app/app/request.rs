@@ -1,6 +1,6 @@
 //! `GET/POST /app/request` — pay a payment-request link.
 
-use super::transfer::markup::from_panel;
+use super::transfer::markup::{Recipient, from_panel};
 use crate::auth::require_user;
 use crate::domain::{
 	format_qty, map_transfer_error, new_idempotency_key, normalize_memo, pay_from_accounts,
@@ -8,15 +8,13 @@ use crate::domain::{
 };
 use crate::module_bindings::{AccountSearchHit, MyAccountRow};
 use crate::stdb::{acquire_user_db, create_user_transfer, fetch_accounts_page, lookup_account};
-use crate::ui::text::{escape_html, js_str};
-use serde::{Deserialize, Serialize};
 use topcoat::{
 	Result,
 	context::Cx,
-	datastar::{PatchSignals, Signals},
 	metadata::Metadata,
-	router::{error::internal_server_error, page, query_params, route},
-	view::{Unescaped, View, ViewExt, component, view},
+	router::{error::internal_server_error, page, query_params},
+	runtime::{Signal, procedure, signal},
+	view::{View, ViewExt, component, view},
 };
 
 #[query_params]
@@ -80,20 +78,8 @@ async fn page(cx: &Cx) -> Result<impl View> {
 	let can_pick = accounts.len() > 1;
 	let selected = pick_sendable(&accounts, None);
 	let selected_id = selected.map(|a| a.account_id).unwrap_or(0);
-	let from_id = if selected_id == 0 {
-		String::new()
-	} else {
-		selected_id.to_string()
-	};
+	let selected_ledger = selected.map(|a| a.ledger_id).unwrap_or(0);
 	let key = new_idempotency_key();
-	let memo_js = spec.memo.as_deref().unwrap_or("");
-	let signals = format!(
-		"{{fromId:'{from_id}',fromLedgerId:'{}',pickingFrom:false,recipientId:'{}',amount:'{}',memo:{},idempotencyKey:'{key}',sendError:'',sent:false}}",
-		spec.ledger_id,
-		spec.recipient_id,
-		spec.amount,
-		js_str(memo_js),
-	);
 
 	let invoice = Invoice {
 		qty: format_qty(spec.amount, ledger.scale),
@@ -107,7 +93,6 @@ async fn page(cx: &Cx) -> Result<impl View> {
     <main
         id="page-content"
         class="mx-auto flex w-full max-w-3xl flex-col px-3 py-6 text-white sm:px-5 md:px-8 md:py-10"
-        data-signals=(signals)
     >
         <h1 class="mb-6 text-2xl font-medium md:text-3xl">"Pay"</h1>
         invoice_card(invoice: invoice.clone())
@@ -118,8 +103,12 @@ async fn page(cx: &Cx) -> Result<impl View> {
                 accounts: accounts,
                 can_pick: can_pick,
                 selected_id: selected_id,
+                selected_ledger: selected_ledger,
                 invoice: invoice,
-                amount: spec.amount
+                recipient_id: spec.recipient_id,
+                amount: spec.amount,
+                memo: spec.memo.clone().unwrap_or_default(),
+                key: key
             )
         }
     </main>
@@ -185,38 +174,32 @@ async fn no_account(cx: &Cx, #[into] ledger_name: String) -> Result<impl View> {
 
 #[component]
 async fn invoice_card(cx: &Cx, invoice: Invoice) -> Result<impl View> {
-	Ok(view! { (Unescaped::new_unchecked(invoice_html(&invoice))) })
-}
-
-fn invoice_html(invoice: &Invoice) -> String {
-	let mut out = String::from(
-		r#"<article class="rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-3 sm:px-4 sm:py-4">"#,
-	);
-	out.push_str(r#"<div class="flex items-baseline justify-between gap-3">"#);
-	out.push_str(&format!(
-		r#"<p class="text-2xl font-medium tabular-nums sm:text-3xl">{}</p>"#,
-		escape_html(&invoice.qty),
-	));
-	out.push_str(&format!(
-		r#"<p class="shrink-0 text-sm text-neutral-300">{}</p>"#,
-		escape_html(&invoice.ledger_name),
-	));
-	out.push_str("</div>");
-	out.push_str(r#"<p class="mt-2 truncate text-sm text-neutral-300">to "#);
-	out.push_str(&escape_html(&invoice.recipient_name));
-	if !invoice.recipient_addr.is_empty() {
-		out.push_str(" · ");
-		out.push_str(&escape_html(&invoice.recipient_addr));
-	}
-	out.push_str("</p>");
-	if let Some(memo) = &invoice.memo {
-		out.push_str(&format!(
-			r#"<p class="mt-1 truncate text-sm text-neutral-400">{}</p>"#,
-			escape_html(memo),
-		));
-	}
-	out.push_str("</article>");
-	out
+	let has_addr = !invoice.recipient_addr.is_empty();
+	Ok(view! {
+    <article
+        class="rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-3 sm:px-4 sm:py-4"
+    >
+        <div class="flex items-baseline justify-between gap-3">
+            <p class="text-2xl font-medium tabular-nums sm:text-3xl">
+                (invoice.qty.clone())
+            </p>
+            <p class="shrink-0 text-sm text-neutral-300">
+                (invoice.ledger_name.clone())
+            </p>
+        </div>
+        <p class="mt-2 truncate text-sm text-neutral-300">
+            "to "
+            (invoice.recipient_name.clone())
+            if has_addr {
+                " · "
+                (invoice.recipient_addr.clone())
+            }
+        </p>
+        if let Some(memo) = &invoice.memo {
+            <p class="mt-1 truncate text-sm text-neutral-400">(memo.clone())</p>
+        }
+    </article>
+})
 }
 
 #[component]
@@ -225,44 +208,58 @@ async fn pay_form(
 	accounts: Vec<MyAccountRow>,
 	can_pick: bool,
 	selected_id: u64,
+	selected_ledger: u64,
 	invoice: Invoice,
+	recipient_id: u64,
 	amount: u64,
+	memo: String,
+	key: String,
 ) -> Result<impl View> {
-	let short = short_expr(&accounts, amount);
-	let disabled = if short.is_empty() {
-		"$sending || !$fromId".to_owned()
-	} else {
-		format!("$sending || !$fromId || ({short})")
-	};
+	let from_id = signal(cx, || selected_id);
+	let from_ledger_id = signal(cx, || selected_ledger);
+	let from_kind = signal(cx, || "debit".to_owned());
+	let picking = signal(cx, || false);
+	// The recipient is fixed by the link; the panel's "clear on ledger change"
+	// resets these unused signals, never the link's recipient.
+	let recipient = Recipient::new(cx, 0, String::new(), String::new(), String::new());
+	let error = signal(cx, String::new);
+	let busy = signal(cx, || false);
+	let sent = signal(cx, || false);
+	let key = signal(cx, || key.clone());
 	let cta = format!("Pay {} {}", invoice.qty, invoice.ledger_name);
 	let sent_to = invoice.recipient_name.clone();
 	let sent_addr = invoice.recipient_addr.clone();
 	let sent_qty = format!("{} {}", invoice.qty, invoice.ledger_name);
 
 	Ok(view! {
-    <div class="mt-6" data-show="!$sent">
+    <div class="mt-6" :hidden=$(sent.get())>
         from_panel(
             accounts: accounts.clone(),
             can_pick: can_pick,
-            selected_id: selected_id
+            from_id: from_id.clone(),
+            from_ledger_id: from_ledger_id.clone(),
+            from_kind: from_kind.clone(),
+            picking: picking.clone(),
+            recipient: recipient,
+            error: error.clone()
         )
-        short_hints(accounts: accounts, amount: amount, selected_id: selected_id)
-        <button
-            type="button"
-            class="mt-6 w-full cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50"
-            data-on:click="@post('/app/request')"
-            data-indicator="sending"
-            data-attr:disabled=(disabled)
-        >
-            (cta)
-        </button>
-        <p
-            class="mt-3 text-sm text-red-400"
-            data-show="$sendError"
-            data-text="$sendError"
-        ></p>
+        #[key(acc.account_id)]
+        for acc in &accounts {
+            account_pay(
+                acc: acc,
+                amount: amount,
+                cta: cta.clone(),
+                from_id: from_id.clone(),
+                busy: busy.clone(),
+                error: error.clone(),
+                sent: sent.clone(),
+                key: key.clone(),
+                recipient_id: recipient_id,
+                memo: memo.clone()
+            )
+        }
     </div>
-    <div data-show="$sent" style="display: none">
+    <div :hidden=$(!sent.get())>
         <div
             class="mt-6 rounded-lg border border-neutral-800 bg-neutral-950 px-4 py-6 sm:px-5"
         >
@@ -297,82 +294,104 @@ async fn pay_form(
 })
 }
 
+/// The shortfall hint and Pay button for one account, visible while that
+/// account is the selected one. The Pay button is disabled when the account
+/// holds less than the amount, which is known per account on the server.
 #[component]
-async fn short_hints(
+async fn account_pay(
 	cx: &Cx,
-	accounts: Vec<MyAccountRow>,
+	acc: &MyAccountRow,
 	amount: u64,
-	selected_id: u64,
+	cta: String,
+	from_id: Signal<u64>,
+	busy: Signal<bool>,
+	error: Signal<String>,
+	sent: Signal<bool>,
+	key: Signal<String>,
+	recipient_id: u64,
+	memo: String,
 ) -> Result<impl View> {
+	let id = acc.account_id;
+	let short = acc.balance < amount;
 	Ok(view! {
-    for acc in accounts.iter().filter(|a| a.balance < amount) {
-        short_hint(acc: acc, selected: acc.account_id == selected_id)
-    }
+    <div :hidden=$(from_id.get() != id)>
+        if short {
+            <p class="mt-2 text-sm text-red-400">
+                "Not enough available on this account."
+            </p>
+        }
+        <button
+            type="button"
+            class="mt-6 w-full cursor-pointer rounded-md bg-anakiwa-700 px-4 py-2 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled=$(if busy.get() { true } else { short })
+            @click=$(async |_e| {
+                busy.set(true);
+                let result = pay(id, recipient_id, amount, memo.clone(), key.get()).await;
+                busy.set(false);
+                if result.is_ok() {
+                    error.set("".to_owned());
+                    sent.set(true);
+                } else {
+                    error.set(result.unwrap_err());
+                }
+            })
+        >
+            (cta)
+        </button>
+        <p class="mt-3 text-sm text-red-400" :hidden=$(error.get().is_empty())>
+            $(error.get())
+        </p>
+    </div>
 })
 }
 
-#[component]
-async fn short_hint(cx: &Cx, acc: &MyAccountRow, selected: bool) -> Result<impl View> {
-	let show = format!("$fromId == '{}'", acc.account_id);
-	if selected {
-		Ok(view! {
-    <p class="mt-2 text-sm text-red-400" data-show=(show)>
-        "Not enough available on this account."
-    </p>
-}
-		.boxed())
-	} else {
-		Ok(view! {
-    <p class="mt-2 text-sm text-red-400" data-show=(show) style="display: none">
-        "Not enough available on this account."
-    </p>
-}
-		.boxed())
+/// Pay a request link's recipient. Failures come back as `Err(message)`
+/// data. The amount and memo come from the link; the payer may tamper with
+/// them, and every check below still applies.
+#[procedure("/app/request/pay")]
+async fn pay(
+	cx: &Cx,
+	from_id: u64,
+	recipient_id: u64,
+	amount: u64,
+	memo: String,
+	idempotency_key: String,
+) -> Result<std::result::Result<bool, String>> {
+	const INVALID: &str = "This payment link isn't valid.";
+	if from_id == 0 {
+		return Ok(Err("Choose an account to pay from.".into()));
 	}
-}
-
-/// `POST /app/request` — command only. Success flips `$sent`.
-#[route(POST)]
-async fn create(cx: &Cx, Signals(form): Signals<PaySignals>) -> Result<PatchSignals> {
-	let _user = require_user(cx).await?;
-	let Ok(from_id) = form.from_id.trim().parse::<u64>() else {
-		return pay_err("Choose an account to pay from.");
-	};
-	let Ok(recipient_id) = form.recipient_id.trim().parse::<u64>() else {
-		return pay_err("This payment link isn't valid.");
-	};
-	let Ok(amount) = form.amount.trim().parse::<u64>() else {
-		return pay_err("This payment link isn't valid.");
-	};
-	if amount == 0 {
-		return pay_err("This payment link isn't valid.");
+	if recipient_id == 0 || amount == 0 {
+		return Ok(Err(INVALID.into()));
 	}
-	if form.idempotency_key.trim().is_empty() {
-		return pay_err("Refresh the page and try again.");
+	if idempotency_key.trim().is_empty() {
+		return Ok(Err("Refresh the page and try again.".into()));
 	}
 
-	let conn = acquire_user_db(cx).await?;
+	let Ok(conn) = acquire_user_db(cx).await else {
+		return Ok(Err("Your session expired. Reload the page.".into()));
+	};
 	let data = match fetch_accounts_page(conn.get()).await {
 		Ok(d) => d,
-		Err(e) => return pay_err(e.user_message()),
+		Err(e) => return Ok(Err(e.user_message().to_owned())),
 	};
 	let recipient = match lookup_account(conn.get(), recipient_id).await {
 		Ok(hit) => hit,
-		Err(_) => return pay_err("This payment link isn't valid."),
+		Err(_) => return Ok(Err(INVALID.into())),
 	};
 	let from_accounts = pay_from_accounts(&data.accounts, recipient.ledger_id, recipient_id);
 	let Some(from) = from_accounts.iter().find(|a| a.account_id == from_id) else {
-		return pay_err("You can't pay from that account.");
+		return Ok(Err("You can't pay from that account.".into()));
 	};
 	if from.ledger_id != recipient.ledger_id {
-		return pay_err("This payment link isn't valid.");
+		return Ok(Err(INVALID.into()));
 	}
 	if amount > from.balance {
-		return pay_err("Not enough available balance.");
+		return Ok(Err("Not enough available balance.".into()));
 	}
 
-	let Ok(memo) = normalize_memo(&form.memo) else {
-		return pay_err("This payment link isn't valid.");
+	let Ok(memo) = normalize_memo(&memo) else {
+		return Ok(Err(INVALID.into()));
 	};
 
 	match create_user_transfer(
@@ -381,45 +400,14 @@ async fn create(cx: &Cx, Signals(form): Signals<PaySignals>) -> Result<PatchSign
 		recipient_id,
 		amount,
 		memo,
-		form.idempotency_key.trim().to_owned(),
+		idempotency_key.trim().to_owned(),
 		false,
 	)
 	.await
 	{
-		Ok(()) => PatchSignals::json(&PayPatch {
-			send_error: String::new(),
-			sent: true,
-		}),
-		Err(e) => pay_err(&map_transfer_error(e.user_message())),
+		Ok(()) => Ok(Ok(true)),
+		Err(e) => Ok(Err(map_transfer_error(e.user_message()))),
 	}
-}
-
-#[derive(Debug, Deserialize)]
-struct PaySignals {
-	#[serde(default, rename = "fromId")]
-	from_id: String,
-	#[serde(default, rename = "recipientId")]
-	recipient_id: String,
-	#[serde(default)]
-	amount: String,
-	#[serde(default)]
-	memo: String,
-	#[serde(default, rename = "idempotencyKey")]
-	idempotency_key: String,
-}
-
-#[derive(Serialize)]
-struct PayPatch {
-	#[serde(rename = "sendError")]
-	send_error: String,
-	sent: bool,
-}
-
-fn pay_err(error: &str) -> Result<PatchSignals> {
-	PatchSignals::json(&PayPatch {
-		send_error: error.to_owned(),
-		sent: false,
-	})
 }
 
 /// Parse a payment link's query. `None` when anything is missing or invalid.
@@ -443,15 +431,6 @@ fn parse_pay_query(
 		amount,
 		memo,
 	})
-}
-
-fn short_expr(accounts: &[MyAccountRow], amount: u64) -> String {
-	accounts
-		.iter()
-		.filter(|a| a.balance < amount)
-		.map(|a| format!("$fromId == '{}'", a.account_id))
-		.collect::<Vec<_>>()
-		.join(" || ")
 }
 
 fn recipient_name(hit: &AccountSearchHit) -> String {

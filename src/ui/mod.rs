@@ -1,9 +1,10 @@
-//! Shared UI: marketing chrome, icons, illustrations, escaping and display labels.
+//! Shared UI: marketing chrome, icons, illustrations, runtime widgets and display labels.
 
 pub mod footer;
 pub mod icons;
 pub mod illustrations;
 pub mod nav;
+pub mod runtime;
 pub mod text;
 
 pub use footer::public_footer;

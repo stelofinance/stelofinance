@@ -35,8 +35,10 @@ impl StdbConn {
 }
 
 impl Connection for StdbConn {
+	/// Also false once the message pump has exited, so the pool never hands
+	/// out a connection whose `closed()` already fired.
 	fn is_active(&self) -> bool {
-		DbContext::is_active(&*self.conn)
+		!*self.closed.borrow() && DbContext::is_active(&*self.conn)
 	}
 
 	fn disconnect(&self) {

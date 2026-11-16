@@ -103,10 +103,6 @@
               url = "https://cdn.jsdelivr.net/fontsource/fonts/source-code-pro:vf@5.3.0/latin-wght-italic.woff2";
               hash = "sha256-l/ATMq7aZCovKYAwID3U3XKALAKIqycF0z2vaRJ45WM=";
             };
-            "assets/ae876aed55234b0e7ad466cc9682385c.js" = pkgs.fetchurl {
-              url = "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.2/bundles/datastar.js";
-              hash = "sha256-KDfYes9u4LqOTmN2WSbCWpjWOIOwL4i+GUqGuB0/0ko=";
-            };
           };
 
           # `topcoat asset bundle` runs its own `cargo build`, strips CARGO*/RUSTFLAGS

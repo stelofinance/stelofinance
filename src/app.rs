@@ -95,14 +95,7 @@ async fn root_layout(cx: &Cx, slot: Slot<'_>) -> Result<impl View> {
             <link rel="icon" href=(asset!("assets/favicon.png"))>
             topcoat::font::link(font: SOURCE_CODE_PRO)
             <link rel="stylesheet" href=(tailwind::stylesheet!())>
-            // Datastar client (inline data-* handlers, e.g. Transfer menu hover).
-            <script
-                type="module"
-                src=(asset!(
-                    "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.2/bundles/datastar.js"
-                ))
-            ></script>
-            // Topcoat runtime (step-3 trial), alongside Datastar.
+            // Topcoat runtime: signals, event handlers, shards, procedures, live regions.
             topcoat::runtime::script()
             topcoat::dev::script()
         </head>

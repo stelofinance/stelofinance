@@ -10,8 +10,10 @@ use topcoat::{
 
 use crate::auth::cookies::secure_cookies;
 
-/// No script or style restrictions yet: pages use inline Datastar expressions
-/// and a CDN bundle, so a script policy waits until the client runtime is settled.
+/// No script or style restrictions yet. The Topcoat runtime compiles
+/// expressions with `new Function` (needs `'unsafe-eval'`) and streams inline
+/// `<script>`s for `live!` swaps without nonces (needs `'unsafe-inline'`), and
+/// the nav uses inline `onmouseenter` handlers.
 const CSP: &str = "frame-ancestors 'none'; base-uri 'self'; object-src 'none'";
 
 /// One year. Only sent when cookies are `Secure` (not `ENV=dev`), since local
