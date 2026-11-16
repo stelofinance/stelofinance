@@ -23,7 +23,7 @@ struct CallbackQuery {
 	error_description: Option<String>,
 }
 
-/// Complete the OIDC login: exchange code, set token cookies, redirect home.
+/// Complete the OIDC login: exchange code, set token cookies, redirect to `/app`.
 #[route(GET)]
 async fn callback(cx: &Cx) -> Result<SeeOther> {
 	let q =
@@ -67,7 +67,7 @@ async fn callback(cx: &Cx) -> Result<SeeOther> {
 
 	set_auth_cookies(cx, tokens);
 
-	let mut dest = "/".to_owned();
+	let mut dest = "/app".to_owned();
 	if let Some(redir) = get_cookie(cx, COOKIE_OAUTH_REDIRECT) {
 		if is_safe_redirect(&redir) {
 			dest = redir;
