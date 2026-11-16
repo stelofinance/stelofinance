@@ -17,14 +17,21 @@ use topcoat::{
 	view::{View, component, emit, live, view},
 };
 
-/// App names: ASCII letters and digits, `MIN..=MAX` long. The module enforces
-/// the same rule (`spacetimedb/src/apps.rs`); this only gives a friendlier error.
+/// App names: ASCII letters, digits and `-` `_` `.` (RFC 3986 unreserved minus
+/// `~`), `MIN..=MAX` long, starting and ending with a letter or digit, with no two
+/// separators in a row. The module enforces the same rule
+/// (`spacetimedb/src/apps.rs`); this only gives a friendlier error.
 const MIN_APP_NAME_LEN: usize = 3;
 const MAX_APP_NAME_LEN: usize = 32;
 
 fn valid_app_name(name: &str) -> bool {
-	(MIN_APP_NAME_LEN..=MAX_APP_NAME_LEN).contains(&name.len())
-		&& name.bytes().all(|b| b.is_ascii_alphanumeric())
+	let b = name.as_bytes();
+	let sep = |c: u8| matches!(c, b'-' | b'_' | b'.');
+	(MIN_APP_NAME_LEN..=MAX_APP_NAME_LEN).contains(&b.len())
+		&& b.iter().all(|&c| c.is_ascii_alphanumeric() || sep(c))
+		&& b[0].is_ascii_alphanumeric()
+		&& b[b.len() - 1].is_ascii_alphanumeric()
+		&& !b.windows(2).any(|w| sep(w[0]) && sep(w[1]))
 }
 
 /// The page's signals, only used inside `$(...)` by the live list so that
@@ -304,7 +311,7 @@ pub async fn app_forms(
             placeholder="App name"
             autocomplete="off"
         >
-        <p class="mt-1 text-xs text-neutral-500">"3–32 letters and numbers."</p>
+        <p class="mt-1 text-xs text-neutral-500">"3–32 letters, numbers, - _ or ., starting and ending with a letter or number."</p>
         <div class="mt-4 flex flex-wrap gap-2">
             <button
                 type="button"
@@ -483,7 +490,7 @@ async fn mint_app_token(
 	// module checks it exists and is yours.
 	if !replacing && !valid_app_name(&name) {
 		return Ok(Err(format!(
-			"App names are {MIN_APP_NAME_LEN}–{MAX_APP_NAME_LEN} letters and numbers (no spaces or symbols)."
+			"App names are {MIN_APP_NAME_LEN}–{MAX_APP_NAME_LEN} letters, numbers, - _ or . (no spaces), starting and ending with a letter or number, with no two symbols in a row."
 		)));
 	}
 

@@ -6,7 +6,9 @@ use spacetimedb::{
 use std::time::Duration;
 
 const TICKET_TTL: Duration = Duration::from_secs(15 * 60);
-/// App names are ASCII alphanumeric, `MIN_APP_NAME_LEN..=MAX_APP_NAME_LEN` long.
+/// App names are ASCII letters, digits and the separators `-` `_` `.` (RFC 3986
+/// unreserved, minus `~`), `MIN_APP_NAME_LEN..=MAX_APP_NAME_LEN` long. They start
+/// and end with a letter or digit and never have two separators in a row.
 /// Keep in sync with `src/app/app/me/apps.rs` (`valid_app_name`).
 const MIN_APP_NAME_LEN: usize = 3;
 const MAX_APP_NAME_LEN: usize = 32;
@@ -312,10 +314,21 @@ fn normalize_name(name: String) -> Result<String, String> {
 			"app name must be {MIN_APP_NAME_LEN}-{MAX_APP_NAME_LEN} characters"
 		));
 	}
-	if !name.bytes().all(|b| b.is_ascii_alphanumeric()) {
-		return Err("app name may only contain letters and numbers".to_string());
+	let b = name.as_bytes();
+	if !b.iter().all(|&c| c.is_ascii_alphanumeric() || is_name_sep(c)) {
+		return Err("app name may only contain letters, numbers, '-', '_' and '.'".to_string());
+	}
+	if !b[0].is_ascii_alphanumeric() || !b[b.len() - 1].is_ascii_alphanumeric() {
+		return Err("app name must start and end with a letter or number".to_string());
+	}
+	if b.windows(2).any(|w| is_name_sep(w[0]) && is_name_sep(w[1])) {
+		return Err("app name cannot have two symbols in a row".to_string());
 	}
 	Ok(name)
+}
+
+fn is_name_sep(c: u8) -> bool {
+	matches!(c, b'-' | b'_' | b'.')
 }
 
 fn normalize_sub(sub: String) -> Result<String, String> {
