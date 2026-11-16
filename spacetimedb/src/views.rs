@@ -31,8 +31,6 @@ pub struct MyAccountRow {
 	pub is_primary: bool,
 	/// Username of the user with `Role::Owner` on this account (not the primary flag).
 	pub owner_username: Option<String>,
-	/// Present only when caller's role is Admin or Owner.
-	pub webhook: Option<String>,
 	pub created_at: Timestamp,
 }
 
@@ -101,18 +99,6 @@ pub struct MyAppTicketRow {
 	pub created_at: Timestamp,
 }
 
-/// Metadata for HTTP API tokens (never includes the secret).
-#[derive(SpacetimeType, Clone, Debug)]
-pub struct MyAccountTokenRow {
-	pub id: u64,
-	pub account_id: u64,
-	pub label: String,
-	pub created_by: Identity,
-	/// BitCraft username of `created_by`, so clients don't need the `user` table.
-	pub created_by_username: Option<String>,
-	pub created_at: Timestamp,
-}
-
 // ---------------------------------------------------------------------------
 // Views
 // ---------------------------------------------------------------------------
@@ -143,10 +129,6 @@ fn my_accounts(ctx: &ViewContext) -> Vec<MyAccountRow> {
 
 		let is_primary = acc.user_id == sender;
 		let owner_username = owner_username_for_account(ctx, acc.id);
-		let webhook = match role {
-			Role::Admin | Role::Owner => acc.webhook.clone(),
-			_ => None,
-		};
 
 		out.push(MyAccountRow {
 			account_id: acc.id,
@@ -161,7 +143,6 @@ fn my_accounts(ctx: &ViewContext) -> Vec<MyAccountRow> {
 			role,
 			is_primary,
 			owner_username,
-			webhook,
 			created_at: acc.created_at,
 		});
 	}
@@ -287,31 +268,6 @@ fn ledger_audit(ctx: &ViewContext) -> Vec<LedgerAuditRow> {
 			},
 		)
 		.collect()
-}
-
-/// Tokens on accounts where the caller is Admin or Owner.
-/// Secret is never included.
-#[view(accessor = my_accounts_tokens, public, primary_key = id)]
-fn my_accounts_tokens(ctx: &ViewContext) -> Vec<MyAccountTokenRow> {
-	let mut out = Vec::new();
-
-	for (account_id, role) in memberships_for_sender(ctx) {
-		if crate::role_rank(role) < crate::role_rank(Role::Admin) {
-			continue;
-		}
-		for tok in ctx.db.account_token().account_id().filter(&account_id) {
-			out.push(MyAccountTokenRow {
-				id: tok.id,
-				account_id: tok.account_id,
-				label: tok.label,
-				created_by_username: username_for(&ctx.db, tok.created_by),
-				created_by: tok.created_by,
-				created_at: tok.created_at,
-			});
-		}
-	}
-
-	out
 }
 
 /// Apps created by the caller. Empty for apps / anonymous.

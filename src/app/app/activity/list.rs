@@ -493,7 +493,6 @@ mod tests {
 			role: Role::Owner,
 			is_primary: id == 1,
 			owner_username: Some("me".into()),
-			webhook: None,
 			created_at: ts(),
 		}
 	}

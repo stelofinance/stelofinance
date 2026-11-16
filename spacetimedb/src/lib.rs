@@ -1,11 +1,9 @@
 mod acl;
-mod api;
 mod apps;
 mod search;
 mod tables;
 mod transfers;
 mod views;
-mod webhooks;
 
 pub use tables::*;
 
@@ -163,7 +161,6 @@ pub fn create_account(
 	ledger_id: u64,
 	kind: AccountKind,
 	address: Option<String>,
-	webhook: Option<String>,
 	label: Option<String>,
 	is_primary: bool,
 ) -> Result<(), String> {
@@ -195,7 +192,6 @@ pub fn create_account(
 	}
 
 	let address = normalize_address(ctx, ledger_id, address_input)?;
-	let webhook = normalize_webhook(webhook)?;
 	let label = normalize_label(label)?;
 
 	// Ensure if they want to set primary, they have no other primary on this ledger.
@@ -220,7 +216,6 @@ pub fn create_account(
 			id: 0,
 			address: address.clone(),
 			label,
-			webhook,
 			user_id: if is_primary { sender } else { Identity::ZERO },
 			debits_pending: 0,
 			debits_posted: 0,
@@ -512,29 +507,6 @@ fn generate_address(ctx: &ReducerContext) -> String {
 			ADDRESS_STD_CHARS[i] as char
 		})
 		.collect()
-}
-
-/// Validate webhook URL: `None`/blank clears; otherwise require absolute `http(s)://…`.
-pub(crate) fn normalize_webhook(webhook: Option<String>) -> Result<Option<String>, String> {
-	let Some(raw) = webhook else {
-		return Ok(None);
-	};
-	let w = raw.trim();
-	if w.is_empty() {
-		return Ok(None);
-	}
-	if !(w.starts_with("http://") || w.starts_with("https://")) {
-		return Err("webhook must be an absolute http(s) URL".to_string());
-	}
-	// Minimal absolute-URI check (Go uses url.ParseRequestURI).
-	let rest = w
-		.split_once("://")
-		.map(|(_, r)| r)
-		.filter(|r| !r.is_empty());
-	if rest.is_none() {
-		return Err("webhook must be a valid absolute URL".to_string());
-	}
-	Ok(Some(w.to_string()))
 }
 
 /// Validate account nickname: `None`/blank clears; otherwise trim and cap length.

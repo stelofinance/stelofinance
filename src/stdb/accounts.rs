@@ -55,7 +55,6 @@ pub async fn create_user_account(
 		ledger_id,
 		kind,
 		address,
-		None,
 		label,
 		is_primary,
 		move |_, r| reply.send(r),

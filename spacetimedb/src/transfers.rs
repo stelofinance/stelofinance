@@ -2,29 +2,10 @@ use crate::has_minimum_role;
 use crate::require_account_role;
 use crate::require_principal;
 use crate::tables::*;
-use crate::webhooks::enqueue_transfer_webhooks;
 use spacetimedb::{ReducerContext, Table, reducer};
 
 const MAX_IDEMPOTENCY_KEY_LEN: usize = 64;
 const MAX_MEMO_LEN: usize = 64;
-
-/// Who is authorizing a transfer mutation.
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum TransferActor {
-	/// User or app: use `account_member` roles via `ctx.sender()`.
-	Identity,
-	/// HTTP account token: full ops authority for this account id only.
-	TokenAccount(u64),
-}
-
-/// Result of create, including whether this was an idempotent replay.
-// TODO: Do we really need the enum? Could maybe just return one value better
-#[derive(Clone, Debug)]
-pub(crate) struct CreateTransferOutcome {
-	pub transfer: Transfer,
-	/// `true` if the same idempotency key + hash was replayed (HTTP → 200 vs 201).
-	pub replay: bool,
-}
 
 #[reducer]
 pub fn create_transfer(
@@ -39,7 +20,6 @@ pub fn create_transfer(
 	require_principal(ctx)?;
 	create_transfer_core(
 		ctx,
-		TransferActor::Identity,
 		sending_account_id,
 		receiving_account_id,
 		amount,
@@ -57,21 +37,19 @@ pub fn finalize_transfer(
 	amount: u64,
 ) -> Result<(), String> {
 	require_principal(ctx)?;
-	finalize_transfer_core(ctx, TransferActor::Identity, transfer_id, amount)?;
+	finalize_transfer_core(ctx, transfer_id, amount)?;
 	Ok(())
 }
 
-/// Shared create path for reducers and HTTP handlers.
-pub(crate) fn create_transfer_core(
+fn create_transfer_core(
 	ctx: &ReducerContext,
-	actor: TransferActor,
 	sending_account_id: u64,
 	receiving_account_id: u64,
 	amount: u64,
 	memo: Option<String>,
 	idempotency_key: String,
 	pending: bool,
-) -> Result<CreateTransferOutcome, String> {
+) -> Result<Transfer, String> {
 	let key = idempotency_key.trim().to_string();
 	if key.is_empty() {
 		return Err("idempotency key required".to_string());
@@ -84,13 +62,6 @@ pub(crate) fn create_transfer_core(
 	}
 	if sending_account_id == receiving_account_id {
 		return Err("sender is receiver".to_string());
-	}
-
-	// TODO: Just guard all non-senders for now, update later
-	if let TransferActor::TokenAccount(token_acc) = actor {
-		if token_acc != sending_account_id {
-			return Err("token account must be the sending account".to_string());
-		}
 	}
 
 	let memo = normalize_memo(memo)?;
@@ -112,10 +83,7 @@ pub(crate) fn create_transfer_core(
 			.id()
 			.find(&existing.transfer_id)
 			.ok_or_else(|| "idempotent transfer missing".to_string())?;
-		return Ok(CreateTransferOutcome {
-			transfer,
-			replay: true,
-		});
+		return Ok(transfer);
 	}
 
 	let sending = ctx
@@ -136,7 +104,7 @@ pub(crate) fn create_transfer_core(
 	}
 
 	let kind = identify_transfer_kind(sending.kind, receiving.kind);
-	authorize_create_transfer(ctx, actor, kind, sending.id, receiving.id, pending)?;
+	authorize_create_transfer(ctx, kind, sending.id, receiving.id, pending)?;
 
 	let ledger_id = sending.ledger_id;
 	let debit_account_id = debit_acc_id(kind, sending_account_id, receiving_account_id);
@@ -180,26 +148,19 @@ pub(crate) fn create_transfer_core(
 		created_at: ctx.timestamp,
 	});
 
-	enqueue_transfer_webhooks(ctx, &transfer, &sending, &receiving);
-
 	log::info!(
-		"create_transfer id={} kind={:?} pending={} amount={} actor={:?}",
+		"create_transfer id={} kind={:?} pending={} amount={} by={}",
 		transfer.id,
 		kind,
 		pending,
 		amount,
-		actor
+		ctx.sender()
 	);
-	Ok(CreateTransferOutcome {
-		transfer,
-		replay: false,
-	})
+	Ok(transfer)
 }
 
-/// Shared finalize path for reducers and HTTP handlers.
-pub(crate) fn finalize_transfer_core(
+fn finalize_transfer_core(
 	ctx: &ReducerContext,
-	actor: TransferActor,
 	transfer_id: u64,
 	amount: u64,
 ) -> Result<Transfer, String> {
@@ -235,20 +196,11 @@ pub(crate) fn finalize_transfer_core(
 		return Err("no pending funds to finalize".to_string());
 	}
 
-	authorize_finalize_transfer(ctx, actor, &transfer)?;
+	authorize_finalize_transfer(ctx, &transfer)?;
 
 	// TODO: Optimize fetching these twice (here and just below)
 	let mut debit_acc = load_account(ctx, transfer.debit_account_id)?;
 	let mut credit_acc = load_account(ctx, transfer.credit_account_id)?;
-
-	// Snapshot accounts before balance updates for webhook URL capture.
-	let (sending_id, receiving_id) = sender_receiver_ids(
-		transfer.kind,
-		transfer.credit_account_id,
-		transfer.debit_account_id,
-	);
-	let sending_snap = load_account(ctx, sending_id)?;
-	let receiving_snap = load_account(ctx, receiving_id)?;
 
 	if amount == 0 {
 		// Unlock full hold; historical pending_amount unchanged.
@@ -261,13 +213,11 @@ pub(crate) fn finalize_transfer_core(
 		t.finalized_at = Some(ctx.timestamp);
 		ctx.db.transfer().id().update(t.clone());
 
-		enqueue_transfer_webhooks(ctx, &t, &sending_snap, &receiving_snap);
-
 		log::info!(
-			"finalize_transfer id={} voided held={} actor={:?}",
+			"finalize_transfer id={} voided held={} by={}",
 			transfer_id,
 			held,
-			actor
+			ctx.sender()
 		);
 		return Ok(t);
 	}
@@ -291,14 +241,12 @@ pub(crate) fn finalize_transfer_core(
 	t.finalized_at = Some(ctx.timestamp);
 	ctx.db.transfer().id().update(t.clone());
 
-	enqueue_transfer_webhooks(ctx, &t, &sending_snap, &receiving_snap);
-
 	log::info!(
-		"finalize_transfer id={} posted={} refunded={} actor={:?}",
+		"finalize_transfer id={} posted={} refunded={} by={}",
 		transfer_id,
 		amount,
 		refund,
-		actor
+		ctx.sender()
 	);
 	Ok(t)
 }
@@ -307,76 +255,7 @@ pub(crate) fn finalize_transfer_core(
 // Authz
 // ---------------------------------------------------------------------------
 
-// TODO: Clean this up
 fn authorize_create_transfer(
-	ctx: &ReducerContext,
-	actor: TransferActor,
-	kind: TransferKind,
-	sending_id: u64,
-	receiving_id: u64,
-	pending: bool,
-) -> Result<(), String> {
-	match actor {
-		TransferActor::Identity => {
-			authorize_create_identity(ctx, kind, sending_id, receiving_id, pending)
-		}
-		TransferActor::TokenAccount(token_acc) => {
-			// Token is always the sender; create_transfer_core already checks that.
-			// Token implies full operational authority on the token account.
-			// For posted redeem, Identity path requires Write on *receiving*;
-			// HTTP API still allows the token-holder as sender only (legacy shape).
-			// Reject cases where Identity would require a different account.
-			match kind {
-				TransferKind::Asset | TransferKind::Liability => {
-					if pending {
-						return Err(if matches!(kind, TransferKind::Asset) {
-							"asset transfers cannot be pending".to_string()
-						} else {
-							"liability transfers cannot be pending".to_string()
-						});
-					}
-					if token_acc != sending_id {
-						return Err("insufficient account permission".to_string());
-					}
-					Ok(())
-				}
-				TransferKind::Issue => {
-					// Posted issue: Write on sending. Pending: Write on send or recv.
-					if pending {
-						if token_acc == sending_id || token_acc == receiving_id {
-							Ok(())
-						} else {
-							Err("insufficient account permission".to_string())
-						}
-					} else if token_acc == sending_id {
-						Ok(())
-					} else {
-						Err("insufficient account permission".to_string())
-					}
-				}
-				TransferKind::Redeem => {
-					// Posted redeem: Identity needs Write on *receiving*.
-					// Token is always sender (debit) — allow only pending redeem
-					// where sender Write is enough, or if token is on receiving.
-					if pending {
-						if token_acc == sending_id || token_acc == receiving_id {
-							Ok(())
-						} else {
-							Err("insufficient account permission".to_string())
-						}
-					} else if token_acc == receiving_id {
-						Ok(())
-					} else {
-						// Token on debit cannot post redeem (needs credit/receiving Write).
-						Err("posted redeem requires token on receiving account".to_string())
-					}
-				}
-			}
-		}
-	}
-}
-
-fn authorize_create_identity(
 	ctx: &ReducerContext,
 	kind: TransferKind,
 	sending_id: u64,
@@ -425,45 +304,19 @@ fn authorize_create_identity(
 	}
 }
 
-// TODO: Clean this up
-fn authorize_finalize_transfer(
-	ctx: &ReducerContext,
-	actor: TransferActor,
-	transfer: &Transfer,
-) -> Result<(), String> {
+fn authorize_finalize_transfer(ctx: &ReducerContext, transfer: &Transfer) -> Result<(), String> {
 	let (sending_id, receiving_id) = sender_receiver_ids(
 		transfer.kind,
 		transfer.credit_account_id,
 		transfer.debit_account_id,
 	);
 
-	match actor {
-		TransferActor::Identity => match transfer.kind {
-			TransferKind::Redeem => require_account_role(ctx, receiving_id, Role::Write),
-			TransferKind::Issue => require_account_role(ctx, sending_id, Role::Write),
-			TransferKind::Asset | TransferKind::Liability => {
-				Err("only issue/redeem pending transfers can be finalized".to_string())
-			}
-		},
-		TransferActor::TokenAccount(token_acc) => match transfer.kind {
-			TransferKind::Redeem => {
-				if token_acc == receiving_id {
-					Ok(())
-				} else {
-					Err("insufficient account permission".to_string())
-				}
-			}
-			TransferKind::Issue => {
-				if token_acc == sending_id {
-					Ok(())
-				} else {
-					Err("insufficient account permission".to_string())
-				}
-			}
-			TransferKind::Asset | TransferKind::Liability => {
-				Err("only issue/redeem pending transfers can be finalized".to_string())
-			}
-		},
+	match transfer.kind {
+		TransferKind::Redeem => require_account_role(ctx, receiving_id, Role::Write),
+		TransferKind::Issue => require_account_role(ctx, sending_id, Role::Write),
+		TransferKind::Asset | TransferKind::Liability => {
+			Err("only issue/redeem pending transfers can be finalized".to_string())
+		}
 	}
 }
 

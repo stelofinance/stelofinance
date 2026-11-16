@@ -11,7 +11,6 @@ use topcoat::{
 	view::{View, view},
 };
 
-mod api;
 mod app;
 mod auth;
 mod headers;
@@ -84,7 +83,7 @@ pub async fn router() -> Router {
 #[layout(with(
 	Metadata::new()
 		.title("Stelo Finance")
-		.description("A finance platform for the game BitCraft. Free for any to use or even build apps on through our API.")
+		.description("A finance platform for the game BitCraft. Free for any to use or even build apps on.")
 ))]
 async fn root_layout(cx: &Cx, slot: Slot<'_>) -> Result<impl View> {
 	Ok(view! {

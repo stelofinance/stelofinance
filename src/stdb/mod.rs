@@ -59,7 +59,7 @@ pub async fn acquire_user_db(cx: &Cx) -> Result<PooledConn<StdbConn>> {
 		.map_err(|e: PoolError| internal_server_error(StdbError::internal(e)).into())
 }
 
-/// App-context bundle: config + token-keyed connection pool + module HTTP client.
+/// App-context bundle: config + token-keyed connection pool + HTTP client (identity minting).
 #[derive(Clone)]
 pub struct StdbState {
 	pub config: StdbConfig,

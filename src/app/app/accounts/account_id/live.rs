@@ -1,4 +1,4 @@
-//! The live part of the account page: home, people and API tokens.
+//! The live part of the account page: home and people.
 //!
 //! One shard holding a `live!` region fed by `LiveAccountHome`. Shard and
 //! procedure endpoints skip the `/app` layout guard, so each calls
@@ -7,11 +7,10 @@
 //! to, so an account that is not theirs renders as "no access" with no data.
 
 use crate::auth::require_user;
-use crate::domain::{format_qty, format_rel_time, parse_role, role_rank, unix_now_micros};
+use crate::domain::{format_qty, parse_role, role_rank};
 use crate::module_bindings::{AccountKind, MemberKind, MyAccountMemberRow, MyAccountRow, Role};
 use crate::stdb::account::{
-	AccountHomeData, AccountTokenView, LiveAccountHome, fetch_account_home,
-	revoke_account_api_tokens, revoke_member, set_primary,
+	AccountHomeData, LiveAccountHome, fetch_account_home, revoke_member, set_primary,
 };
 use crate::stdb::{LiveFeed, acquire_user_db};
 use crate::ui::runtime::copy_button;
@@ -26,11 +25,11 @@ use topcoat::{
 
 const EXPIRED: &str = "Your session expired. Reload the page.";
 
-/// Home, people and tokens for `account_id`: SSR on the page, then live over
+/// Home and people for `account_id`: SSR on the page, then live over
 /// the runtime socket. The signals are only used inside `$(...)` handlers and
 /// bindings, so changing them does not re-render the live region.
 ///
-/// The three regions are `order-*` children of a `contents` wrapper so the
+/// The two regions are `order-*` children of a `contents` wrapper so the
 /// page can interleave its static forms between them.
 #[shard("/app/accounts/live")]
 pub async fn account_live(
@@ -38,11 +37,6 @@ pub async fn account_live(
 	account_id: u64,
 	account_error: Signal<String>,
 	saving_primary: Signal<bool>,
-	creating_token: Signal<bool>,
-	has_token: Signal<bool>,
-	token_label: Signal<String>,
-	token_error: Signal<String>,
-	revoke_token_id: Signal<u64>,
 ) -> Result<impl View> {
 	let user = require_user(cx).await?;
 	let caller_id = user.identity;
@@ -58,12 +52,7 @@ pub async fn account_live(
                 caller_id: caller_id,
                 username: username.clone(),
                 account_error: account_error.clone(),
-                saving_primary: saving_primary.clone(),
-                creating_token: creating_token.clone(),
-                has_token: has_token.clone(),
-                token_label: token_label.clone(),
-                token_error: token_error.clone(),
-                revoke_token_id: revoke_token_id.clone()
+                saving_primary: saving_primary.clone()
             )
         }?;
         if !connected(cx) {
@@ -81,11 +70,6 @@ async fn live_view(
 	username: String,
 	account_error: Signal<String>,
 	saving_primary: Signal<bool>,
-	creating_token: Signal<bool>,
-	has_token: Signal<bool>,
-	token_label: Signal<String>,
-	token_error: Signal<String>,
-	revoke_token_id: Signal<u64>,
 ) -> Result<impl View> {
 	Ok(view! {
     <div id="account-live" class="contents">
@@ -102,17 +86,6 @@ async fn live_view(
                 data: &data,
                 caller_id: caller_id,
                 account_error: account_error.clone()
-            )
-        </div>
-        <div id="account-tokens" class="order-5 flex flex-col">
-            tokens_section(
-                data: &data,
-                caller_id: caller_id,
-                creating_token: creating_token.clone(),
-                has_token: has_token.clone(),
-                token_label: token_label.clone(),
-                token_error: token_error.clone(),
-                revoke_token_id: revoke_token_id.clone()
             )
         </div>
     </div>
@@ -561,207 +534,4 @@ async fn leave_account(cx: &Cx, account_id: u64) -> Result<std::result::Result<b
 		.await
 		.map(|()| true)
 		.map_err(|e| e.user_message().to_owned()))
-}
-
-// -------------------------------------------------------------- tokens
-
-#[component]
-async fn tokens_section(
-	cx: &Cx,
-	data: &AccountHomeData,
-	caller_id: Identity,
-	creating_token: Signal<bool>,
-	has_token: Signal<bool>,
-	token_label: Signal<String>,
-	token_error: Signal<String>,
-	revoke_token_id: Signal<u64>,
-) -> Result<impl View> {
-	let admin_plus = data
-		.account
-		.as_ref()
-		.is_some_and(|a| role_rank(a.role) >= role_rank(Role::Admin));
-	let account_id = data.account.as_ref().map_or(0, |a| a.account_id);
-	let tokens = data.tokens.clone();
-	let now = unix_now_micros();
-	let is_empty = tokens.is_empty();
-
-	Ok(view! {
-    if admin_plus {
-        <section class="mt-10">
-            <div class="flex flex-wrap items-center justify-between gap-3">
-                <h2
-                    class="text-sm font-medium uppercase tracking-wide text-neutral-400"
-                >
-                    "API tokens"
-                </h2>
-                <button
-                    type="button"
-                    class="cursor-pointer rounded-md bg-anakiwa-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-anakiwa-600 disabled:cursor-not-allowed disabled:opacity-50"
-                    :disabled=$(if creating_token.get() {
-                        true
-                    } else {
-                        has_token.get()
-                    })
-                    @click=$(|_e| {
-                        creating_token.set(true);
-                        token_error.set("".to_owned());
-                        token_label.set("".to_owned());
-                        revoke_token_id.set(0u64);
-                    })
-                >
-                    "New token"
-                </button>
-            </div>
-            <p class="mt-2 text-sm text-neutral-400">
-                "Scripts and bots use these with the JSON API."
-            </p>
-            if is_empty {
-                <div
-                    class="mt-3 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-6 text-center text-sm text-neutral-400"
-                >
-                    "No tokens yet."
-                </div>
-            } else {
-                <div class="mt-3 flex flex-col gap-2">
-                    #[key(t.id)]
-                    for t in &tokens {
-                        token_card(
-                            token: t,
-                            account_id: account_id,
-                            caller_id: caller_id,
-                            now: now,
-                            token_error: token_error.clone(),
-                            revoke_token_id: revoke_token_id.clone()
-                        )
-                    }
-                </div>
-            }
-            <p
-                class="mt-3 text-sm text-red-400"
-                :hidden=$(if token_error.get().is_empty() {
-                    true
-                } else if creating_token.get() {
-                    true
-                } else {
-                    has_token.get()
-                })
-            >
-                $(token_error.get())
-            </p>
-        </section>
-    }
-})
-}
-
-#[component]
-async fn token_card(
-	cx: &Cx,
-	token: &AccountTokenView,
-	account_id: u64,
-	caller_id: Identity,
-	now: i64,
-	token_error: Signal<String>,
-	revoke_token_id: Signal<u64>,
-) -> Result<impl View> {
-	let trimmed = token.label.trim();
-	let untitled = trimmed.is_empty();
-	let title = if untitled { "(untitled)" } else { trimmed }.to_owned();
-	let when = format_rel_time(token.created_micros, now);
-	let who = token_minter_label(token, caller_id);
-	let id = token.id;
-	let prompt = format!("Revoke “{title}”? Integrations using it will fail.");
-
-	Ok(view! {
-    <div class="rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2.5">
-        <div class="flex flex-wrap items-center justify-between gap-2">
-            if untitled {
-                <p class="truncate text-sm text-neutral-400">(title.clone())</p>
-            } else {
-                <p class="truncate text-sm text-neutral-100">(title.clone())</p>
-            }
-            <button
-                type="button"
-                class="cursor-pointer text-sm text-red-400 hover:text-red-300"
-                @click=$(|_e| {
-                    revoke_token_id.set(id);
-                    token_error.set("".to_owned());
-                })
-            >
-                "Revoke"
-            </button>
-        </div>
-        <p class="mt-1 text-sm text-neutral-400">
-            (when)
-            " · "
-            (who)
-        </p>
-        <div
-            class="mt-3 border-t border-neutral-800 pt-3"
-            :hidden=$(revoke_token_id.get() != id)
-        >
-            <p class="text-sm text-neutral-300">(prompt)</p>
-            <div class="mt-3 flex flex-wrap gap-2">
-                <button
-                    type="button"
-                    class="cursor-pointer rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 hover:border-neutral-500 hover:text-white"
-                    @click=$(|_e| revoke_token_id.set(0u64))
-                >
-                    "Cancel"
-                </button>
-                <button
-                    type="button"
-                    class="cursor-pointer rounded-md bg-red-900 px-3 py-1.5 text-sm font-medium text-red-100 hover:bg-red-800"
-                    @click=$(async |_e| {
-                        let result = revoke_token(account_id, id).await;
-                        if result.is_ok() {
-                            token_error.set("".to_owned());
-                            revoke_token_id.set(0u64);
-                        } else {
-                            token_error.set(result.unwrap_err());
-                        }
-                    })
-                >
-                    "Revoke"
-                </button>
-            </div>
-        </div>
-    </div>
-})
-}
-
-fn token_minter_label(token: &AccountTokenView, caller_id: Identity) -> String {
-	if token.created_by == caller_id {
-		return "you".to_owned();
-	}
-	if let Some(name) = token
-		.created_by_username
-		.as_deref()
-		.map(str::trim)
-		.filter(|s| !s.is_empty())
-	{
-		return name.to_owned();
-	}
-	let hex = token.created_by.to_hex();
-	hex.get(..8).unwrap_or(hex.as_str()).to_owned()
-}
-
-/// Revoke one API token (admin+; the module enforces it).
-#[procedure("/app/accounts/tokens/revoke")]
-async fn revoke_token(
-	cx: &Cx,
-	account_id: u64,
-	token_id: u64,
-) -> Result<std::result::Result<bool, String>> {
-	if token_id == 0 {
-		return Ok(Err("Pick a token to revoke.".into()));
-	}
-	let Ok(conn) = acquire_user_db(cx).await else {
-		return Ok(Err(EXPIRED.into()));
-	};
-	Ok(
-		revoke_account_api_tokens(conn.get(), account_id, vec![token_id])
-			.await
-			.map(|()| true)
-			.map_err(|e| e.user_message().to_owned()),
-	)
 }

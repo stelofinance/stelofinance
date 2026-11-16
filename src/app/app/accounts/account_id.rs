@@ -1,14 +1,12 @@
 //! `GET /app/accounts/{account_id}` — account home.
 //!
-//! The page owns the signals. The live shard (`live.rs`) renders home,
-//! people and tokens; the forms around it are static and own their input
+//! The page owns the signals. The live shard (`live.rs`) renders home and
+//! people; the forms around it are static and own their input
 //! state. Every action is a `#[procedure]` taking `account_id`.
 
 mod live;
 mod permission;
 mod request;
-mod tokens;
-mod webhook;
 
 use crate::auth::require_user;
 use crate::domain::role_rank;
@@ -18,7 +16,6 @@ use crate::stdb::acquire_user_db;
 use live::account_live;
 use permission::permission_panel;
 use request::request_form;
-use tokens::token_forms;
 use topcoat::{
 	Result,
 	context::Cx,
@@ -30,7 +27,6 @@ use topcoat::{
 	runtime::{Event, Signal, procedure, signal},
 	view::{View, component, view},
 };
-use webhook::webhook_form;
 
 // `module_param!` makes this module's URL segment `{account_id}` and declares
 // the `account_id(cx)` accessor (also used by the absolute `{account_id}` routes).
@@ -52,7 +48,6 @@ async fn show(cx: &Cx) -> Result<impl View> {
 	let debit = matches!(acc.kind, AccountKind::Debit);
 	let ledger_name = acc.ledger_name.clone();
 	let label = acc.label.clone().unwrap_or_default();
-	let webhook = acc.webhook.clone().unwrap_or_default();
 
 	Ok(view! {
     <main
@@ -67,17 +62,16 @@ async fn show(cx: &Cx) -> Result<impl View> {
             ledger_name: ledger_name,
             debit: debit,
             admin_plus: admin_plus,
-            label: label,
-            webhook: webhook
+            label: label
         )
     </main>
 })
 }
 
 /// Owns the signals shared between the live region and the forms. Children
-/// of `main` are placed with `order-*` because the live shard renders home,
-/// people and tokens as one block (1, 3, 5) with the static forms between
-/// them (2, 4, 6).
+/// of `main` are placed with `order-*` because the live shard renders home
+/// and people as one block (1, 3) with the static forms between and after
+/// them (2, 4).
 #[component]
 async fn account_view(
 	cx: &Cx,
@@ -86,27 +80,15 @@ async fn account_view(
 	debit: bool,
 	admin_plus: bool,
 	label: String,
-	webhook: String,
 ) -> Result<impl View> {
 	let account_error = signal(cx, String::new);
 	let saving_primary = signal(cx, || false);
-	let creating_token = signal(cx, || false);
-	let new_token = signal(cx, String::new);
-	let has_token = signal(cx, || false);
-	let token_label = signal(cx, String::new);
-	let token_error = signal(cx, String::new);
-	let revoke_token_id = signal(cx, || 0u64);
 
 	Ok(view! {
     account_live(
         account_id: account_id,
         account_error: account_error.clone(),
-        saving_primary: saving_primary.clone(),
-        creating_token: creating_token.clone(),
-        has_token: has_token.clone(),
-        token_label: token_label.clone(),
-        token_error: token_error.clone(),
-        revoke_token_id: revoke_token_id.clone()
+        saving_primary: saving_primary.clone()
     )
     <div class="order-2 flex flex-col">
         request_form(account_id: account_id, ledger_name: ledger_name, debit: debit)
@@ -120,20 +102,9 @@ async fn account_view(
                 error: account_error.clone()
             )
         </div>
-        <div class="order-6 flex flex-col">
-            token_forms(
-                account_id: account_id,
-                creating_token: creating_token.clone(),
-                new_token: new_token.clone(),
-                has_token: has_token.clone(),
-                token_label: token_label.clone(),
-                token_error: token_error.clone()
-            )
-            webhook_form(account_id: account_id, initial_url: webhook)
-        </div>
     }
     <p
-        class="order-7 mt-4 text-sm text-red-400"
+        class="order-5 mt-4 text-sm text-red-400"
         :hidden=$(account_error.get().is_empty())
     >
         $(account_error.get())

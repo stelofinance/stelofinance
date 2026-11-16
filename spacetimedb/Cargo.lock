@@ -669,7 +669,6 @@ dependencies = [
 name = "stelofinance"
 version = "0.1.0"
 dependencies = [
- "http",
  "log",
  "serde_json",
  "spacetimedb",

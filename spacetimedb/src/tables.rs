@@ -76,8 +76,6 @@ pub struct Account {
 	/// Optional nickname. Visible to account members only (not the public search catalog).
 	pub label: Option<String>,
 
-	pub webhook: Option<String>,
-
 	/// Primary owner for this ledger, if any.
 	/// `Identity::ZERO` is our way of doing `Option<Identity>` while keeping an index.
 	pub user_id: Identity,
@@ -126,22 +124,6 @@ pub struct AccountMember {
 	pub kind: MemberKind,
 	pub role: Role,
 	pub updated_at: Timestamp,
-	pub created_at: Timestamp,
-}
-
-/// HTTP API tokens for programmatic access to an account.
-#[spacetimedb::table(accessor = account_token)]
-#[derive(Clone, Debug)]
-pub struct AccountToken {
-	#[primary_key]
-	#[auto_inc]
-	pub id: u64,
-	#[index(btree)]
-	pub account_id: u64,
-	#[unique]
-	pub token: String,
-	pub label: String,
-	pub created_by: Identity,
 	pub created_at: Timestamp,
 }
 

@@ -3,8 +3,8 @@
 - Transact with any other player, anytime, no matter where in-game they are (if they even are in-game)
 - Build financial applications and tools on top!
 
-## API Documentation - (WIP!!)
-For API documentation, see [here](docs/api)
+## Building apps
+Third-party apps connect directly to the SpacetimeDB module with a SpacetimeDB client SDK. Create an app identity on your profile page (`/app/me`), then grant it a role on an account from that account's Permissions section.
 
 ## Development
 
