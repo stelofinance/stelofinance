@@ -5,6 +5,8 @@
 **Author:** Stelo maintainers + design discussion  
 **Related:** Current stack is Go + SQLite (sqlc/goose) + embedded NATS/JetStream + Datastar; target edge is **Rust Topcoat** + first-party STDB client; module + BitAuth remain. **C3 pool design:** [einro-identity-pool.md](./einro-identity-pool.md). **HTML app feature parity (pages, reactivity, build order):** [app-surface-parity.md](./app-surface-parity.md) — agents porting `/app` pages should load that doc alongside this one.
 
+> **2026-11-16: removed.** The module HTTP API, its `/api` edge proxy, account API tokens, and account webhooks no longer exist. Third-party apps use SpacetimeDB clients with an app identity (`/app/me`, granted on an account's Permissions). Sections of this doc about them are historical.
+
 ---
 
 ## 1. Summary

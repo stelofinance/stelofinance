@@ -9,6 +9,8 @@ This document is the **hard feature-parity floor** for browser HTML surfaces. Re
 
 **Do not copy Go HTML.** H1/H2 were reimagined (asset + balance first, noun **Accounts**, marketing-like cards). Remaining pages (H3+) must follow that, not `web/templates/pages/*` layout or styling. Go templates are a capability reference only.
 
+> **2026-11-16: removed.** The module HTTP API, its `/api` edge proxy, account API tokens, and account webhooks no longer exist. Third-party apps use SpacetimeDB clients with an app identity (`/app/me`, granted on an account's Permissions). Sections of this doc about them are historical.
+
 **Out of scope here:** third-party JSON API and module HTTP reverse-proxy. Those are **required cutover work** but not Datastar pages — track them in the refactor doc (§8.7 I*, §9). See [Non-HTML surfaces](#non-html-surfaces) below for a short pointer only.
 
 ---
