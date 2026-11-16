@@ -178,8 +178,10 @@
               ];
             };
             cargoLock.lockFile = ./Cargo.lock;
-            # CI builds this (and so runs the unit tests) before publishing the module.
-            doCheck = true;
+            # Tests run in `checks.edge-tests` (the Test workflow), not in the
+            # deploy build: `cargo test` recompiles every dependency in the test
+            # profile, which roughly doubles the build.
+            doCheck = false;
 
             nativeBuildInputs = [
               pkgs.pkg-config
@@ -223,6 +225,12 @@
               mainProgram = "stelofinance";
             };
           };
+
+          # The edge build with `cargo test` turned on. Run by the Test workflow.
+          edge-tests = edge.overrideAttrs (_: {
+            pname = "stelofinance-tests";
+            doCheck = true;
+          });
 
           container = pkgs.dockerTools.streamLayeredImage {
             name = "stelo";
@@ -281,6 +289,10 @@
             agent = devShell;
           };
 
+          checks = {
+            inherit edge-tests;
+          };
+
           formatter = pkgs.nixfmt;
         };
 
@@ -289,6 +301,7 @@
     {
       packages = lib.mapAttrs (_: o: o.packages) outputs;
       devShells = lib.mapAttrs (_: o: o.devShells) outputs;
+      checks = lib.mapAttrs (_: o: o.checks) outputs;
       formatter = lib.mapAttrs (_: o: o.formatter) outputs;
     };
 }

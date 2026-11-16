@@ -41,8 +41,8 @@ jobs:
         # 1G = 1073741824
         gc-max-store-size-linux: 3G
 
-    # Before anything is published: the edge build runs `cargo test` (doCheck).
-    - name: Build and test edge
+    # Tests run separately (test.yaml) and do not block the deploy.
+    - name: Build edge
       run: nix build .#edge -L
 
     - name: Build module WASM
@@ -71,11 +71,19 @@ jobs:
     - name: Build container
       run: nix build .#container
 
-    - name: Load image
-      run: ./result | podman load
-
+    # Streams the image straight to Fly's registry: no `podman load` into local
+    # storage. skopeo comes from the flake's pinned nixpkgs. --insecure-policy
+    # skips signature-policy lookup (the Nix skopeo ships no policy.json); it
+    # does not weaken TLS or auth.
     - name: Push image
-      run: podman push --creds "x:${{ secrets.FLY_STELO }}" localhost/stelo docker://registry.fly.io/${{ vars.FLY_STELO_APP_NAME }}:latest
+      env:
+        FLY_STELO: ${{ secrets.FLY_STELO }}
+      run: |
+        set -euo pipefail
+        ./result | nix shell --inputs-from . nixpkgs#skopeo --command \
+          skopeo --insecure-policy copy --dest-creds "x:${FLY_STELO}" \
+          docker-archive:/dev/stdin \
+          docker://registry.fly.io/${{ vars.FLY_STELO_APP_NAME }}:latest
 
     - name: Use Fly
       uses: superfly/flyctl-actions/setup-flyctl@master

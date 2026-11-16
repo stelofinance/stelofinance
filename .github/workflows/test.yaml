@@ -1,0 +1,38 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test-edge:
+    name: Edge tests
+    runs-on: ubuntu-latest
+    concurrency:
+      group: test-${{ github.ref }}
+      cancel-in-progress: true
+
+    steps:
+    - name: Clone repository
+      uses: actions/checkout@v4
+
+    - name: Use nix
+      uses: nixbuild/nix-quick-install-action@v34
+      with:
+        nix_version: "2.31.2"
+
+    - name: Restore and save Nix store
+      uses: nix-community/cache-nix-action@v6
+      with:
+        # Separate prefix from the deploy job's cache so the two jobs do not
+        # race to save the same key.
+        primary-key: nix-${{ runner.os }}-stelo-test-${{ hashFiles('**/*.nix', '**/flake.lock') }}
+        restore-prefixes-first-match: nix-${{ runner.os }}-stelo-test-
+        gc-max-store-size-linux: 3G
+
+    # Edge build with `cargo test` (doCheck); see `edge-tests` in flake.nix.
+    - name: Run edge tests
+      run: nix build .#checks.x86_64-linux.edge-tests -L
